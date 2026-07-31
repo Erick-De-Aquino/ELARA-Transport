@@ -1,0 +1,48 @@
+/*
+  Proyecto Atlas / ELARA Transport
+  Archivo: buttons.css
+  Responsabilidad: estilos reutilizables de botones.
+*/
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.button--primary {
+  background: var(--color-brand);
+  color: var(--color-surface);
+}
+
+.button--secondary {
+  border-color: var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.button--ghost {
+  min-height: 36px;
+  padding: 0 10px;
+  background: transparent;
+  color: var(--color-brand);
+}
+
+.button--compact {
+  min-height: 32px;
+  padding: 0 10px;
+  border-color: var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-brand-strong);
+  font-size: 0.86rem;
+}
+
+.button:hover {
+  transform: translateY(-1px);
+}

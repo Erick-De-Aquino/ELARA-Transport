@@ -1,0 +1,207 @@
+/*
+  Proyecto Atlas / ELARA Transport
+  Archivo: sidebar.css
+  Responsabilidad: navegacion lateral.
+*/
+
+/* =========================
+   SIDEBAR BASE
+========================= */
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  height: 100vh;
+  padding: 22px 18px;
+  border-right: 1px solid var(--color-border);
+  background: var(--color-sidebar-bg);
+  color: var(--color-sidebar-text);
+}
+
+.sidebar__brand {
+  min-height: 44px;
+}
+
+.sidebar__wordmark strong,
+.sidebar__wordmark span {
+  display: block;
+}
+
+.sidebar__wordmark strong {
+  color: var(--color-brand-strong);
+  font-size: 1.08rem;
+  letter-spacing: 0.08em;
+}
+
+.sidebar__wordmark span {
+  color: var(--color-sidebar-muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+/* =========================
+   NAVEGACION
+========================= */
+
+.sidebar__nav {
+  display: grid;
+  align-content: start;
+  flex: 1 1 auto;
+  gap: 3px;
+  grid-auto-rows: max-content;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.sidebar__link {
+  display: block;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--color-sidebar-muted);
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.sidebar__link:hover,
+.sidebar__link--active {
+  background: var(--color-brand-soft);
+  color: var(--color-brand-strong);
+}
+
+.sidebar__link--active {
+  box-shadow: inset 3px 0 0 var(--color-brand);
+}
+
+/* =========================
+   ESTADO OPERATIVO
+========================= */
+
+.sidebar__status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: auto;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-alt);
+}
+
+.sidebar__status strong,
+.sidebar__status span {
+  display: block;
+}
+
+.sidebar__status strong {
+  font-size: 0.9rem;
+}
+
+.sidebar__status span {
+  color: var(--color-sidebar-muted);
+  font-size: 0.78rem;
+}
+
+.sidebar__logout {
+  width: 100%;
+}
+
+.sidebar-context {
+  position: relative;
+  display: grid;
+  gap: 6px;
+}
+
+.sidebar-context[hidden] {
+  display: none;
+}
+
+.sidebar-context__toggle,
+.sidebar-context__option {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-alt);
+  color: var(--color-sidebar-text);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.sidebar-context__toggle {
+  display: grid;
+  gap: 2px;
+  padding: 9px 10px;
+}
+
+.sidebar-context__toggle span {
+  color: var(--color-sidebar-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.sidebar-context__toggle strong {
+  color: var(--color-brand-strong);
+  font-size: 0.86rem;
+}
+
+.sidebar-context__toggle:hover,
+.sidebar-context__toggle:focus-visible,
+.sidebar-context__option:hover,
+.sidebar-context__option:focus-visible {
+  border-color: color-mix(in srgb, var(--color-brand) 45%, var(--color-border));
+  outline: none;
+}
+
+.sidebar-context__menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
+}
+
+.sidebar-context__menu[hidden] {
+  display: none;
+}
+
+.sidebar-context__option {
+  padding: 8px 9px;
+  color: var(--color-sidebar-muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.sidebar-context__option--active {
+  border-color: color-mix(in srgb, var(--color-brand) 45%, var(--color-border));
+  background: color-mix(in srgb, var(--color-brand) 12%, var(--color-surface));
+  color: var(--color-brand-strong);
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--color-success);
+  box-shadow: 0 0 0 4px var(--color-success-soft);
+}
+
+/* =========================
+   MENU MOVIL
+========================= */
+
+.mobile-menu-toggle,
+.mobile-menu-close,
+.mobile-menu-overlay {
+  display: none;
+}

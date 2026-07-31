@@ -1,0 +1,73 @@
+/*
+  Proyecto Atlas / ELARA Transport
+  Archivo: variables.css
+  Responsabilidad: tokens visuales globales.
+*/
+
+:root {
+  color-scheme: light;
+
+  --color-bg: #f5f6f8;
+  --color-surface: #ffffff;
+  --color-surface-alt: #f8fafc;
+  --color-text: #17202a;
+  --color-muted: #687481;
+  --color-border: #dfe5ea;
+  --color-brand: #12365a;
+  --color-brand-strong: #0c2741;
+  --color-brand-soft: #e8f1fa;
+  --color-accent: #b99155;
+  --color-accent-soft: #f3eadb;
+  --color-danger: #b42318;
+  --color-danger-soft: #fff0ed;
+  --color-danger-subtle: #fff8f7;
+  --color-warning: #a16207;
+  --color-warning-soft: #fff7df;
+  --color-warning-subtle: #fffcf2;
+  --color-success: #1f7a4d;
+  --color-success-soft: #e8f6ef;
+  --color-success-subtle: #f5fbf8;
+  --color-info: #3b82f6;
+  --color-header-bg: rgba(255, 255, 255, 0.86);
+  --color-sidebar-bg: #ffffff;
+  --color-sidebar-text: #17202a;
+  --color-sidebar-muted: #6b7682;
+
+  --font-family: "Inter", "Segoe UI", Arial, sans-serif;
+  --shadow-soft: 0 10px 24px rgba(18, 54, 90, 0.07);
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --sidebar-width: 236px;
+  --header-height: 96px;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-bg: #111820;
+  --color-surface: #18222c;
+  --color-surface-alt: #131d26;
+  --color-text: #e6edf3;
+  --color-muted: #a6b3bf;
+  --color-border: #2a3744;
+  --color-brand: #8cbbe8;
+  --color-brand-strong: #c7dff5;
+  --color-brand-soft: #1c3146;
+  --color-accent: #d0ad74;
+  --color-accent-soft: #332b20;
+  --color-danger: #ff8a80;
+  --color-danger-soft: #321d1d;
+  --color-danger-subtle: #221b1d;
+  --color-warning: #f2c96d;
+  --color-warning-soft: #302918;
+  --color-warning-subtle: #211f18;
+  --color-success: #7bd6a0;
+  --color-success-soft: #193124;
+  --color-success-subtle: #17241d;
+  --color-info: #93c5fd;
+  --color-header-bg: rgba(24, 34, 44, 0.88);
+  --color-sidebar-bg: #151f29;
+  --color-sidebar-text: #e6edf3;
+  --color-sidebar-muted: #9eacb8;
+  --shadow-soft: 0 10px 24px rgba(0, 0, 0, 0.22);
+}

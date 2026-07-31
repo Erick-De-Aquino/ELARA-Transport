@@ -1,0 +1,1076 @@
+/*
+  Proyecto Atlas / ELARA Transport
+  Archivo: responsive.css
+  Responsabilidad: adaptaciones para escritorio, tablet y movil.
+*/
+
+/* =========================
+   RESPONSIVE ESCRITORIO PEQUENO
+========================= */
+
+@media (max-width: 1180px) {
+  .summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .compact-summary--four {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .dashboard-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-side-stack {
+    grid-column: 1 / -1;
+  }
+
+}
+
+/* =========================
+   RESPONSIVE TABLET
+========================= */
+
+@media (max-width: 860px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
+  .app-main,
+  .dashboard,
+  .services-page,
+  .cash-page,
+  .collaborators-page,
+  .customers-page,
+  .vehicles-page,
+  .reports-page,
+  .driver-page,
+  .settings-page,
+  .placeholder-page {
+    min-height: auto;
+    overflow: visible;
+  }
+
+  .sidebar {
+    position: static;
+    height: auto;
+    padding: 18px;
+  }
+
+  .sidebar__nav {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .sidebar__status {
+    margin-top: 0;
+  }
+
+  .header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .header__actions {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .header--admin .header__content {
+    display: block;
+  }
+
+  .header--admin #page-title::after {
+    content: "";
+  }
+
+  .header--admin .header__summary {
+    margin-top: 4px;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .filters-bar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .services-panel {
+    --services-list-columns: 8px minmax(82px, 0.5fr) minmax(54px, 0.3fr) minmax(220px, 1.8fr) minmax(124px, 0.75fr) minmax(82px, 0.5fr) minmax(144px, max-content);
+  }
+
+  .vehicles-panel {
+    --vehicles-list-columns: 8px minmax(140px, 1fr) minmax(82px, 0.5fr) minmax(124px, 0.8fr) minmax(104px, 0.6fr) minmax(100px, 0.7fr) minmax(108px, auto);
+  }
+
+  .report-blocks {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .report-chart-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-integration-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .collaborator-card {
+    grid-template-columns: var(--collaborators-list-grid);
+    min-width: 1060px;
+    min-height: 76px;
+  }
+
+  .collaborators-list-header {
+    grid-template-columns: var(--collaborators-list-grid);
+    min-width: 1060px;
+  }
+
+  .customer-card,
+  .customers-list-header {
+    grid-template-columns: 8px minmax(180px, 1.15fr) minmax(88px, 0.45fr) minmax(94px, 0.5fr) minmax(92px, 0.45fr) minmax(92px, 0.45fr) minmax(82px, auto);
+  }
+
+  .user-card,
+  .users-list-header {
+    grid-template-columns: minmax(180px, 1fr) 118px 110px minmax(245px, auto);
+  }
+
+  .user-card time,
+  .users-list-header span:nth-child(4) {
+    display: none;
+  }
+
+  .customer-card__contact,
+  .customers-list-header span:nth-child(3) {
+    display: none;
+  }
+
+
+  .operation-card__client,
+  .services-list-header__client {
+    display: none;
+  }
+
+  .services-toolbar,
+  .list-toolbar {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "heading"
+      "actions"
+      "legend";
+    align-items: start;
+    gap: 10px;
+  }
+
+  .list-toolbar__legend,
+  .list-toolbar__actions {
+    justify-self: stretch;
+    width: 100%;
+  }
+
+  .list-toolbar__legend {
+    justify-content: flex-start;
+  }
+
+  .services-search,
+  .field--search {
+    width: 100%;
+  }
+
+  .compact-summary,
+  .compact-summary--four,
+  .compact-summary--six,
+  .compact-summary--seven,
+  .customers-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .customer-toolbar-actions {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .payment-options,
+  .summary-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .form-grid--service,
+  .form-grid--airport,
+  .form-grid--contact,
+  .form-grid--company,
+  .form-grid--passenger,
+  .form-grid--payment,
+  .form-grid--inline-pair,
+  .form-grid--phone-pair,
+  .form-grid--customer-two,
+  .form-grid--customer-three,
+  .form-grid--customer-contact,
+  .form-grid--vehicle-pair,
+  .form-grid--vehicle-identity,
+  .form-grid--vehicle-document {
+    grid-template-columns: 1fr;
+  }
+
+}
+
+/* =========================
+   NAVEGACION MOVIL
+========================= */
+
+@media (max-width: 767px) {
+  body.mobile-nav-open {
+    overflow: hidden;
+  }
+
+  .header__main {
+    align-items: flex-start;
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .header__content {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .mobile-menu-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    flex-direction: column;
+    gap: 4px;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    color: var(--color-brand-strong);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .mobile-menu-toggle span {
+    display: block;
+    width: 18px;
+    height: 2px;
+    border-radius: 999px;
+    background: currentColor;
+  }
+  .mobile-menu-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    display: block;
+    background: rgba(17, 24, 32, 0.46);
+  }
+
+
+  .mobile-menu-close {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    color: var(--color-brand-strong);
+    font-size: 1.2rem;
+    line-height: 1;
+  }
+
+  .sidebar__brand {
+    padding-right: 44px;
+  }
+
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 40;
+    width: min(82vw, 280px);
+    height: 100vh;
+    padding: 22px 18px;
+    transform: translateX(-100%);
+    transition: transform 180ms ease;
+    box-shadow: var(--shadow-soft);
+  }
+
+  .sidebar.sidebar--open {
+    transform: translateX(0);
+  }
+
+  .sidebar__nav {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar__status {
+    margin-top: auto;
+  }
+
+  .users-filter-group {
+    flex-wrap: wrap;
+  }
+
+  .users-search {
+    flex: 1 1 100%;
+    width: 100%;
+    min-width: 0;
+    margin-left: 0;
+  }
+
+  .users-search input {
+    width: 100%;
+  }
+
+}
+
+/* =========================
+   RESPONSIVE MOVIL
+========================= */
+
+@media (max-width: 640px) {
+  body,
+  button {
+    font-size: 15px;
+  }
+
+  .dashboard,
+  .services-page,
+  .collaborators-page,
+  .customers-page,
+  .vehicles-page,
+  .reports-page,
+  .users-page,
+  .settings-page,
+  .placeholder-page,
+  .driver-page,
+  .header {
+    padding: 18px;
+  }
+
+  .login-screen {
+    padding: 14px;
+  }
+
+  .login-card {
+    padding: 22px;
+  }
+
+
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-side-stack {
+    grid-column: auto;
+  }
+
+  .alert-list,
+  .service-list,
+  .activity-list {
+    overflow: visible;
+  }
+
+  .sidebar__nav,
+  .summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .alert-item,
+  .service-item {
+    grid-template-columns: 1fr;
+  }
+
+  .button,
+  .header__actions {
+    width: 100%;
+  }
+
+  .filters-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .compact-summary,
+  .compact-summary--four,
+  .compact-summary--six,
+  .compact-summary--seven,
+  .customers-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-integration-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-read-list div {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .customer-toolbar-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .status-legend--inline,
+  .status-legend--services,
+  .status-legend--collaborators {
+    max-width: none;
+    width: 100%;
+  }
+
+  .customer-filter,
+  .customer-filter summary {
+    width: 100%;
+  }
+
+  .customer-filter__menu {
+    left: 0;
+    right: auto;
+    width: 100%;
+    max-height: min(320px, calc(100dvh - 220px));
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .form-grid,
+  .form-grid--three,
+  .form-grid--service,
+  .form-grid--airport,
+  .form-grid--route,
+  .form-grid--single,
+  .form-grid--client-search,
+  .form-grid--name,
+  .form-grid--contact,
+  .form-grid--company,
+  .form-grid--customer-two,
+  .form-grid--customer-three,
+  .form-grid--customer-contact,
+  .form-grid--passenger,
+  .form-grid--payment {
+    grid-template-columns: 1fr;
+  }
+
+  .modal-backdrop {
+    
+    padding: 8px;
+  }
+
+  .modal {
+    max-height: calc(100dvh - 16px);
+    overflow: hidden;
+  }
+
+  .modal--summary {
+    display: grid;
+    grid-template-rows: auto auto;
+  }
+
+  #service-summary-modal .modal--summary {
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100dvh - 16px);
+  }
+
+  .modal__header {
+    align-items: flex-start;
+    flex-direction: row;
+    gap: 10px;
+    padding: 12px 14px;
+  }
+
+  .modal__header > div {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .modal__header [data-modal-close] {
+    flex: 0 0 auto;
+    align-self: flex-start;
+    width: auto;
+    min-height: 30px;
+    padding: 0 9px;
+    white-space: nowrap;
+  }
+
+  .modal__header-actions {
+    flex: 0 0 auto;
+    justify-content: flex-end;
+  }
+
+  .new-customer-duplicate,
+  .service-customer-results,
+  .service-customer-selected,
+  .service-customer-duplicate,
+  .service-customer-create-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .modal__body--summary {
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+  }
+
+  #service-summary-modal .modal__body--summary {
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+    padding-bottom: 24px;
+  }
+
+  #customer-history-modal .modal__body--summary.service-summary {
+    gap: 3px;
+    padding: 10px 14px 12px;
+    align-content: start;
+    max-height: calc(100dvh - 96px);
+    overflow-y: auto;
+  }
+
+  #customer-history-modal .service-summary__list {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 6px;
+  }
+
+  #customer-history-modal .service-summary__list .modal__field {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+
+  #customer-history-modal .service-summary__list .modal__field + .modal__field::before {
+    content: "\00B7";
+    color: var(--color-muted);
+    margin-right: 2px;
+  }
+
+  #customer-history-modal .service-summary__list .modal__field-label {
+    color: var(--color-muted);
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  #customer-history-modal .service-summary__list .modal__field-label::after {
+    content: ":";
+  }
+
+  #customer-history-modal .service-summary__list .modal__field-value {
+    margin: 0;
+    font-size: 0.86rem;
+  }
+
+  #customer-history-modal .modal__section-title {
+    margin: 4px 0 -1px;
+  }
+
+  #customer-history-modal .customer-history-list + .modal__section-title {
+    margin-top: 7px;
+  }
+
+  #customer-history-modal .customer-history-list {
+    gap: 4px;
+  }
+
+  #customer-history-modal .customer-history-item {
+    gap: 6px;
+    padding: 6px;
+  }
+  .wizard-step__summary {
+    grid-template-columns: 1fr auto;
+    gap: 4px 10px;
+    min-height: 38px;
+  }
+
+  .wizard-step__summary span,
+  .wizard-step__summary strong {
+    grid-column: 1;
+  }
+
+  .wizard-step__summary::after {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
+  .wizard {
+    padding: 8px;
+  }
+
+  .payment-options,
+  .summary-list {
+    grid-template-columns: 1fr;
+  }
+
+  .check-field {
+    justify-content: flex-start;
+    white-space: normal;
+  }
+
+  .services-list-wrapper,
+  .services-list {
+    overflow: visible;
+    padding-right: 0;
+  }
+
+  .services-list-header {
+    display: none;
+  }
+
+  .operation-card {
+    display: grid;
+    grid-template-columns: 8px minmax(0, 1fr) auto;
+    gap: 8px 10px;
+    min-height: auto;
+  }
+
+  .operation-card__marker {
+    grid-row: 1 / 7;
+  }
+
+  .operation-card__time,
+  .operation-card__type,
+  .operation-card__client,
+  .operation-card__route,
+  .operation-card__collaborator,
+  .operation-card__payment {
+    display: flex;
+    grid-column: 2 / 4;
+    white-space: normal;
+  }
+
+  .operation-card__actions {
+    grid-column: 2 / 4;
+    justify-self: stretch;
+    justify-content: flex-start;
+  }
+
+  .operation-card__actions .button {
+    flex: 1 1 96px;
+  }
+
+  .collaborators-list {
+    overflow: visible;
+    padding-right: 0;
+  }
+  .customers-list {
+    overflow: visible;
+    padding-right: 0;
+  }
+
+  .customers-list-header {
+    display: none;
+  }
+
+  .vehicles-list-wrapper,
+  .vehicles-list {
+    overflow: visible;
+    padding-right: 0;
+  }
+
+  .vehicles-list-header {
+    display: none;
+  }
+
+  .vehicle-card {
+    grid-template-columns: 8px minmax(0, 1fr);
+    align-items: stretch;
+    gap: 6px 10px;
+    min-height: auto;
+    padding: 8px 9px;
+  }
+
+  .vehicle-card__marker {
+    grid-row: 1 / 7;
+  }
+
+  .vehicle-card__identity,
+  .vehicle-card__plate,
+  .vehicle-card__documentation,
+  .vehicle-card__service-km,
+  .vehicle-card__driver,
+  .vehicle-card__actions {
+    grid-column: 2;
+  }
+
+  .vehicle-card__identity strong,
+  .vehicle-card__identity span,
+  .vehicle-card__plate,
+  .vehicle-card__documentation span,
+  .vehicle-card__service-km,
+  .vehicle-card__driver {
+    white-space: normal;
+  }
+
+  .vehicle-card__documentation,
+  .vehicle-card__actions {
+    justify-content: flex-start;
+  }
+
+  .vehicle-document-item {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .report-blocks {
+    grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  }
+
+  .report-chart-grid {
+    grid-template-columns: 1fr;
+    overflow: visible;
+    padding-right: 0;
+  }
+
+  .report-chart-card {
+    min-height: 220px;
+  }
+
+  .report-history-card {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .report-history-card__main {
+    align-items: flex-start;
+  }
+
+  .report-history-card__metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .report-history-card > .button {
+    justify-self: flex-start;
+  }
+
+  .report-history-breakdowns {
+    grid-template-columns: 1fr;
+  }
+
+  .customer-card {
+    grid-template-columns: 8px minmax(0, auto) auto auto;
+    align-items: center;
+    gap: 5px 8px;
+    min-height: auto;
+    padding: 8px 9px;
+  }
+
+  .customer-card__marker {
+    grid-row: 1 / 5;
+  }
+
+  .customer-card__identity {
+    display: flex;
+    grid-column: 2 / -1;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .customer-card__code {
+    flex: 0 0 auto;
+  }
+
+  .customer-card__name {
+    min-width: 0;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .customer-card__contact {
+    display: grid;
+    grid-column: 2 / -1;
+    gap: 2px;
+    font-size: 0.84rem;
+  }
+
+  .customer-type-pill {
+    grid-column: 2;
+  }
+
+  .customer-card__rating {
+    grid-column: 3;
+  }
+
+  .customer-card__total {
+    grid-column: 4;
+  }
+
+  .customer-type-pill,
+  .customer-card__rating,
+  .customer-card__total {
+    justify-self: start;
+    font-size: 0.82rem;
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  .customer-card__history {
+    grid-column: 2;
+    grid-row: 4;
+    justify-self: start;
+  }
+
+  .customer-card__actions {
+    grid-column: 3 / -1;
+    grid-row: 4;
+    justify-self: start;
+    justify-content: flex-start;
+  }
+
+  .customer-card__history .button,
+  .customer-card__actions .button {
+    white-space: nowrap;
+  }
+
+  .users-list-header {
+    display: none;
+  }
+
+  .users-search {
+    flex-basis: 100%;
+    min-width: 0;
+  }
+
+  .user-card {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  .user-card__identity {
+    grid-column: 1 / -1;
+  }
+
+  .user-role-pill-list,
+  .user-role-pill,
+  .user-status-pill {
+    grid-column: auto;
+  }
+
+  .user-card time {
+    display: block;
+    grid-column: 1 / -1;
+  }
+
+  .user-card__actions {
+    grid-column: 1 / -1;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .user-detail-modal__grid {
+    grid-template-columns: 1fr;
+  }
+
+  #user-detail-edit-actions {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  #user-detail-edit-actions .button {
+    flex: 1 1 auto;
+    min-width: 132px;
+  }
+
+  #user-detail-modal .user-detail-edit-form .form-grid--inline-pair {
+    grid-template-columns: 1fr;
+  }
+
+  .collaborators-list-header {
+    display: grid;
+    grid-template-columns: var(--collaborators-list-grid);
+    min-width: 1060px;
+  }
+
+  .collaborator-card {
+    grid-template-columns: var(--collaborators-list-grid);
+    align-items: center;
+    gap: 10px;
+    min-width: 1060px;
+    min-height: 76px;
+  }
+
+  .collaborator-card__bars {
+    grid-row: auto;
+  }
+
+  .collaborator-card__identity,
+  .collaborator-card__type,
+  .collaborator-card__access,
+  .collaborator-card__service,
+  .collaborator-card__actions {
+    grid-column: auto;
+    align-self: center;
+  }
+
+  .collaborator-card__name,
+  .collaborator-card__identity span:not(.collaborator-portal-access),
+  .collaborator-card__vehicle,
+  .collaborator-card__service span {
+    white-space: normal;
+  }
+
+  .collaborator-card__actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .collaborator-status-control {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .collaborator-status-control select {
+    width: min(100%, 180px);
+  }
+
+  .collaborator-form-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .vehicle-assignment-item {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .vehicle-assignment-item .button {
+    justify-self: start;
+  }
+
+  .vehicle-person-assignment-item {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .vehicle-person-assignment-item .button {
+    justify-self: start;
+  }
+
+  .status-legend {
+    gap: 10px;
+  }
+
+  .status-legend__group {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .status-legend__group span {
+    white-space: normal;
+  }
+
+  .service-summary__list {
+    grid-template-columns: 1fr;
+  }
+
+  .panel {
+    padding: 18px;
+  }
+
+  .driver-dashboard,
+  .driver-active {
+    gap: 12px;
+  }
+
+  .driver-active-hero {
+    padding: 18px 14px 8px;
+  }
+
+  .driver-active-main {
+    gap: clamp(12px, 2dvh, 24px);
+    padding: clamp(8px, 1.5dvh, 16px) 0 clamp(10px, 2dvh, 18px);
+  }
+
+  .driver-active-card {
+    width: min(calc(100% - 16px), 430px);
+    padding: 12px;
+  }
+
+  .driver-active-radar {
+    --driver-active-radar-size: 196px;
+    --driver-active-arrow-size: 112px;
+  }
+
+  .driver-meta,
+  .driver-meta--active,
+  .driver-meta--profile {
+    grid-template-columns: 1fr;
+  }
+
+  .driver-service-card__actions,
+  .driver-active-actions,
+  .driver-profile-actions,
+  .driver-modal-actions {
+    flex-direction: column;
+  }
+
+  .driver-button,
+  .driver-active-actions .button,
+  .driver-modal-actions .button {
+    width: 100%;
+    white-space: normal;
+  }
+
+  .driver-service-card {
+    padding: 10px;
+  }
+
+  .driver-route-lines p {
+    grid-template-columns: 18px minmax(0, 1fr);
+  }
+
+  .driver-active-hero__status h2 {
+    font-size: 1.58rem;
+  }
+
+  .driver-active-stats span {
+    padding: 2px 5px;
+    font-size: 0.68rem;
+  }
+
+  .driver-active-stats strong {
+    font-size: 0.88rem;
+  }
+
+  .driver-active-map-actions {
+    gap: 7px;
+  }
+
+  .driver-active-map {
+    min-height: 40px;
+    padding: 0 8px;
+    font-size: 0.8rem;
+  }
+
+  .driver-active-panel {
+    padding: 10px 8px;
+  }
+
+  .driver-active-finish {
+    width: min(calc(100% - 32px), 398px);
+  }
+}

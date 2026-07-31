@@ -1,0 +1,213 @@
+/*
+  Proyecto Atlas / ELARA Transport
+  Archivo: forms.css
+  Responsabilidad: controles reutilizables de formularios y filtros.
+*/
+
+.login-screen {
+  display: grid;
+  min-height: 100vh;
+  padding: 24px;
+  place-items: center;
+  background:
+    linear-gradient(135deg, rgba(18, 54, 90, 0.08), transparent 42%),
+    var(--color-bg);
+}
+
+.login-card {
+  display: grid;
+  gap: 18px;
+  width: min(100%, 420px);
+  padding: 28px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-soft);
+}
+
+.login-card__brand strong,
+.login-card__brand span {
+  display: block;
+}
+
+.login-card__brand strong {
+  color: var(--color-brand-strong);
+  font-size: 1.25rem;
+  letter-spacing: 0.08em;
+}
+
+.login-card__brand span {
+  color: var(--color-muted);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.login-card__heading {
+  display: grid;
+  gap: 6px;
+}
+
+.login-card__heading p:last-child {
+  color: var(--color-muted);
+}
+
+.login-card__error {
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 28%, var(--color-border));
+  border-radius: var(--radius-sm);
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+  font-size: 0.9rem;
+  font-weight: 750;
+}
+
+.filters-bar {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(150px, 1fr)) minmax(220px, auto);
+  gap: 10px;
+  align-items: end;
+}
+
+.field {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: var(--color-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.field input,
+.field select,
+.field textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  padding: 0 10px;
+  text-transform: none;
+}
+
+.field textarea {
+  min-height: 88px;
+  padding: 9px 10px;
+  resize: vertical;
+}
+
+.field--search {
+  min-width: 280px;
+}
+
+.check-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.check-field input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--color-brand);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+
+.form-grid--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.form-grid--service {
+  grid-template-columns: minmax(260px, 1fr) 140px 112px;
+}
+
+.form-grid--airport {
+  grid-template-columns: minmax(260px, 1fr) 120px 132px;
+}
+
+.form-grid--route {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: end;
+}
+
+.form-grid--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.form-grid--client-search {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.form-grid--name {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.form-grid--contact {
+  grid-template-columns: minmax(92px, 110px) minmax(165px, 220px) minmax(220px, 1fr);
+}
+
+.form-grid--company {
+  grid-template-columns: minmax(220px, 0.85fr) minmax(132px, 0.35fr) minmax(0, 1.25fr);
+}
+
+.form-grid--passenger {
+  grid-template-columns: minmax(260px, 1fr) minmax(165px, 220px);
+}
+
+.form-grid--payment {
+  grid-template-columns: minmax(140px, 180px) minmax(0, 1fr);
+}
+
+.field--wide {
+  grid-column: 1 / -1;
+}
+
+.field--compact-textarea textarea {
+  min-height: 64px;
+}
+
+.field--optional span {
+  color: var(--color-muted);
+  font-weight: 700;
+}
+
+.form-actions-inline {
+  display: flex;
+  align-items: end;
+  justify-content: flex-start;
+  min-height: 38px;
+}
+
+.form-actions-inline--end {
+  justify-content: flex-end;
+}
+
+.company-fields {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-border);
+}
+
+.company-fields .form-grid + .form-grid,
+.company-fields .form-grid + .check-field {
+  margin-top: 12px;
+}

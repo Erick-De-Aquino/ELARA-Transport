@@ -1,0 +1,149 @@
+/*
+  Proyecto Atlas / ELARA Transport
+  Archivo: cards.css
+  Responsabilidad: tarjetas resumen y estados visuales.
+*/
+
+/* =========================
+   TARJETAS RESUMEN
+========================= */
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.summary-card {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.summary-card span,
+.summary-card small {
+  color: var(--color-muted);
+}
+
+.summary-card span {
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.summary-card strong {
+  color: var(--color-brand-strong);
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.summary-card small {
+  font-size: 0.78rem;
+}
+
+.summary-card--danger {
+  border-color: color-mix(in srgb, var(--color-danger) 28%, var(--color-border));
+  background: var(--color-danger-soft);
+}
+
+.summary-card--warning {
+  border-color: color-mix(in srgb, var(--color-warning) 28%, var(--color-border));
+  background: var(--color-warning-soft);
+}
+
+.summary-card--success {
+  border-color: color-mix(in srgb, var(--color-success) 26%, var(--color-border));
+  background: var(--color-success-soft);
+}
+
+.summary-card--info {
+  border-color: color-mix(in srgb, var(--color-brand) 24%, var(--color-border));
+  background: var(--color-brand-soft);
+}
+
+/* =========================
+   ESTADOS VISUALES
+========================= */
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: max-content;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.status--warning {
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
+
+.status--info {
+  background: var(--color-brand-soft);
+  color: var(--color-brand);
+}
+
+.status--success {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+
+.status--danger {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+
+.status--neutral {
+  background: var(--color-surface-alt);
+  color: var(--color-muted);
+}
+
+/* =========================
+   TARJETAS RESUMEN COMPACTAS
+========================= */
+
+.compact-summary,
+.customers-summary {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.compact-summary--six {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.compact-summary--seven {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.compact-summary--four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.compact-summary .summary-card,
+.customers-summary .summary-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 9px 12px;
+}
+
+.compact-summary .summary-card span,
+.customers-summary .summary-card span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compact-summary .summary-card strong,
+.customers-summary .summary-card strong {
+  justify-self: end;
+  font-size: 1.18rem;
+}

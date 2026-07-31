@@ -1,0 +1,135 @@
+/*
+  Proyecto Atlas / ELARA Transport
+  Archivo: layout.css
+  Responsabilidad: estructura general de la aplicacion.
+*/
+
+/* =========================
+   ESTRUCTURA GENERAL
+========================= */
+
+.app-shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  height: 100vh;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+.app-main {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+
+/* =========================
+   VISTAS PRINCIPALES
+========================= */
+
+.dashboard,
+.services-page,
+.collaborators-page,
+.customers-page,
+.vehicles-page,
+.reports-page,
+.users-page,
+.settings-page,
+.placeholder-page,
+.driver-page {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 16px;
+  min-height: 0;
+  padding: 18px 20px 20px;
+  overflow: hidden;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr) minmax(0, 0.88fr);
+  gap: 16px;
+  min-height: 0;
+}
+
+.reports-page {
+  grid-template-rows: auto auto;
+  min-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.placeholder-page {
+  align-content: start;
+  grid-template-rows: auto;
+  overflow-y: auto;
+}
+
+.settings-page {
+  align-content: start;
+  grid-template-rows: auto;
+  overflow-y: auto;
+}
+
+.driver-page {
+  align-content: start;
+  grid-template-rows: auto;
+  overflow-y: auto;
+}
+
+/* =========================
+   PANELES BASE
+========================= */
+
+.panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px;
+  min-width: 0;
+  min-height: 0;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-soft);
+}
+
+.panel--priority {
+  border-color: color-mix(in srgb, var(--color-danger) 24%, var(--color-border));
+}
+
+.panel--activity {
+  gap: 10px;
+}
+
+.panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.panel__eyebrow,
+.header__eyebrow {
+  color: var(--color-brand);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.panel__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+  font-weight: 800;
+}
+
+[hidden] {
+  display: none !important;
+}

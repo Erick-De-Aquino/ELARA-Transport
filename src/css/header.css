@@ -1,0 +1,96 @@
+/*
+  Proyecto Atlas / ELARA Transport
+  Archivo: header.css
+  Responsabilidad: cabecera superior del area principal.
+*/
+
+/* =========================
+   HEADER BASE
+========================= */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  min-height: var(--header-height);
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-header-bg);
+  backdrop-filter: blur(10px);
+}
+
+.header--admin {
+  min-height: 76px;
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+
+/* =========================
+   CONTENIDO DEL HEADER
+========================= */
+
+.header__main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.header__content {
+  min-width: 0;
+}
+
+.header--admin .header__content {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    "eyebrow eyebrow"
+    "title summary";
+  align-items: baseline;
+  column-gap: 8px;
+  row-gap: 2px;
+}
+
+.header--admin .header__eyebrow {
+  grid-area: eyebrow;
+}
+
+.header--admin #page-title {
+  grid-area: title;
+  font-size: 1.55rem;
+}
+
+.header--admin #page-title::after {
+  color: var(--color-muted);
+  content: " \00b7";
+  font-weight: 700;
+}
+
+.header__summary {
+  max-width: 760px;
+  margin-top: 6px;
+  color: var(--color-muted);
+  font-size: 0.95rem;
+}
+
+.header--admin .header__summary {
+  grid-area: summary;
+  max-width: none;
+  margin-top: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* =========================
+   ACCIONES DEL HEADER
+========================= */
+
+.header__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}

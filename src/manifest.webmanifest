@@ -1,0 +1,20 @@
+{
+  "name": "ELARA Transport",
+  "short_name": "ELARA",
+  "description": "Gestión de servicios de transporte ejecutivo de ELARA Transport.",
+  "lang": "es",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#12365a",
+  "icons": [
+    {
+      "src": "./assets/icons/car-top-view.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
