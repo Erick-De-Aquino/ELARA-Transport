@@ -1614,7 +1614,415 @@ Deberán ejecutarse mediante función segura o transacción:
 - incluir servicios o gastos en liquidaciones;
 - generar códigos humanos.
 
-## 13. Relaciones principales
+## 13. Plan formal de migraciones SQL
+
+Este plan traduce la arquitectura aprobada en una secuencia formal de migraciones. No contiene SQL ejecutable; define orden, responsabilidades, dependencias, restricciones, funciones, RLS, Storage, vistas, seed y puntos de QA.
+
+### Principios del plan
+
+- Las migraciones serán pequeñas, numeradas y con una responsabilidad principal.
+- Cada migración declarará dependencias previas y validaciones posteriores.
+- La estructura, funciones, RLS, Storage, vistas e integridades, y seed se mantendrán separados.
+- Los cambios con historial tendrán rollback lógico mediante inactivación, anulación, reversión o migración compensatoria.
+- La integridad, permisos, códigos humanos e idempotencia dependerán de base de datos y funciones seguras, no del frontend.
+- Las tablas base y catálogos se crearán antes que relaciones operativas.
+- Las funciones transaccionales se crearán antes de cerrar RLS estricta sobre operaciones sensibles.
+- El seed será el último bloque, ya validado contra restricciones y funciones.
+
+### Inventario completo de tablas por dominio
+
+Infraestructura e identidad:
+
+- `persons`
+- `app_users`
+- `roles`
+- `user_roles`
+- `app_sessions`
+- `user_driver_links`
+
+Clientes, empresas, proveedores y conductores:
+
+- `companies`
+- `customers`
+- `company_contacts`
+- `drivers`
+- `suppliers`
+
+Vehículos:
+
+- `vehicles`
+- `vehicle_external_owners`
+- `vehicle_document_types`
+- `vehicle_documents`
+- `vehicle_status_reasons`
+- `vehicle_technical_incidents`
+- `vehicle_odometer_readings`
+- `vehicle_maintenance_records`
+- `driver_vehicle_assignments`
+
+Servicios:
+
+- `services`
+- `service_locations`
+- `service_passengers`
+- `service_assignments`
+- `service_driver_progress`
+- `service_closures`
+- `service_cancellations`
+- `service_status_history`
+- `service_events`
+- `service_snapshots`
+
+Finanzas del servicio:
+
+- `service_financials`
+- `service_payment_methods`
+- `service_payments`
+- `service_payment_events`
+- `service_billing`
+- `service_financial_events`
+
+Caja y rendiciones:
+
+- `cash_boxes`
+- `cash_movement_categories`
+- `cash_movements`
+- `driver_remittances`
+- `driver_remittance_differences`
+- `cash_counts`
+- `cash_count_events`
+- `cash_movement_events`
+
+Cuentas por cobrar:
+
+- `receivables`
+- `receivable_payments`
+- `receivable_events`
+
+Gastos:
+
+- `expense_categories`
+- `expenses`
+- `expense_receipts`
+- `expense_reviews`
+- `expense_payments`
+- `expense_reimbursements`
+- `expense_events`
+- `expense_liquidation_links`
+
+Liquidaciones:
+
+- `settlement_configs`
+- `settlements`
+- `settlement_service_items`
+- `settlement_expense_items`
+- `settlement_payments`
+- `settlement_events`
+
+Incidencias, configuración y auditoría:
+
+- `incident_categories`
+- `incidents`
+- `incident_events`
+- `audit_events`
+- `app_settings`
+- `app_setting_events`
+- `technical_catalogs`
+- `technical_catalog_items`
+- `integrity_checks`
+
+`permission_policies` queda fuera de la primera implementación. Podrá documentarse como catálogo futuro, pero no será autoridad de permisos ni debe crearse inicialmente salvo necesidad comprobada.
+
+### Clasificación de estados y catálogos
+
+- Estados de usuario: check o enum estable, con valores técnicos como `active` e `inactive`.
+- Roles y contextos: tabla `roles`, porque participan en gestión, RLS y auditoría.
+- Tipos de cliente: check estable para `individual` y `company`.
+- Tipos y estados de conductor: check o enum para `internal_driver`, `external_collaborator`, `active` e `inactive`.
+- Vehículos y titularidad: checks para estados estructurales; tablas para tipos documentales, causas e incidencias técnicas.
+- Servicios: checks o enums para estados operativos, asignación y etapas.
+- Pagos: checks o enums para estados de pago; tabla catálogo para métodos.
+- Caja: checks o enums para `movement_type` y estados; tabla para categorías.
+- CxC: checks o enums para estados de cuenta y cobro.
+- Gastos: checks o enums para estados; tabla para categorías.
+- Liquidaciones: checks o enums para estados; tabla/configuración para porcentajes.
+- Incidencias: tabla para categorías; checks o enums para prioridad y estado.
+- Catálogos configurables: tablas con clave técnica en inglés, etiqueta visible en español, estado activo/inactivo e historial.
+
+### Migraciones numeradas
+
+1. `0001_extensions_and_base_helpers.sql`
+   - Objetivo: extensiones, utilidades base, timestamps y convenciones comunes.
+   - Tablas: ninguna funcional.
+   - Funciones auxiliares: helpers de timestamps y auditoría base.
+   - Dependencias: ninguna.
+   - Validaciones: extensiones disponibles y helpers invocables.
+
+2. `0002_human_code_generation.sql`
+   - Objetivo: generación transaccional de códigos humanos.
+   - Tablas: mecanismo interno de secuencias o contador de códigos, si se decide tabla auxiliar.
+   - Funciones auxiliares: generación por prefijo.
+   - Dependencias: 0001.
+   - Validaciones: unicidad y no generación desde frontend.
+
+3. `0003_identity_roles_sessions.sql`
+   - Objetivo: identidad funcional, roles, roles por usuario y sesiones.
+   - Tablas: `app_users`, `roles`, `user_roles`, `app_sessions`.
+   - FKs: `app_users` hacia `auth.users`; roles por usuario; sesiones por usuario.
+   - Índices: usuario auth, sesión, rol activo.
+   - Restricciones: `default_context` válido, rol activo único por usuario y rol.
+   - Dependencias: 0001, 0002.
+   - Validaciones: usuario activo, sesión activa, contexto válido.
+   - Punto de control: QA tras 0003.
+
+4. `0004_people_customers_drivers_suppliers.sql`
+   - Objetivo: personas, empresas, clientes, contactos, conductores, proveedores y vínculo usuario-conductor.
+   - Tablas: `persons`, `companies`, `customers`, `company_contacts`, `drivers`, `suppliers`, `user_driver_links`.
+   - FKs: persona, empresa, cliente, conductor, usuario.
+   - Índices: códigos humanos, email de contacto si aplica, vínculos activos.
+   - Restricciones: cliente individual o empresa exactamente uno; proveedor persona o empresa exactamente uno cuando esté normalizado; vínculo activo único usuario-conductor.
+   - Dependencias: 0003.
+   - Validaciones: tres choferes internos posibles y proveedor opcional en gastos futuros.
+
+5. `0005_vehicles_documents_assignments.sql`
+   - Objetivo: vehículos, documentación, mantenimiento, kilometraje y asignación conductor-vehículo.
+   - Tablas: `vehicles`, `vehicle_external_owners`, `vehicle_document_types`, `vehicle_documents`, `vehicle_status_reasons`, `vehicle_technical_incidents`, `vehicle_odometer_readings`, `vehicle_maintenance_records`, `driver_vehicle_assignments`.
+   - FKs: vehículos con propietarios, documentos, conductores.
+   - Índices: matrícula normalizada, asignación activa por vehículo y conductor.
+   - Restricciones: matrícula española normalizada, asignación activa única, kilometraje coherente.
+   - Dependencias: 0004.
+   - Validaciones: asignabilidad derivable y documentación obligatoria.
+
+6. `0006_services_operations.sql`
+   - Objetivo: servicios, ubicaciones, pasajeros, asignaciones, progreso, cierres, cancelaciones y eventos operativos.
+   - Tablas: `services`, `service_locations`, `service_passengers`, `service_assignments`, `service_driver_progress`, `service_closures`, `service_cancellations`, `service_status_history`, `service_events`, `service_snapshots`.
+   - FKs: cliente, conductor, vehículo, asignación conductor-vehículo.
+   - Índices: fecha/hora, cliente, conductor, estado, asignación activa.
+   - Restricciones: una asignación activa por servicio; estados válidos; orden de ubicaciones.
+   - Dependencias: 0004, 0005.
+   - Validaciones: servicio futuro confirmado no pone conductor en servicio.
+   - Punto de control: QA tras 0006.
+
+7. `0007_service_financials_payments.sql`
+   - Objetivo: finanzas del servicio, métodos, pagos, billing y eventos financieros.
+   - Tablas: `service_financials`, `service_payment_methods`, `service_payments`, `service_payment_events`, `service_billing`, `service_financial_events`.
+   - FKs: servicio y usuarios registradores.
+   - Índices: servicio, estado financiero, pagos activos.
+   - Restricciones: una fila financiera por servicio; pago activo completo; importes positivos; IVA inicial 0 %.
+   - Dependencias: 0006.
+   - Validaciones: `financial_status` materializado coincide con pagos activos.
+
+8. `0008_cash_remittances_counts.sql`
+   - Objetivo: Caja única, movimientos, rendiciones, diferencias y arqueos.
+   - Tablas: `cash_boxes`, `cash_movement_categories`, `cash_movements`, `driver_remittances`, `driver_remittance_differences`, `cash_counts`, `cash_count_events`, `cash_movement_events`.
+   - FKs: Caja, categorías, conductor, usuarios.
+   - Índices: Caja activa, origen polimórfico, reversión, fecha.
+   - Restricciones: una Caja activa; importes positivos; reversión activa única.
+   - Dependencias: 0004, 0007.
+   - Validaciones: saldo teórico derivable y reversión por movimiento.
+   - Punto de control: QA tras 0008.
+
+9. `0009_receivables.sql`
+   - Objetivo: cuentas por cobrar y cobros posteriores.
+   - Tablas: `receivables`, `receivable_payments`, `receivable_events`.
+   - FKs: servicio, cliente, `service_payment`, `cash_movement`.
+   - Índices: cuenta activa por servicio, cobro activo por cuenta.
+   - Restricciones: cobro completo, `pending_amount` materializado, sin pago parcial.
+   - Dependencias: 0007, 0008.
+   - Validaciones: cobro crea pago de servicio y entrada Caja de forma atómica.
+
+10. `0010_expenses.sql`
+    - Objetivo: gastos, categorías, justificantes, revisiones, pagos, reembolsos y vínculos futuros con liquidaciones.
+    - Tablas: `expense_categories`, `expenses`, `expense_receipts`, `expense_reviews`, `expense_payments`, `expense_reimbursements`, `expense_events`, `expense_liquidation_links`.
+    - FKs: conductor, vehículo, servicio, proveedor, Caja.
+    - Índices: estado, conductor, proveedor, pagos activos, reembolsos activos.
+    - Restricciones: anulación solo Superadmin mediante función, importe aprobado como máximo pagable/reembolsable.
+    - Dependencias: 0004, 0005, 0006, 0008.
+    - Validaciones: conductor solo ve gastos propios.
+
+11. `0011_settlements.sql`
+    - Objetivo: configuración, liquidaciones, servicios incluidos, gastos incluidos, pagos y eventos.
+    - Tablas: `settlement_configs`, `settlements`, `settlement_service_items`, `settlement_expense_items`, `settlement_payments`, `settlement_events`.
+    - FKs: conductor, servicios, gastos, `expense_liquidation_links`, Caja.
+    - Índices: conductor-periodo-modalidad activo, servicio incluido activo, gasto incluido activo, pago activo.
+    - Restricciones: no doble inclusión; redondeo a 2 decimales; periodo en `settlements`.
+    - Dependencias: 0007, 0008, 0010.
+    - Validaciones: servicios pendientes de cobro solo informativos.
+    - Punto de control: QA tras 0011.
+
+12. `0012_incidents_settings_audit.sql`
+    - Objetivo: incidencias, configuración, catálogos, auditoría e integridades opcionales.
+    - Tablas: `incident_categories`, `incidents`, `incident_events`, `audit_events`, `app_settings`, `app_setting_events`, `technical_catalogs`, `technical_catalog_items`, `integrity_checks`.
+    - Índices: entidad auditada, actor, sesión, incidencia por estado.
+    - Restricciones: eventos append-only, auditoría no modificable desde aplicación.
+    - Dependencias: 0003 a 0011.
+    - Validaciones: configuración persistente y auditoría consultable solo por Superadmin.
+
+13. `0013_domain_secure_functions.sql`
+    - Objetivo: funciones transaccionales de dominio.
+    - Funciones: contexto, códigos, roles, asignaciones, servicios, pagos, CxC, rendiciones, Caja, gastos, liquidaciones e integridades.
+    - Dependencias: 0001 a 0012.
+    - Validaciones: idempotencia, atomicidad y eventos/auditoría generados.
+
+14. `0014_rls_policies.sql`
+    - Objetivo: activar RLS y políticas por contexto.
+    - Tablas: todas las tablas expuestas.
+    - Dependencias: 0013.
+    - Validaciones: Superadmin, Administrativo, Conductor, usuario inactivo, sesión expirada y rol revocado.
+    - Punto de control: QA tras 0014.
+
+15. `0015_storage_buckets_policies.sql`
+    - Objetivo: buckets privados y políticas de Storage.
+    - Buckets: documentos de vehículos y justificantes de gastos.
+    - Dependencias: 0014.
+    - Validaciones: rutas por UUID, URLs firmadas y aislamiento por entidad.
+
+16. `0016_views_integrity_checks.sql`
+    - Objetivo: vistas derivadas y funciones de validación.
+    - Vistas: saldos, estados derivados, métricas e integridades.
+    - Dependencias: 0014, 0015.
+    - Validaciones: métricas derivadas sin datos duplicados.
+
+17. `0017_seed_development_data.sql`
+    - Objetivo: seed transformado de desarrollo.
+    - Datos: roles, primer Superadmin, personas, clientes, conductores, vehículos, servicios, finanzas, Caja, gastos, liquidaciones, incidencias y configuración.
+    - Dependencias: 0016.
+    - Validaciones: integridad global y pruebas funcionales base.
+    - Punto de control: QA final tras 0017.
+
+### Dependencias principales
+
+- Identidad y sesiones preceden a RLS y auditoría.
+- Personas, clientes, conductores y proveedores preceden a operación.
+- Vehículos y asignaciones conductor-vehículo preceden a servicios.
+- Servicios preceden a finanzas, CxC, gastos relacionados y liquidaciones.
+- `service_financials`, `service_payments` y `cash_movements` preceden a CxC.
+- Caja precede a rendiciones, pagos de gastos, CxC y liquidaciones.
+- Gastos precede a Liquidaciones.
+- Funciones seguras preceden a RLS estricta.
+- RLS precede al seed validado.
+
+### Índices y restricciones críticas
+
+- Códigos humanos únicos por tabla y prefijo.
+- Email de autenticación único gestionado por Supabase Auth.
+- Un rol activo por usuario y rol.
+- `default_context` incluido en roles activos.
+- Una sesión activa válida por registro de `app_sessions`.
+- Un vínculo activo usuario-conductor por usuario.
+- Un vínculo activo usuario-conductor por conductor.
+- Una asignación activa conductor-vehículo por conductor.
+- Una asignación activa conductor-vehículo por vehículo.
+- Una asignación activa por servicio.
+- Una fila en `service_financials` por servicio.
+- Una cuenta por cobrar activa por servicio.
+- Un pago activo por operación.
+- Una reversión activa por movimiento de Caja.
+- Una Caja activa.
+- Un servicio o gasto no puede estar en dos liquidaciones activas.
+- Una liquidación activa por conductor, periodo y modalidad.
+- Protección transaccional del último Superadmin activo.
+
+### Funciones seguras
+
+- `set_active_context`: cambia contexto activo; valida `auth.uid()`, `session_id`, usuario, rol y sesión; actualiza solo la sesión actual y audita.
+- `next_human_code`: genera códigos humanos; valida prefijo, serialización e idempotencia.
+- `assign_user_role` y `revoke_user_role`: gestionan roles; protegen último Superadmin y auditan.
+- `link_user_driver`: crea o cierra vínculo usuario-conductor; valida unicidad activa.
+- `assign_driver_vehicle`: asigna o reasigna conductor-vehículo; valida disponibilidad, documentación y unicidad activa.
+- `assign_service_driver`: asigna o reasigna servicio; valida servicio, conductor, vehículo y relación vigente.
+- `start_service` y `close_service`: inician y cierran servicios; actualizan estados, progreso, cierres y eventos.
+- `register_service_payment` y `annul_service_payment`: registran o anulan pago de servicio; actualizan `service_financials`, eventos y Caja cuando corresponda.
+- `collect_receivable` y `annul_receivable_payment`: coordinan CxC, pago de servicio, Caja y estado financiero.
+- `register_driver_remittance` y `annul_driver_remittance`: registran rendición y reversión si impactó Caja.
+- `register_cash_adjustment` y `reverse_cash_movement`: crean ajustes o movimientos inversos; reservadas a permisos aprobados.
+- `pay_expense`, `reimburse_expense` y `annul_expense_flow`: coordinan gasto, Caja, eventos y auditoría.
+- `generate_settlement`, `approve_settlement`, `pay_settlement` y `annul_settlement_payment`: gestionan snapshots, inclusión, pagos, Caja y eventos.
+- `run_integrity_checks`: valida coherencia global y registra resultado en `integrity_checks` si aplica.
+
+### Plan conceptual de RLS
+
+- Todas las políticas partirán de `auth.uid()` y `auth.jwt().session_id`.
+- El acceso requerirá `app_users.status = active`, `app_sessions` válida, `active_context` y `user_roles` activos.
+- Superadmin tendrá acceso total salvo operaciones críticas que solo se ejecutarán por funciones.
+- Administrativo tendrá acceso operativo sin acciones reservadas a Superadmin.
+- Conductor solo accederá a datos propios del Portal mediante `driver_id` resuelto desde `user_driver_links`.
+- Usuarios inactivos, sesiones expiradas, roles revocados o vínculos conductor inactivos no tendrán acceso operativo.
+- Tablas financieras, Caja, CxC, liquidaciones, roles, códigos y auditoría no se modificarán directamente desde frontend.
+- `audit_events` será consultable solo por Superadmin y no modificable desde la aplicación.
+
+### Plan de Supabase Storage
+
+- Bucket privado para documentos de vehículos.
+- Bucket privado para justificantes de gastos.
+- Rutas organizadas por entidad UUID.
+- Relación con `vehicle_documents` y `expense_receipts`.
+- Metadatos en tablas: bucket, path, nombre, MIME, tamaño y checksum opcional.
+- Acceso mediante RLS de Storage y URLs firmadas de duración limitada.
+- Sustitución mediante nuevo registro o referencia histórica; no sobrescritura destructiva.
+- Sin URLs públicas permanentes.
+
+### Vistas e integridades
+
+- `v_cash_balance`: saldo teórico de Caja.
+- `v_vehicle_document_status`: estado documental derivado.
+- `v_vehicle_assignability`: asignabilidad de vehículos.
+- `v_driver_effective_availability`: disponibilidad efectiva de conductores.
+- `v_service_financial_status`: verificación de estado financiero.
+- `v_receivables_metrics`: métricas de CxC.
+- `v_expenses_pending_actions`: gastos pendientes de revisión, pago o reembolso.
+- `v_settlement_summaries`: resúmenes de liquidaciones.
+- `v_users_with_roles`: usuarios con roles activos.
+- `check_global_integrity`: validación global de roles, vínculos, servicios, pagos, Caja, CxC, gastos y liquidaciones.
+
+### Estrategia de seed
+
+- Cargar roles y catálogos base.
+- Crear primer Superadmin.
+- Crear personas, empresas, clientes, proveedores y conductores.
+- Crear los tres choferes internos aprobados.
+- Crear vehículos, documentos, kilometraje y asignaciones.
+- Crear servicios, asignaciones y eventos.
+- Crear finanzas del servicio y pagos iniciales.
+- Crear Caja, movimientos, rendiciones y arqueos.
+- Crear CxC, gastos, liquidaciones e incidencias.
+- Crear configuración inicial en `app_settings`.
+- Transformar IDs mock a UUID.
+- Conservar códigos humanos adaptados.
+- No migrar contraseñas mock ni campos legacy.
+- Ejecutar validaciones después de cada bloque relevante y una validación global final.
+
+### Pruebas por fase
+
+- Tras 0003: usuarios, roles, sesiones, contexto y último Superadmin.
+- Tras 0006: servicios, asignaciones, estados y aislamiento conceptual de conductor.
+- Tras 0008: Caja única, movimientos, rendiciones, reversión y saldo derivado.
+- Tras 0011: finanzas completas, CxC, gastos, liquidaciones, pagos y doble inclusión.
+- Tras 0014: RLS por Superadmin, Administrativo y Conductor; usuario inactivo; sesión expirada; rol revocado.
+- Tras 0017: seed completo, integridad global, métricas derivadas y recorridos funcionales base.
+
+### Riesgos y puntos de control
+
+- Mayor riesgo: RLS por sesión y contexto activo.
+- Mayor riesgo: funciones financieras atómicas.
+- Mayor riesgo: Caja, reversión e idempotencia.
+- Mayor riesgo: liquidaciones y doble inclusión.
+- Mayor riesgo: transformación de mocks a seed.
+- Requieren QA obligatorio: 0003, 0006, 0008, 0011, 0014 y 0017.
+- No deben ejecutarse manualmente pagos, anulaciones, ajustes de Caja, liquidaciones, generación de códigos ni revocación crítica de roles fuera de funciones seguras.
+- Antes de ejecutar en entorno compartido deberá existir copia de seguridad o entorno descartable.
+
+### Estimación de trabajo
+
+- Preparar migraciones: 5 a 8 jornadas.
+- Revisar SQL: 2 a 3 jornadas.
+- Ejecutar en entorno de desarrollo: 1 a 2 jornadas.
+- Cargar seed transformado: 1 a 2 jornadas.
+- Conectar la aplicación: 5 a 10 jornadas.
+- Pruebas y estabilización: 5 a 8 jornadas.
+- Estimación total: 3 a 5 semanas de trabajo cuidadoso para una primera migración estable del MVP.
+
+## 14. Relaciones principales
 
 Dominio de identidad:
 
@@ -1663,7 +2071,7 @@ driver_vehicle_assignments.status = active
 and ended_at is null
 ```
 
-## 14. Fuentes de verdad
+## 15. Fuentes de verdad
 
 - `auth.users`: autenticación.
 - `persons`: identidad humana central.
@@ -1728,7 +2136,7 @@ and ended_at is null
 - `permission_policies`: posible documentación futura de permisos declarativos; no fuente de autorización inicial.
 - `integrity_checks`: registro opcional de validaciones de integridad.
 
-## 15. Campos legacy que no migrarán como fuentes de verdad
+## 16. Campos legacy que no migrarán como fuentes de verdad
 
 No deberán migrarse como fuentes de verdad:
 
@@ -1784,7 +2192,7 @@ No deberán migrarse como fuentes de verdad:
 
 Algunos de estos valores podrán transformarse durante el seed o conservarse como snapshots históricos solo cuando exista una razón de auditoría.
 
-## 16. Datos mock y estrategia de seed
+## 17. Datos mock y estrategia de seed
 
 Los datos ficticios actuales se transformarán antes de cargarse como seed de desarrollo.
 
@@ -1812,7 +2220,7 @@ Durante la transformación:
 
 Los mocks no se copiarán literalmente a tablas.
 
-## 17. Decisiones abiertas
+## 18. Decisiones abiertas
 
 Decisiones pendientes del dominio de identidad:
 
@@ -1909,7 +2317,7 @@ Decisiones pendientes del dominio transversal:
 - Orden de implementación de funciones seguras transaccionales.
 - Batería final de pruebas de RLS por contexto.
 
-## 18. Próximos dominios
+## 19. Próximos dominios
 
 - Migraciones SQL.
 - Seed.
