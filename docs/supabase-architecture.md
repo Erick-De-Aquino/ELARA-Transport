@@ -827,7 +827,217 @@ service_payments = fuente de verdad de pagos de servicio
 cash_movements = fuente de verdad de Caja
 ```
 
-## 9. Relaciones principales
+## 9. Gastos
+
+El dominio de Gastos representará costes operativos de ELARA y solicitudes declaradas desde el Portal conductor. Una solicitud del conductor no será un gasto aprobado hasta superar revisión administrativa.
+
+Tablas del dominio:
+
+- `expense_categories`: catálogo de categorías de gasto.
+- `expenses`: entidad central del gasto o solicitud.
+- `expense_receipts`: metadatos de justificantes y rutas futuras de Storage.
+- `expense_reviews`: decisiones administrativas de revisión.
+- `expense_payments`: pagos a proveedores.
+- `expense_reimbursements`: devoluciones al conductor.
+- `expense_events`: eventos append-only del ciclo del gasto.
+- `expense_liquidation_links`: vínculo futuro con Liquidaciones para evitar doble inclusión activa.
+
+Decisiones fijadas:
+
+- Una solicitud del conductor no es un gasto aprobado.
+- `expenses` será la fuente de verdad del gasto.
+- `expense_reviews` conservará las decisiones administrativas.
+- `expense_payments` representará pagos a proveedores.
+- `expense_reimbursements` representará devoluciones al conductor.
+- Los pagos y reembolsos en efectivo generarán salidas en `cash_movements`.
+- No se eliminará ningún registro financiero.
+- Las anulaciones quedan reservadas a Superadmin.
+- Toda anulación con impacto en Caja creará un movimiento inverso.
+- El método activo inicial será `cash`.
+- En aprobación parcial, el máximo pagable o reembolsable será `approved_amount`.
+- Los justificantes se guardarán posteriormente en Supabase Storage; la base solo conservará metadatos y rutas.
+- El conductor solo podrá ver y operar sus propios gastos.
+- Solo gastos aprobados y marcados como computables podrán incluirse en Liquidaciones.
+- `expense_liquidation_links` impedirá la doble inclusión activa.
+
+Códigos humanos previstos:
+
+- `EXP-000001` para gastos.
+- `EXPPAY-000001` para pagos de gastos.
+- `EXPRMB-000001` para reembolsos.
+
+Estados del gasto:
+
+- `draft`
+- `pending_review`
+- `information_required`
+- `approved`
+- `partially_approved`
+- `rejected`
+- `pending_payment`
+- `pending_reimbursement`
+- `paid`
+- `reimbursed`
+- `annulled`
+
+Diferencias conceptuales:
+
+- Gasto administrativo: coste creado desde Administración y gestionado por ELARA.
+- Solicitud del conductor: declaración creada desde Portal conductor que requiere revisión.
+- Gasto aprobado: gasto validado total o parcialmente por Administración.
+- Pago: salida a proveedor, registrada en `expense_payments`.
+- Reembolso: devolución al conductor, registrada en `expense_reimbursements`.
+- Gasto computable para liquidación: gasto aprobado, marcado como computable y no incluido activamente en otra liquidación.
+
+Fuentes de verdad:
+
+- `expenses`: gasto, solicitud, importe solicitado, importe aprobado y estado actual.
+- `expense_reviews`: decisiones administrativas y motivos.
+- `expense_payments`: pagos a proveedores.
+- `expense_reimbursements`: devoluciones al conductor.
+- `expense_receipts`: metadatos de justificantes.
+- `cash_movements`: impacto en Caja.
+- `expense_events`: historial append-only.
+- `expense_liquidation_links`: inclusión futura en Liquidaciones.
+
+Creación y edición:
+
+- Administración podrá crear gastos administrativos.
+- El conductor podrá crear solicitudes propias desde el Portal.
+- La edición estará limitada a estados previos a revisión o a estados que requieran información, según permisos.
+- No se deberá editar directamente una aprobación ya emitida; cualquier cambio relevante deberá quedar en revisión o evento.
+- Un gasto podrá relacionarse con conductor, vehículo, servicio o proveedor cuando corresponda.
+
+Revisión total o parcial:
+
+- Aprobar total fija `approved_amount` igual al importe solicitado.
+- Aprobar parcialmente fija `approved_amount` menor que el importe solicitado.
+- El importe aprobado deberá ser mayor que cero.
+- En aprobación parcial, el máximo pagable o reembolsable será `approved_amount`.
+- La decisión quedará registrada en `expense_reviews`.
+
+Solicitud de información:
+
+- Requerirá motivo.
+- Cambiará el gasto a `information_required`.
+- No aprobará importes ni generará pagos, reembolsos o movimientos de Caja.
+
+Rechazo:
+
+- Requerirá motivo.
+- Cambiará el gasto a `rejected`.
+- No generará pagos, reembolsos ni movimientos de Caja.
+- La decisión quedará en `expense_reviews` y `expense_events`.
+
+Integración con Caja:
+
+- Un pago a proveedor en efectivo generará una salida en `cash_movements`.
+- Un reembolso al conductor en efectivo generará una salida en `cash_movements`.
+- `cash_movements` seguirá siendo la fuente de verdad del efectivo físico.
+- Si una anulación afecta Caja, deberá crear un movimiento inverso vinculado al movimiento original.
+- No se borrarán movimientos de Caja.
+
+Justificantes y Storage futuro:
+
+- `expense_receipts` guardará estado del comprobante, nombre de archivo, tipo MIME, tamaño, bucket, ruta, usuario y fecha.
+- El archivo binario vivirá en Supabase Storage cuando se implemente.
+- La sustitución de documentos deberá conservar historial mediante relación con el justificante reemplazado o evento.
+- El conductor solo podrá acceder a justificantes de sus propios gastos.
+- Administración accederá según permisos y contexto activo.
+
+Estados de justificante:
+
+- `attached`
+- `pending_attachment`
+- `not_available`
+- `not_required`
+- `replaced`
+- `annulled`
+
+Idempotencia:
+
+- Los pagos, reembolsos, anulaciones y acciones sensibles deberán usar `idempotency_key`.
+- No deberá existir doble pago activo para el mismo gasto.
+- No deberá existir doble reembolso activo para el mismo gasto.
+- No deberá existir doble reversión del mismo movimiento de Caja.
+- `expense_liquidation_links` impedirá doble inclusión activa en Liquidaciones.
+
+Permisos:
+
+- Superadmin: ver, crear, revisar, aprobar, aprobar parcialmente, requerir información, rechazar, pagar, reembolsar y anular.
+- Administrativo: ver y gestionar gastos según política; revisar, aprobar, aprobar parcialmente, requerir información, rechazar, pagar y reembolsar si se mantiene la regla funcional.
+- Conductor: crear solicitudes propias, ver sus gastos y aportar información o justificantes; no aprobar, pagar, reembolsar ni anular.
+
+Los permisos efectivos dependerán del `active_context` de la sesión. El conductor solo podrá ver y operar gastos asociados a su `driver_id`.
+
+Relación futura con Liquidaciones:
+
+- Solo gastos aprobados y marcados como computables podrán incluirse.
+- Se deberá conservar snapshot de importe computado, categoría, conductor, fecha y estado.
+- `expense_liquidation_links` impedirá doble inclusión activa del mismo gasto.
+- Una anulación o reversión posterior deberá coordinarse con Liquidaciones para no alterar snapshots históricos sin evento compensatorio.
+
+Datos derivados que no deberán almacenarse como fuentes paralelas:
+
+- métricas superiores de gastos;
+- totales por estado;
+- importe pendiente de pago calculable;
+- importe pendiente de reembolso calculable;
+- nombre visible del conductor;
+- nombre visible del proveedor;
+- estado visual;
+- contadores de justificantes;
+- total computable para liquidación.
+
+Transformación de mocks:
+
+- Los gastos mock se transformarán en `expenses`.
+- Las categorías mock se normalizarán en `expense_categories`.
+- Las decisiones de revisión se transformarán en `expense_reviews`.
+- Los pagos mock se transformarán en `expense_payments`.
+- Los reembolsos mock se transformarán en `expense_reimbursements`.
+- Los justificantes mock se transformarán en `expense_receipts`.
+- Los eventos relevantes se transformarán en `expense_events`.
+- Los vínculos futuros con Liquidaciones se transformarán en `expense_liquidation_links` solo si representan inclusión real.
+- Las métricas y resúmenes mock no se migrarán como fuentes de verdad.
+
+Decisiones abiertas del dominio:
+
+- Catálogo final de categorías.
+- Si Administrativo podrá anular o si queda reservado siempre a Superadmin.
+- Métodos de pago activos más allá de `cash`.
+- Reglas exactas de edición en `information_required`.
+- Cuándo un gasto aprobado pasa a `pending_payment` o `pending_reimbursement`.
+- Modelo definitivo de proveedores.
+- Buckets, rutas, retención y acceso de Storage.
+- Reglas fiscales futuras para facturas de gastos.
+- Integración exacta con Liquidaciones.
+- RLS para aislamiento estricto del Portal conductor.
+
+Diagrama textual:
+
+```text
+drivers
+  └── N expenses
+          ├── 1 expense_categories
+          ├── N expense_receipts
+          ├── N expense_reviews
+          ├── N expense_events
+          ├── 0..N expense_payments ── 0..1 cash_movements
+          ├── 0..N expense_reimbursements ── 0..1 cash_movements
+          ├── 0..N expense_liquidation_links
+          ├── 0..1 services
+          └── 0..1 vehicles
+
+expenses = fuente de verdad del gasto o solicitud
+expense_reviews = decisiones administrativas
+expense_payments = pagos a proveedores
+expense_reimbursements = devoluciones al conductor
+cash_movements = fuente de verdad de impacto en Caja
+expense_events = historial append-only
+```
+
+## 10. Relaciones principales
 
 Dominio de identidad:
 
@@ -876,7 +1086,7 @@ driver_vehicle_assignments.status = active
 and ended_at is null
 ```
 
-## 10. Fuentes de verdad
+## 11. Fuentes de verdad
 
 - `auth.users`: autenticación.
 - `persons`: identidad humana central.
@@ -915,8 +1125,16 @@ and ended_at is null
 - `receivables`: cuentas por cobrar.
 - `receivable_payments`: cobros posteriores de cuentas por cobrar.
 - `receivable_events`: eventos append-only de CxC.
+- `expense_categories`: categorías de gasto.
+- `expenses`: gastos y solicitudes.
+- `expense_receipts`: metadatos de justificantes.
+- `expense_reviews`: decisiones administrativas.
+- `expense_payments`: pagos a proveedores.
+- `expense_reimbursements`: devoluciones al conductor.
+- `expense_events`: eventos append-only de gastos.
+- `expense_liquidation_links`: inclusión futura en Liquidaciones.
 
-## 11. Campos legacy que no migrarán como fuentes de verdad
+## 12. Campos legacy que no migrarán como fuentes de verdad
 
 No deberán migrarse como fuentes de verdad:
 
@@ -954,10 +1172,15 @@ No deberán migrarse como fuentes de verdad:
 - saldos agregados por cliente
 - estados visuales de CxC
 - resúmenes manuales de cuentas por cobrar
+- métricas mock de Gastos
+- estados visuales de gastos
+- totales pendientes de pago calculables
+- totales pendientes de reembolso calculables
+- nombres de proveedor o conductor como relación viva
 
 Algunos de estos valores podrán transformarse durante el seed o conservarse como snapshots históricos solo cuando exista una razón de auditoría.
 
-## 12. Datos mock y estrategia de seed
+## 13. Datos mock y estrategia de seed
 
 Los datos ficticios actuales se transformarán antes de cargarse como seed de desarrollo.
 
@@ -977,10 +1200,11 @@ Durante la transformación:
 - se transformarán datos financieros mock en `service_financials`, `service_payments`, `service_payment_events`, `service_billing` y eventos financieros cuando corresponda.
 - se transformarán movimientos, rendiciones, diferencias y arqueos mock en las tablas de Caja, sin migrar saldos ni métricas como verdad.
 - se transformarán cuentas y cobros mock de CxC en `receivables`, `receivable_payments` y `receivable_events`, sin migrar métricas ni resúmenes como verdad.
+- se transformarán gastos mock en `expense_categories`, `expenses`, `expense_receipts`, `expense_reviews`, `expense_payments`, `expense_reimbursements`, `expense_events` y, cuando exista inclusión real, `expense_liquidation_links`.
 
 Los mocks no se copiarán literalmente a tablas.
 
-## 13. Decisiones abiertas
+## 14. Decisiones abiertas
 
 Decisiones pendientes del dominio de identidad:
 
@@ -1054,9 +1278,21 @@ Decisiones pendientes del dominio de Cuentas por cobrar:
 - Integridad cruzada entre `receivable_payment`, `service_payment` y `cash_movement`.
 - RLS para lectura y operación administrativa.
 
-## 14. Próximos dominios
+Decisiones pendientes del dominio de Gastos:
 
-- Gastos.
+- Catálogo final de categorías.
+- Alcance de anulación para Administrativo frente a Superadmin.
+- Métodos de pago activos más allá de efectivo.
+- Reglas de edición cuando se requiere información.
+- Transición exacta hacia pago o reembolso pendiente.
+- Modelo definitivo de proveedores.
+- Diseño de Storage para justificantes.
+- Reglas fiscales futuras.
+- Integración exacta con Liquidaciones.
+- RLS para aislamiento del Portal conductor.
+
+## 15. Próximos dominios
+
 - Liquidaciones.
 - Incidencias y auditoría.
 - Configuración.
