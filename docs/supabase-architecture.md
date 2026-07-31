@@ -334,7 +334,135 @@ service_assignments.assignment_status = fuente de verdad de asignación y acepta
 service_driver_progress.stage = fuente de verdad de etapa actual
 ```
 
-## 6. Relaciones principales
+## 6. Finanzas del servicio y pagos
+
+El dominio financiero del servicio quedará separado del estado operativo. Un servicio podrá estar finalizado, cancelado o no realizado sin que eso altere por sí mismo su estado financiero; el cobro, la deuda, la facturación y la trazabilidad económica se resolverán desde tablas financieras específicas.
+
+Tablas del dominio:
+
+- `service_financials`: configuración financiera normalizada del servicio.
+- `service_payment_methods`: catálogo controlado de métodos de pago.
+- `service_payments`: pagos registrados contra servicios.
+- `service_payment_events`: eventos append-only asociados a cada pago.
+- `service_billing`: datos y estado de facturación del servicio.
+- `service_financial_events`: eventos append-only de cambios financieros del servicio.
+
+Fuentes de verdad aprobadas:
+
+- Cada servicio tendrá una sola fila en `service_financials`.
+- `service_financials` será la fuente de verdad de precio base, IVA configurado, total financiero y estado financiero materializado cuando se decida mantenerlo.
+- `service_payments` será la fuente de verdad de los pagos.
+- El importe pagado y el importe pendiente deberán validarse desde el total del servicio y los pagos activos.
+- `service_payment_events` y `service_financial_events` serán append-only.
+- Los campos financieros embebidos actuales no serán fuentes paralelas de verdad.
+
+Configuración de precio e IVA:
+
+- El IVA inicial del MVP será 0 %, con estructura preparada para cambios futuros.
+- El precio base y el porcentaje de IVA deberán guardarse en `service_financials`.
+- El total podrá guardarse como valor controlado o recalcularse desde base e IVA, según la decisión final de integridad financiera.
+- Los cambios de precio deberán quedar auditados mediante eventos financieros.
+- No se migrarán `price`, `payment`, `paidAmount` ni `pendingAmount` como fuentes paralelas.
+
+Métodos de pago:
+
+- El método activo inicial será `cash`.
+- `bank_transfer` y `card` quedarán modelados, pero no activados todavía.
+- `service_payment_methods` permitirá controlar disponibilidad, etiqueta visual y activación futura sin cambiar el modelo de pagos.
+
+Pagos administrativos:
+
+- Un cobro administrativo registrará un pago en `service_payments` con origen `administration`.
+- Ese cobro deberá integrarse después con una entrada en Caja.
+- La integración con Caja queda fuera de este dominio, pero la relación futura debe quedar trazable mediante referencias al pago y al servicio.
+- La operación deberá prevenir duplicados mediante claves de idempotencia o referencias únicas cuando se diseñe la implementación.
+
+Cobros del conductor:
+
+- Un cobro del conductor registrará la recaudación asociada al servicio con origen `driver`.
+- Ese cobro generará una obligación de rendición futura.
+- No generará una entrada inmediata en Caja, porque el efectivo todavía no ha sido entregado físicamente a ELARA.
+- La rendición se diseñará en el dominio de Caja y rendiciones.
+
+Estados financieros:
+
+- `undefined`
+- `pending`
+- `partial`
+- `paid`
+- `refunded`
+- `uncollectible`
+
+El estado financiero deberá validarse desde el total del servicio y los pagos activos, sin depender de importes legacy almacenados como fuente paralela.
+
+Estados de pago:
+
+- `registered`
+- `annulled`
+- `refunded`
+
+Los pagos no se eliminarán. Se anularán o reembolsarán con trazabilidad, eventos append-only y referencias a usuario, contexto, fecha y motivo cuando corresponda.
+
+Anulaciones y reembolsos:
+
+- Una anulación no deberá borrar el pago original.
+- Un reembolso no deberá sobrescribir el pago original.
+- Los eventos de anulación y reembolso deberán quedar en `service_payment_events`.
+- La reversión económica futura deberá coordinarse con Caja cuando el pago haya tenido impacto en efectivo.
+
+Idempotencia:
+
+- El código humano previsto para pagos será `PAY-000001`.
+- La base de datos generará códigos humanos de forma transaccional segura.
+- Los registros de pago deberán incluir un mecanismo de idempotencia o referencia única para evitar cobros duplicados.
+- No se deberá permitir que una misma acción de cobro cree varios pagos activos equivalentes.
+
+Facturación:
+
+- `service_billing` almacenará el estado de facturación, referencia fiscal futura y snapshots mínimos necesarios.
+- La facturación no será fuente de verdad del pago.
+- Los datos históricos de cliente necesarios para facturas deberán conservarse como snapshot controlado.
+- La generación documental, numeración fiscal definitiva y obligaciones tributarias quedan como decisiones abiertas.
+
+Transformación de mocks:
+
+- `service.financial` se transformará en `service_financials`.
+- Los pagos embebidos se transformarán en `service_payments` y `service_payment_events`.
+- Los datos de facturación mock se transformarán en `service_billing` solo si representan información funcional.
+- `price`, `payment`, `paidAmount` y `pendingAmount` no se migrarán como fuentes de verdad.
+- Los importes calculables se derivarán desde `service_financials` y `service_payments`.
+
+Decisiones abiertas del dominio:
+
+- Si se permitirán pagos parciales en la primera implementación Supabase.
+- Si `service_financials.financial_status` será campo materializado validado o vista derivada.
+- Regla exacta para modificar precio cuando ya existan pagos.
+- Activación operativa futura de transferencia y tarjeta.
+- Modelo definitivo de integración con Caja.
+- Modelo definitivo de obligación de rendición del conductor.
+- Reglas de reembolso parcial o total.
+- Alcance fiscal de `service_billing` y numeración de facturas.
+- Política RLS para que conductores vean solo pagos relacionados con sus servicios.
+
+Diagrama textual:
+
+```text
+services
+  └── 1 service_financials
+          │
+          ├── N service_payments ── 1 service_payment_methods
+          │       └── N service_payment_events
+          │
+          ├── 0..1 service_billing
+          └── N service_financial_events
+
+service_financials = fuente de verdad de configuración financiera del servicio
+service_payments = fuente de verdad de pagos
+service_payment_events = historial append-only del pago
+service_financial_events = historial append-only financiero del servicio
+```
+
+## 7. Relaciones principales
 
 Dominio de identidad:
 
@@ -383,7 +511,7 @@ driver_vehicle_assignments.status = active
 and ended_at is null
 ```
 
-## 7. Fuentes de verdad
+## 8. Fuentes de verdad
 
 - `auth.users`: autenticación.
 - `persons`: identidad humana central.
@@ -405,8 +533,14 @@ and ended_at is null
 - `service_driver_progress`: etapa actual de ejecución.
 - `service_status_history`: historial append-only de estados.
 - `service_events`: eventos operativos append-only.
+- `service_financials`: configuración financiera del servicio.
+- `service_payment_methods`: catálogo controlado de métodos de pago.
+- `service_payments`: pagos del servicio.
+- `service_payment_events`: eventos append-only de pagos.
+- `service_billing`: facturación del servicio.
+- `service_financial_events`: eventos financieros append-only.
 
-## 8. Campos legacy que no migrarán como fuentes de verdad
+## 9. Campos legacy que no migrarán como fuentes de verdad
 
 No deberán migrarse como fuentes de verdad:
 
@@ -431,10 +565,14 @@ No deberán migrarse como fuentes de verdad:
 - `services.action`
 - etiquetas visuales de estado de servicio
 - campos financieros embebidos en el servicio para este dominio
+- `services.price`
+- `services.payment`
+- `service.financial.paidAmount`
+- `service.financial.pendingAmount`
 
 Algunos de estos valores podrán transformarse durante el seed o conservarse como snapshots históricos solo cuando exista una razón de auditoría.
 
-## 9. Datos mock y estrategia de seed
+## 10. Datos mock y estrategia de seed
 
 Los datos ficticios actuales se transformarán antes de cargarse como seed de desarrollo.
 
@@ -451,10 +589,11 @@ Durante la transformación:
 - se transformará el kilometraje en `vehicle_odometer_readings`;
 - se transformará mantenimiento embebido en `vehicle_maintenance_records`.
 - se transformarán servicios mock en `services`, `service_locations`, `service_passengers`, `service_assignments`, cierres, cancelaciones, eventos y snapshots mínimos.
+- se transformarán datos financieros mock en `service_financials`, `service_payments`, `service_payment_events`, `service_billing` y eventos financieros cuando corresponda.
 
 Los mocks no se copiarán literalmente a tablas.
 
-## 10. Decisiones abiertas
+## 11. Decisiones abiertas
 
 Decisiones pendientes del dominio de identidad:
 
@@ -493,9 +632,20 @@ Decisiones pendientes del dominio de servicios:
 - Ubicación definitiva de snapshots históricos.
 - RLS para operación exclusiva de servicios propios por conductor.
 
-## 11. Próximos dominios
+Decisiones pendientes del dominio de finanzas del servicio:
 
-- Finanzas del servicio.
+- Alcance inicial de pagos parciales.
+- Materialización o derivación del estado financiero.
+- Reglas de modificación de precio con pagos existentes.
+- Activación futura de transferencia y tarjeta.
+- Integración definitiva con Caja.
+- Modelo de obligación de rendición por cobro del conductor.
+- Reglas completas de reembolsos.
+- Alcance fiscal de facturación y numeración.
+- RLS sobre pagos visibles para conductores.
+
+## 12. Próximos dominios
+
 - Caja y rendiciones.
 - Cuentas por cobrar.
 - Gastos.
