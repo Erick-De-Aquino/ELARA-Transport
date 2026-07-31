@@ -643,7 +643,191 @@ cash_movements = fuente de verdad de movimientos
 saldo teórico = derivado de movimientos válidos
 ```
 
-## 8. Relaciones principales
+## 8. Cuentas por cobrar
+
+El dominio de Cuentas por cobrar representará servicios finalizados que mantienen saldo pendiente válido. No será una deuda independiente del servicio: reflejará una obligación de cobro derivada de `service_financials` y se cerrará mediante un cobro completo conectado con `service_payments` y `cash_movements`.
+
+Tablas del dominio:
+
+- `receivables`: cuenta por cobrar asociada a un servicio.
+- `receivable_payments`: cobros posteriores registrados contra una cuenta.
+- `receivable_events`: eventos append-only de creación, reconciliación, cobro, anulación y cambios de estado.
+
+Decisiones fijadas:
+
+- Solo se creará CxC para servicios finalizados con saldo pendiente válido.
+- No se creará CxC para servicios cancelados, no show ni no realizados.
+- Solo podrá existir una cuenta activa por servicio.
+- En esta primera versión, el cobro será completo, no parcial.
+- `receivables` será la fuente de verdad de la cuenta.
+- `receivable_payments` será la fuente de verdad del cobro posterior.
+- Todo cobro deberá crear de forma atómica `receivable_payment`, `service_payment`, entrada en `cash_movements`, actualización de `receivable` y actualización de `service_financials`.
+- La anulación solo podrá realizarla Superadmin.
+- La anulación deberá anular el `receivable_payment`, revertir el `service_payment`, crear movimiento inverso en Caja, devolver la cuenta a `pending` y restaurar el estado financiero del servicio.
+- No se eliminarán registros.
+- La reconciliación deberá ser idempotente.
+- Los permisos dependerán del `active_context` de la sesión.
+- El conductor no tendrá acceso a CxC.
+
+Códigos humanos previstos:
+
+- `REC-000001` para cuentas por cobrar.
+- `RCP-000001` para cobros de cuentas por cobrar.
+
+Estados de cuenta:
+
+- `pending`
+- `collected`
+- `annulled`
+
+Estados de cobro:
+
+- `registered`
+- `annulled`
+
+Método inicial:
+
+- `cash`
+
+Origen desde servicios finalizados:
+
+- La cuenta nacerá desde un servicio existente.
+- El servicio deberá estar finalizado.
+- El servicio no podrá estar cancelado, no show ni no realizado.
+- El cliente deberá ser válido.
+- `service_financials` deberá indicar saldo pendiente válido.
+- No deberá existir otra cuenta activa para el mismo servicio.
+
+Saldo original y pendiente:
+
+- `receivables.original_amount` conservará el importe pendiente original al crear la cuenta.
+- `receivables.pending_amount` representará el saldo pendiente de la cuenta.
+- Mientras la cuenta esté `pending`, `pending_amount` deberá ser mayor que cero.
+- Al cobrar, `pending_amount` pasará a cero.
+- Al anular el cobro, `pending_amount` volverá al importe original.
+- Las métricas y totales agregados se derivarán, no se almacenarán como fuente paralela.
+
+Reconciliación idempotente:
+
+- La reconciliación revisará servicios finalizados con saldo pendiente.
+- Creará una cuenta solo si no existe una cuenta activa para ese `service_id`.
+- No duplicará cuentas al ejecutarse varias veces.
+- No recreará automáticamente una cuenta anulada sin una regla explícita.
+- No modificará cuentas ya cobradas salvo decisión futura controlada.
+- Podrá actualizar snapshots no financieros mientras la cuenta siga pendiente.
+
+Cobro completo:
+
+- El importe cobrado deberá coincidir exactamente con `pending_amount`.
+- No se permitirán pagos parciales en esta primera versión.
+- El cobro deberá registrar un `receivable_payment`.
+- El cobro deberá crear un `service_payment` asociado al servicio.
+- El cobro deberá crear una entrada en `cash_movements`.
+- El cobro deberá cambiar `receivables.status` a `collected`.
+- El cobro deberá actualizar `service_financials` para reflejar el servicio cobrado.
+
+Integración con `service_payments`:
+
+- `service_payments` seguirá siendo la fuente de verdad de pagos del servicio.
+- El pago de CxC deberá crear o vincular un pago de servicio.
+- El estado financiero del servicio deberá validarse desde total financiero y pagos activos.
+- La anulación del cobro deberá revertir el pago de servicio asociado sin eliminarlo.
+
+Integración con `service_financials`:
+
+- La cuenta se origina desde el saldo pendiente de `service_financials`.
+- Al cobrar, el estado financiero deberá quedar como cobrado o pagado según el catálogo final.
+- Al anular, el estado financiero deberá volver a pendiente.
+- No se alterará precio, IVA, total financiero ni estado operativo del servicio.
+
+Integración con `cash_movements`:
+
+- El cobro de CxC generará una entrada en Caja.
+- La entrada tendrá origen trazable hacia `receivable_payment`, `receivable` y `service`.
+- La anulación generará un movimiento inverso de Caja vinculado al movimiento original.
+- `cash_movements` seguirá siendo la fuente de verdad de Caja.
+
+Anulación:
+
+- Solo Superadmin podrá anular un cobro.
+- La anulación requerirá motivo.
+- No se eliminará el cobro original.
+- El `receivable_payment` quedará `annulled`.
+- El `service_payment` asociado quedará revertido o anulado según el catálogo final de pagos.
+- La Caja registrará un movimiento inverso.
+- La cuenta volverá a `pending`.
+- `service_financials` volverá a pendiente.
+
+Permisos:
+
+- Superadmin: ver CxC, registrar cobros y anular cobros.
+- Administrativo: ver CxC y registrar cobros.
+- Conductor: sin acceso a CxC.
+
+Los permisos efectivos dependerán del `active_context` de la sesión, no de la suma de roles asignados al usuario.
+
+Métricas derivadas:
+
+- Importe pendiente: suma de `pending_amount` de cuentas `pending`.
+- Servicios pendientes: cantidad de cuentas `pending`.
+- Clientes con deuda: clientes únicos con cuentas `pending`.
+- Total cobrado: suma de `receivable_payments` con estado `registered`.
+- Cobros registrados: cantidad de `receivable_payments` con estado `registered`.
+
+Datos derivados que no deberán almacenarse como fuentes paralelas:
+
+- métricas superiores;
+- saldo total por cliente;
+- contadores por estado;
+- estado visual;
+- nombre vivo del cliente;
+- nombre vivo del servicio;
+- importe cobrado agregado;
+- importe pendiente agregado;
+- resúmenes mock.
+
+Transformación de mocks:
+
+- Las cuentas REC mock se transformarán en `receivables`.
+- Los cobros RCP mock se transformarán en `receivable_payments`.
+- Los eventos relevantes se transformarán en `receivable_events`.
+- Las referencias a servicio, cliente, pago de servicio y Caja se normalizarán mediante relaciones.
+- Las métricas, resúmenes y totales visibles no se migrarán como fuentes de verdad.
+- Los snapshots de cliente o servicio solo se conservarán cuando tengan valor de auditoría.
+
+Decisiones abiertas del dominio:
+
+- Si `pending_amount` será campo materializado validado o vista derivada.
+- Regla para cuentas anuladas si el servicio vuelve a quedar pendiente.
+- Catálogo final de estados financieros compartidos con `service_financials`.
+- Activación futura de métodos distintos de `cash`.
+- Alcance de snapshots históricos de cliente y servicio.
+- Nivel de atomicidad entre CxC, pagos de servicio y Caja.
+- Validación final de integridad entre `receivable_payment`, `service_payment` y `cash_movement`.
+- Políticas RLS para lectura y operación administrativa.
+
+Diagrama textual:
+
+```text
+services
+  └── 1 service_financials
+          └── 0..1 receivables
+                    ├── N receivable_events
+                    └── N receivable_payments
+                              ├── 1 service_payments
+                              ├── 1 cash_movements
+                              └── 0..1 reversal_cash_movement
+
+customers
+  └── N receivables
+
+receivables = fuente de verdad de la cuenta
+receivable_payments = fuente de verdad del cobro posterior
+service_payments = fuente de verdad de pagos de servicio
+cash_movements = fuente de verdad de Caja
+```
+
+## 9. Relaciones principales
 
 Dominio de identidad:
 
@@ -692,7 +876,7 @@ driver_vehicle_assignments.status = active
 and ended_at is null
 ```
 
-## 9. Fuentes de verdad
+## 10. Fuentes de verdad
 
 - `auth.users`: autenticación.
 - `persons`: identidad humana central.
@@ -728,8 +912,11 @@ and ended_at is null
 - `cash_counts`: arqueos.
 - `cash_movement_events`: eventos append-only de movimientos de Caja.
 - `cash_count_events`: eventos append-only de arqueos.
+- `receivables`: cuentas por cobrar.
+- `receivable_payments`: cobros posteriores de cuentas por cobrar.
+- `receivable_events`: eventos append-only de CxC.
 
-## 10. Campos legacy que no migrarán como fuentes de verdad
+## 11. Campos legacy que no migrarán como fuentes de verdad
 
 No deberán migrarse como fuentes de verdad:
 
@@ -763,10 +950,14 @@ No deberán migrarse como fuentes de verdad:
 - totales rendidos calculables
 - pendientes de rendición calculables
 - diferencias agregadas calculables
+- métricas mock de CxC
+- saldos agregados por cliente
+- estados visuales de CxC
+- resúmenes manuales de cuentas por cobrar
 
 Algunos de estos valores podrán transformarse durante el seed o conservarse como snapshots históricos solo cuando exista una razón de auditoría.
 
-## 11. Datos mock y estrategia de seed
+## 12. Datos mock y estrategia de seed
 
 Los datos ficticios actuales se transformarán antes de cargarse como seed de desarrollo.
 
@@ -785,10 +976,11 @@ Durante la transformación:
 - se transformarán servicios mock en `services`, `service_locations`, `service_passengers`, `service_assignments`, cierres, cancelaciones, eventos y snapshots mínimos.
 - se transformarán datos financieros mock en `service_financials`, `service_payments`, `service_payment_events`, `service_billing` y eventos financieros cuando corresponda.
 - se transformarán movimientos, rendiciones, diferencias y arqueos mock en las tablas de Caja, sin migrar saldos ni métricas como verdad.
+- se transformarán cuentas y cobros mock de CxC en `receivables`, `receivable_payments` y `receivable_events`, sin migrar métricas ni resúmenes como verdad.
 
 Los mocks no se copiarán literalmente a tablas.
 
-## 12. Decisiones abiertas
+## 13. Decisiones abiertas
 
 Decisiones pendientes del dominio de identidad:
 
@@ -851,9 +1043,19 @@ Decisiones pendientes del dominio de Caja:
 - Integración detallada con Cuentas por cobrar, Gastos y Liquidaciones.
 - RLS sobre movimientos, rendiciones y arqueos.
 
-## 13. Próximos dominios
+Decisiones pendientes del dominio de Cuentas por cobrar:
 
-- Cuentas por cobrar.
+- Materialización o derivación de `pending_amount`.
+- Tratamiento de cuentas anuladas si el servicio vuelve a quedar pendiente.
+- Catálogo final compartido de estados financieros.
+- Activación futura de métodos distintos de efectivo.
+- Alcance de snapshots de cliente y servicio.
+- Atomicidad definitiva entre CxC, pagos de servicio y Caja.
+- Integridad cruzada entre `receivable_payment`, `service_payment` y `cash_movement`.
+- RLS para lectura y operación administrativa.
+
+## 14. Próximos dominios
+
 - Gastos.
 - Liquidaciones.
 - Incidencias y auditoría.
