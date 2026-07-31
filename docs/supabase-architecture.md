@@ -462,7 +462,188 @@ service_payment_events = historial append-only del pago
 service_financial_events = historial append-only financiero del servicio
 ```
 
-## 7. Relaciones principales
+## 7. Caja, rendiciones y arqueos
+
+El dominio de Caja representará una única Caja física consolidada para ELARA. Caja no duplicará ingresos, deudas ni pagos de otros dominios; registrará únicamente movimientos de efectivo físico y sus reversiónes trazables.
+
+Tablas del dominio:
+
+- `cash_boxes`: caja física consolidada.
+- `cash_movement_categories`: catálogo de categorías de movimientos.
+- `cash_movements`: movimientos de entrada, salida, ajuste y reversión.
+- `driver_remittances`: entregas de efectivo realizadas por conductores.
+- `driver_remittance_differences`: diferencias detectadas en rendiciones.
+- `cash_counts`: arqueos de Caja.
+- `cash_count_events`: eventos append-only de arqueos.
+- `cash_movement_events`: eventos append-only de movimientos.
+
+Decisiones fijadas:
+
+- Existe una única Caja física consolidada.
+- `cash_movements` será la fuente de verdad de Caja.
+- El saldo teórico se derivará de movimientos válidos.
+- Los importes se almacenarán siempre positivos.
+- `movement_type` determinará si el movimiento suma o resta.
+- Ningún movimiento financiero se eliminará.
+- Toda reversión creará un movimiento inverso vinculado al movimiento original.
+- El cobro administrativo generará entrada inmediata en Caja.
+- El cobro del conductor no entrará en Caja hasta la rendición.
+- Una rendición válida generará una entrada en Caja.
+- Las diferencias no modificarán Caja automáticamente.
+- Los ajustes manuales requerirán justificación y permiso de Superadmin.
+- Los arqueos cerrados no se reabrirán.
+- Cualquier corrección posterior requerirá nuevo arqueo o ajuste auditado.
+- Las integraciones usarán `idempotency_key`.
+
+Códigos humanos previstos:
+
+- `CASH-000001` para movimientos de Caja.
+- `REM-000001` para rendiciones.
+- `DIF-000001` para diferencias.
+- `ARC-000001` para arqueos.
+
+Fuentes de verdad:
+
+- `cash_boxes`: identidad de la Caja física única.
+- `cash_movements`: movimientos válidos y saldo teórico derivado.
+- `driver_remittances`: entregas de efectivo por conductor.
+- `driver_remittance_differences`: diferencias de rendición.
+- `cash_counts`: arqueos.
+- `cash_movement_events`: trazabilidad append-only de movimientos.
+- `cash_count_events`: trazabilidad append-only de arqueos.
+
+Movimientos de Caja:
+
+- `inflow`: entrada de efectivo.
+- `outflow`: salida de efectivo.
+- `adjustment`: ajuste manual justificado.
+- `reversal`: movimiento inverso vinculado a uno anterior.
+
+Cada movimiento deberá incluir importe positivo, moneda, fecha operativa, usuario registrador, contexto activo, categoría, estado, origen y, cuando corresponda, motivo u observaciones.
+
+Estados de movimiento:
+
+- `registered`
+- `annulled`
+- `reversed`
+
+La anulación o reversión no borrará el movimiento original. La corrección financiera se hará con trazabilidad, evento y movimiento inverso si corresponde.
+
+Rendiciones:
+
+- Una rendición representa efectivo entregado por un conductor.
+- Puede cubrir total o parcialmente obligaciones de rendición.
+- Una rendición parcial no genera diferencia por sí sola.
+- Una sobrerendición deberá quedar registrada y señalada como inconsistencia o diferencia administrativa, sin autocorrección de datos.
+- Una rendición válida generará una entrada en `cash_movements`.
+- Una rendición anulada conservará su registro y deberá quedar vinculada a la reversión de Caja correspondiente si ya impactó el saldo.
+
+Diferencias:
+
+- Las diferencias se registrarán en `driver_remittance_differences`.
+- No modificarán Caja automáticamente.
+- Podrán originar un ajuste manual posterior si lo aprueba un Superadmin.
+- Deberán conservar conductor, importe esperado, importe rendido, diferencia, motivo, estado y auditoría.
+
+Arqueos:
+
+- `cash_counts` comparará saldo teórico con importe contado.
+- El saldo teórico se calculará desde `cash_movements` válidos.
+- El importe contado será el dato observado en el arqueo.
+- La diferencia no modificará el saldo por sí misma.
+- Un arqueo cerrado no se reabrirá.
+- Cualquier corrección posterior se registrará mediante nuevo arqueo o ajuste auditado.
+
+Idempotencia:
+
+- Las integraciones con otros dominios deberán enviar o generar `idempotency_key`.
+- No deberá existir más de un movimiento activo para la misma operación origen.
+- Una reversión deberá vincularse al movimiento original y evitar duplicidades.
+- El registro de rendiciones, ajustes y arqueos deberá ser resistente a dobles envíos del navegador.
+
+Relaciones polimórficas:
+
+- `cash_movements` usará `source_type` y `source_id` para identificar el origen funcional.
+- Se podrán añadir referencias específicas cuando el dominio lo requiera, por ejemplo `service_payment_id`, `receivable_payment_id`, `expense_id`, `settlement_id` o `remittance_id`.
+- La ventaja es mantener una Caja única integrable con varios dominios.
+- El riesgo es que las claves polimórficas no garantizan integridad por sí solas; deberán reforzarse con funciones seguras, checks de dominio e integridades periódicas.
+
+Puntos de integración:
+
+- Pagos administrativos de servicios: entrada inmediata.
+- Pagos de cuentas por cobrar: entrada inmediata.
+- Gastos: salida o reversión según el flujo.
+- Liquidaciones: salida por pago a conductor o colaborador.
+- Rendiciones: entrada al entregar efectivo recaudado por conductor.
+- Diferencias: registro administrativo, sin impacto automático.
+- Ajustes: movimiento manual justificado.
+- Anulaciones: movimiento inverso vinculado al original.
+
+Datos derivados que no deberán almacenarse como fuentes paralelas:
+
+- saldo actual;
+- saldo por día;
+- total de entradas;
+- total de salidas;
+- total rendido por conductor;
+- pendiente de rendir;
+- diferencia agregada;
+- métricas de Caja;
+- contadores de arqueos o movimientos.
+
+Transformación de mocks:
+
+- Los movimientos mock se transformarán en `cash_movements` y `cash_movement_events`.
+- Las categorías visibles se normalizarán en `cash_movement_categories`.
+- Las rendiciones mock se transformarán en `driver_remittances`.
+- Las diferencias mock se transformarán en `driver_remittance_differences`.
+- Los arqueos mock se transformarán en `cash_counts` y `cash_count_events`.
+- Los saldos, totales y resúmenes mock no se migrarán como fuentes de verdad.
+- Las referencias legacy a servicios, pagos, gastos o liquidaciones se transformarán en `source_type`, `source_id` y referencias específicas cuando existan.
+
+Decisiones abiertas del dominio:
+
+- Catálogo final de categorías de Caja.
+- Si el saldo teórico se expondrá mediante vista derivada o función segura.
+- Reglas exactas para sobrerendición y autorización.
+- Estados finales de diferencias y su flujo de resolución.
+- Nivel de detalle de denominaciones en arqueos.
+- Diseño final de ajustes manuales y límites por rol.
+- Validación final de relaciones polimórficas por base de datos.
+- Integración definitiva con Cuentas por cobrar, Gastos y Liquidaciones.
+- Políticas RLS para visualizar y registrar movimientos sensibles.
+
+Diagrama textual:
+
+```text
+cash_boxes
+  └── N cash_movements ── 1 cash_movement_categories
+          ├── N cash_movement_events
+          ├── 0..1 driver_remittances ── 1 drivers
+          └── 0..1 reversal_of_movement
+
+drivers
+  ├── N driver_remittances
+  └── N driver_remittance_differences
+
+cash_boxes
+  └── N cash_counts
+          └── N cash_count_events
+
+cash_movements.source_type/source_id
+  ├── service_payment
+  ├── receivable_payment
+  ├── expense
+  ├── settlement
+  ├── remittance
+  ├── difference
+  └── adjustment
+
+cash_movements = fuente de verdad de movimientos
+saldo teórico = derivado de movimientos válidos
+```
+
+## 8. Relaciones principales
 
 Dominio de identidad:
 
@@ -511,7 +692,7 @@ driver_vehicle_assignments.status = active
 and ended_at is null
 ```
 
-## 8. Fuentes de verdad
+## 9. Fuentes de verdad
 
 - `auth.users`: autenticación.
 - `persons`: identidad humana central.
@@ -539,8 +720,16 @@ and ended_at is null
 - `service_payment_events`: eventos append-only de pagos.
 - `service_billing`: facturación del servicio.
 - `service_financial_events`: eventos financieros append-only.
+- `cash_boxes`: Caja física consolidada.
+- `cash_movements`: movimientos de Caja y saldo teórico derivado.
+- `cash_movement_categories`: categorías de movimientos.
+- `driver_remittances`: entregas de efectivo por conductor.
+- `driver_remittance_differences`: diferencias de rendición.
+- `cash_counts`: arqueos.
+- `cash_movement_events`: eventos append-only de movimientos de Caja.
+- `cash_count_events`: eventos append-only de arqueos.
 
-## 9. Campos legacy que no migrarán como fuentes de verdad
+## 10. Campos legacy que no migrarán como fuentes de verdad
 
 No deberán migrarse como fuentes de verdad:
 
@@ -569,10 +758,15 @@ No deberán migrarse como fuentes de verdad:
 - `services.payment`
 - `service.financial.paidAmount`
 - `service.financial.pendingAmount`
+- saldos mock de Caja
+- resúmenes manuales de Caja
+- totales rendidos calculables
+- pendientes de rendición calculables
+- diferencias agregadas calculables
 
 Algunos de estos valores podrán transformarse durante el seed o conservarse como snapshots históricos solo cuando exista una razón de auditoría.
 
-## 10. Datos mock y estrategia de seed
+## 11. Datos mock y estrategia de seed
 
 Los datos ficticios actuales se transformarán antes de cargarse como seed de desarrollo.
 
@@ -590,10 +784,11 @@ Durante la transformación:
 - se transformará mantenimiento embebido en `vehicle_maintenance_records`.
 - se transformarán servicios mock en `services`, `service_locations`, `service_passengers`, `service_assignments`, cierres, cancelaciones, eventos y snapshots mínimos.
 - se transformarán datos financieros mock en `service_financials`, `service_payments`, `service_payment_events`, `service_billing` y eventos financieros cuando corresponda.
+- se transformarán movimientos, rendiciones, diferencias y arqueos mock en las tablas de Caja, sin migrar saldos ni métricas como verdad.
 
 Los mocks no se copiarán literalmente a tablas.
 
-## 11. Decisiones abiertas
+## 12. Decisiones abiertas
 
 Decisiones pendientes del dominio de identidad:
 
@@ -644,9 +839,20 @@ Decisiones pendientes del dominio de finanzas del servicio:
 - Alcance fiscal de facturación y numeración.
 - RLS sobre pagos visibles para conductores.
 
-## 12. Próximos dominios
+Decisiones pendientes del dominio de Caja:
 
-- Caja y rendiciones.
+- Catálogo final de categorías.
+- Exposición del saldo teórico mediante vista derivada o función segura.
+- Reglas definitivas de sobrerendición.
+- Flujo completo de resolución de diferencias.
+- Denominaciones en arqueos.
+- Límites y permisos de ajustes manuales.
+- Validación final de relaciones polimórficas.
+- Integración detallada con Cuentas por cobrar, Gastos y Liquidaciones.
+- RLS sobre movimientos, rendiciones y arqueos.
+
+## 13. Próximos dominios
+
 - Cuentas por cobrar.
 - Gastos.
 - Liquidaciones.
