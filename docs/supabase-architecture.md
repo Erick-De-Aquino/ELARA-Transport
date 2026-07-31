@@ -1037,7 +1037,224 @@ cash_movements = fuente de verdad de impacto en Caja
 expense_events = historial append-only
 ```
 
-## 10. Relaciones principales
+## 10. Liquidaciones
+
+El dominio de Liquidaciones calculará y registrará los importes a pagar a conductores internos y colaboradores externos por servicios realizados dentro de un periodo. Las liquidaciones conservarán snapshots históricos de porcentajes, servicios, gastos computables e importes para que una aprobación no dependa de configuraciones futuras.
+
+Tablas del dominio:
+
+- `settlement_configs`: configuración vigente de modalidad y porcentajes.
+- `settlements`: cabecera y estado de la liquidación.
+- `settlement_service_items`: servicios incluidos.
+- `settlement_expense_items`: gastos computables incluidos.
+- `settlement_payments`: pagos de liquidación.
+- `settlement_events`: eventos append-only del ciclo de liquidación.
+
+Decisiones fijadas:
+
+- Chofer interno: liquidación mensual y 35 % del margen para el conductor.
+- Colaborador externo: liquidación semanal; ELARA conserva 10 % por defecto y puede existir porcentaje personalizado.
+- Los porcentajes aplicados se conservarán como snapshots históricos.
+- Los servicios pendientes de cobro pueden mostrarse como información, pero no cuentan como ingreso cobrado.
+- `settlements` será la fuente de verdad de la liquidación.
+- `settlement_service_items` será la fuente de verdad de los servicios incluidos.
+- `settlement_expense_items` será la fuente de verdad de los gastos incluidos.
+- `settlement_payments` será la fuente de verdad del pago.
+- El pago de una liquidación generará una salida en `cash_movements`.
+- La anulación del pago solo podrá hacerla Superadmin, generará movimiento inverso en Caja, devolverá la liquidación a `approved` y no eliminará ningún registro.
+- Administrativo podrá generar, revisar, aprobar y pagar.
+- El conductor solo podrá ver sus propias liquidaciones.
+- No se permitirá un mismo servicio en dos liquidaciones activas.
+- No se permitirá un mismo gasto en dos liquidaciones activas.
+- No se permitirán dos pagos activos para una misma liquidación.
+- No se permitirán dos liquidaciones activas del mismo conductor para el mismo periodo y modalidad.
+- El redondeo monetario será a 2 decimales y se aplicará con una única regla en base de datos.
+- El periodo se almacenará directamente en `settlements`; no habrá tabla `settlement_periods` inicialmente.
+
+Códigos humanos previstos:
+
+- `SET-000001` para liquidaciones.
+- `SETPAY-000001` para pagos de liquidación.
+
+Modalidades y frecuencias:
+
+- `internal_driver_monthly`: chofer interno, frecuencia mensual.
+- `external_collaborator_weekly`: colaborador externo, frecuencia semanal.
+
+Configuración de porcentajes:
+
+- `settlement_configs` definirá configuración vigente por tipo de conductor y, cuando corresponda, por conductor.
+- Para chofer interno, el porcentaje aplicado será 35 % del margen para el conductor.
+- Para colaborador externo, ELARA conservará 10 % por defecto.
+- Un colaborador podrá tener porcentaje personalizado.
+- La configuración vigente no modificará liquidaciones ya generadas o aprobadas.
+
+Snapshots históricos:
+
+- `settlements` conservará snapshot de modalidad, periodo, porcentaje aplicado, modo de porcentaje, conductor y totales.
+- `settlement_service_items` conservará snapshot de servicio, estado de cobro, ingreso cobrado, ingreso pendiente informativo, margen e importes relevantes.
+- `settlement_expense_items` conservará snapshot de gasto, categoría, estado e importe computado.
+- Los snapshots serán evidencia histórica, no fuentes vivas para recalcular datos maestros.
+
+Estados de liquidación:
+
+- `draft`
+- `under_review`
+- `pending_approval`
+- `approved`
+- `paid`
+- `annulled`
+
+Estados de pago:
+
+- `pending`
+- `registered`
+- `annulled`
+
+Servicios incluidos:
+
+- Deberán estar asociados al conductor de la liquidación.
+- Deberán pertenecer al periodo.
+- Deberán cumplir reglas de elegibilidad financiera.
+- No podrán estar incluidos en otra liquidación activa.
+- Los servicios pendientes de cobro podrán mostrarse de forma informativa, pero no sumarán como ingreso cobrado.
+
+Gastos computables:
+
+- Solo gastos aprobados y marcados como computables podrán incluirse.
+- La inclusión se coordinará con `expense_liquidation_links`.
+- No podrá existir doble inclusión activa del mismo gasto.
+- La anulación posterior de un gasto deberá resolverse mediante evento o liquidación compensatoria, sin alterar snapshots históricos ya aprobados.
+
+Cálculo de margen:
+
+- El ingreso del servicio se tomará desde importes cobrados activos, no desde saldos pendientes.
+- Los costes o gastos computables se tomarán desde gastos aprobados incluidos.
+- El margen será el ingreso cobrado menos gastos computables aplicables.
+- Para chofer interno se calculará 35 % del margen para el conductor.
+- Para colaborador externo se aplicará el porcentaje de ELARA vigente o personalizado, conservado como snapshot.
+- La moneda inicial será EUR.
+- El redondeo será a 2 decimales mediante una regla única en base de datos.
+
+Revisión y aprobación:
+
+- Una liquidación podrá nacer como `draft`.
+- La revisión validará servicios, gastos, porcentaje, periodo y totales.
+- La aprobación congelará los snapshots definitivos.
+- Una liquidación aprobada no deberá recalcularse silenciosamente por cambios posteriores en servicios, gastos o configuración.
+
+Pago:
+
+- El pago requerirá liquidación `approved`.
+- El importe deberá coincidir con el importe aprobado para pagar.
+- Se registrará en `settlement_payments`.
+- Generará una salida en `cash_movements`.
+- Cambiará la liquidación a `paid`.
+- Registrará evento append-only.
+
+Anulación del pago:
+
+- Solo Superadmin podrá anular un pago.
+- Requerirá motivo.
+- No eliminará el pago original.
+- Marcará el pago como `annulled`.
+- Creará movimiento inverso en Caja vinculado a la salida original.
+- Devolverá la liquidación a `approved`.
+- Registrará evento append-only.
+
+Integración con Caja:
+
+- `settlement_payments` será la fuente de verdad del pago de liquidación.
+- `cash_movements` será la fuente de verdad del impacto en efectivo.
+- El pago generará salida.
+- La anulación del pago generará entrada inversa o movimiento inverso según el catálogo final de Caja.
+- La salida original permanecerá registrada.
+
+Permisos:
+
+- Superadmin: generar, revisar, aprobar, pagar, anular pago y ver todas las liquidaciones.
+- Administrativo: generar, revisar, aprobar, pagar y ver liquidaciones administrativas.
+- Conductor: ver únicamente sus propias liquidaciones; no puede generar, revisar, aprobar, pagar ni anular.
+
+Los permisos efectivos dependerán del `active_context` de la sesión.
+
+Idempotencia:
+
+- La generación deberá impedir dos liquidaciones activas del mismo conductor para el mismo periodo y modalidad.
+- `settlement_service_items` impedirá incluir un servicio en dos liquidaciones activas.
+- `settlement_expense_items` y `expense_liquidation_links` impedirán incluir un gasto en dos liquidaciones activas.
+- `settlement_payments` impedirá dos pagos activos para una misma liquidación.
+- La anulación impedirá dos movimientos inversos para el mismo pago.
+- Generación, pago y anulación deberán usar `idempotency_key` o una restricción equivalente.
+
+Relaciones principales:
+
+- `drivers`: titular de la liquidación.
+- `services`: origen operativo de servicios liquidados.
+- `service_financials`: importes y estado financiero de servicios.
+- `service_payments`: pagos cobrados que determinan ingreso real.
+- `expenses`: gastos computables.
+- `expense_liquidation_links`: control de inclusión de gastos.
+- `cash_movements`: salida de pago y movimiento inverso de anulación.
+
+Datos derivados que no deberán almacenarse como fuentes paralelas:
+
+- métricas superiores;
+- total liquidado por conductor;
+- próximos pagos;
+- estado visual;
+- nombre visible del conductor;
+- resumen vivo por periodo;
+- servicios elegibles no incluidos;
+- gastos computables disponibles;
+- importes recalculables de borradores.
+
+Los totales de una liquidación aprobada sí podrán guardarse como snapshots históricos congelados.
+
+Transformación de mocks:
+
+- Las liquidaciones mock se transformarán en `settlements`.
+- La configuración mock de porcentajes se transformará en `settlement_configs`.
+- Los servicios incluidos se transformarán en `settlement_service_items`.
+- Los gastos computables se transformarán en `settlement_expense_items` y `expense_liquidation_links`.
+- Los pagos mock se transformarán en `settlement_payments` y `cash_movements`.
+- Los eventos relevantes se transformarán en `settlement_events`.
+- Los snapshots de porcentaje se conservarán.
+- Las métricas y resúmenes mock no se migrarán como fuentes de verdad.
+
+Decisiones abiertas del dominio:
+
+- Catálogo final de estados de revisión si se requiere más granularidad.
+- Regla exacta para servicios parcialmente cobrados en fases futuras.
+- Si una liquidación `annulled` libera automáticamente servicios y gastos o requiere liquidación correctiva.
+- Detalle del método de pago de liquidaciones más allá de `cash`.
+- Tratamiento fiscal futuro de pagos a colaboradores.
+- RLS exacta para vista consultiva del Portal conductor.
+- Integridad definitiva entre `settlement_payments` y `cash_movements`.
+
+Diagrama textual:
+
+```text
+drivers
+  └── N settlements
+          ├── N settlement_service_items ── 1 services
+          │                                 └── 1 service_financials
+          ├── N settlement_expense_items ── 1 expenses
+          │                                 └── 1 expense_liquidation_links
+          ├── 0..N settlement_payments ── 0..1 cash_movements
+          └── N settlement_events
+
+settlement_configs
+  └── aplica por driver_type o driver_id
+
+settlements = fuente de verdad de la liquidación
+settlement_service_items = servicios incluidos
+settlement_expense_items = gastos incluidos
+settlement_payments = pagos de liquidación
+cash_movements = impacto en Caja
+```
+
+## 11. Relaciones principales
 
 Dominio de identidad:
 
@@ -1086,7 +1303,7 @@ driver_vehicle_assignments.status = active
 and ended_at is null
 ```
 
-## 11. Fuentes de verdad
+## 12. Fuentes de verdad
 
 - `auth.users`: autenticación.
 - `persons`: identidad humana central.
@@ -1133,8 +1350,14 @@ and ended_at is null
 - `expense_reimbursements`: devoluciones al conductor.
 - `expense_events`: eventos append-only de gastos.
 - `expense_liquidation_links`: inclusión futura en Liquidaciones.
+- `settlement_configs`: configuración vigente de liquidaciones.
+- `settlements`: liquidaciones.
+- `settlement_service_items`: servicios incluidos en liquidaciones.
+- `settlement_expense_items`: gastos incluidos en liquidaciones.
+- `settlement_payments`: pagos de liquidaciones.
+- `settlement_events`: eventos append-only de liquidaciones.
 
-## 12. Campos legacy que no migrarán como fuentes de verdad
+## 13. Campos legacy que no migrarán como fuentes de verdad
 
 No deberán migrarse como fuentes de verdad:
 
@@ -1177,10 +1400,15 @@ No deberán migrarse como fuentes de verdad:
 - totales pendientes de pago calculables
 - totales pendientes de reembolso calculables
 - nombres de proveedor o conductor como relación viva
+- métricas mock de Liquidaciones
+- resúmenes manuales de liquidaciones
+- porcentajes actuales aplicados retroactivamente
+- servicios liquidados como texto visible
+- gastos liquidados como texto visible
 
 Algunos de estos valores podrán transformarse durante el seed o conservarse como snapshots históricos solo cuando exista una razón de auditoría.
 
-## 13. Datos mock y estrategia de seed
+## 14. Datos mock y estrategia de seed
 
 Los datos ficticios actuales se transformarán antes de cargarse como seed de desarrollo.
 
@@ -1201,10 +1429,11 @@ Durante la transformación:
 - se transformarán movimientos, rendiciones, diferencias y arqueos mock en las tablas de Caja, sin migrar saldos ni métricas como verdad.
 - se transformarán cuentas y cobros mock de CxC en `receivables`, `receivable_payments` y `receivable_events`, sin migrar métricas ni resúmenes como verdad.
 - se transformarán gastos mock en `expense_categories`, `expenses`, `expense_receipts`, `expense_reviews`, `expense_payments`, `expense_reimbursements`, `expense_events` y, cuando exista inclusión real, `expense_liquidation_links`.
+- se transformarán liquidaciones mock en `settlement_configs`, `settlements`, `settlement_service_items`, `settlement_expense_items`, `settlement_payments` y `settlement_events`.
 
 Los mocks no se copiarán literalmente a tablas.
 
-## 14. Decisiones abiertas
+## 15. Decisiones abiertas
 
 Decisiones pendientes del dominio de identidad:
 
@@ -1291,9 +1520,18 @@ Decisiones pendientes del dominio de Gastos:
 - Integración exacta con Liquidaciones.
 - RLS para aislamiento del Portal conductor.
 
-## 15. Próximos dominios
+Decisiones pendientes del dominio de Liquidaciones:
 
-- Liquidaciones.
+- Catálogo final de estados de revisión.
+- Tratamiento futuro de servicios parcialmente cobrados.
+- Efecto exacto de anular una liquidación completa sobre servicios y gastos incluidos.
+- Métodos de pago de liquidación más allá de efectivo.
+- Tratamiento fiscal futuro de pagos a colaboradores.
+- RLS exacta para el Portal conductor.
+- Integridad definitiva entre pagos de liquidación y Caja.
+
+## 16. Próximos dominios
+
 - Incidencias y auditoría.
 - Configuración.
 - RLS completo.
