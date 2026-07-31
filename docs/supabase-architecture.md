@@ -434,8 +434,6 @@ Transformación de mocks:
 
 Decisiones abiertas del dominio:
 
-- Si se permitirán pagos parciales en la primera implementación Supabase.
-- Si `service_financials.financial_status` será campo materializado validado o vista derivada.
 - Regla exacta para modificar precio cuando ya existan pagos.
 - Activación operativa futura de transferencia y tarjeta.
 - Modelo definitivo de integración con Caja.
@@ -797,7 +795,6 @@ Transformación de mocks:
 
 Decisiones abiertas del dominio:
 
-- Si `pending_amount` será campo materializado validado o vista derivada.
 - Regla para cuentas anuladas si el servicio vuelve a quedar pendiente.
 - Catálogo final de estados financieros compartidos con `service_financials`.
 - Activación futura de métodos distintos de `cash`.
@@ -834,6 +831,7 @@ El dominio de Gastos representará costes operativos de ELARA y solicitudes decl
 Tablas del dominio:
 
 - `expense_categories`: catálogo de categorías de gasto.
+- `suppliers`: proveedores vinculables a gastos.
 - `expenses`: entidad central del gasto o solicitud.
 - `expense_receipts`: metadatos de justificantes y rutas futuras de Storage.
 - `expense_reviews`: decisiones administrativas de revisión.
@@ -863,8 +861,19 @@ Decisiones fijadas:
 Códigos humanos previstos:
 
 - `EXP-000001` para gastos.
+- `SUP-000001` para proveedores.
 - `EXPPAY-000001` para pagos de gastos.
 - `EXPRMB-000001` para reembolsos.
+
+Proveedores:
+
+- `suppliers` será la entidad conceptual de proveedor para gastos.
+- Cada proveedor tendrá UUID interno y código humano `SUP-000001`.
+- `supplier_type` podrá ser `individual` o `company`.
+- Deberá tener exactamente una relación normalizada mediante `person_id` o `company_id`, cuando exista.
+- Podrá conservar `legal_name` o `display_name` cuando el proveedor no esté normalizado todavía como persona o empresa.
+- Podrá incluir `tax_id`, email, teléfono, dirección, estado `active` o `inactive`, timestamps y auditoría.
+- `expenses.supplier_id` será FK opcional hacia `suppliers`.
 
 Estados del gasto:
 
@@ -892,6 +901,7 @@ Diferencias conceptuales:
 Fuentes de verdad:
 
 - `expenses`: gasto, solicitud, importe solicitado, importe aprobado y estado actual.
+- `suppliers`: proveedores asociados a gastos.
 - `expense_reviews`: decisiones administrativas y motivos.
 - `expense_payments`: pagos a proveedores.
 - `expense_reimbursements`: devoluciones al conductor.
@@ -992,6 +1002,7 @@ Datos derivados que no deberán almacenarse como fuentes paralelas:
 Transformación de mocks:
 
 - Los gastos mock se transformarán en `expenses`.
+- Los proveedores mock se transformarán en `suppliers` cuando representen una entidad funcional.
 - Las categorías mock se normalizarán en `expense_categories`.
 - Las decisiones de revisión se transformarán en `expense_reviews`.
 - Los pagos mock se transformarán en `expense_payments`.
@@ -1004,12 +1015,9 @@ Transformación de mocks:
 Decisiones abiertas del dominio:
 
 - Catálogo final de categorías.
-- Si Administrativo podrá anular o si queda reservado siempre a Superadmin.
 - Métodos de pago activos más allá de `cash`.
 - Reglas exactas de edición en `information_required`.
 - Cuándo un gasto aprobado pasa a `pending_payment` o `pending_reimbursement`.
-- Modelo definitivo de proveedores.
-- Buckets, rutas, retención y acceso de Storage.
 - Reglas fiscales futuras para facturas de gastos.
 - Integración exacta con Liquidaciones.
 - RLS para aislamiento estricto del Portal conductor.
@@ -1020,6 +1028,7 @@ Diagrama textual:
 drivers
   └── N expenses
           ├── 1 expense_categories
+          ├── 0..1 suppliers
           ├── N expense_receipts
           ├── N expense_reviews
           ├── N expense_events
@@ -1316,7 +1325,9 @@ Modelo de auditoría global:
 - `audit_events` registrará actor, sesión, contexto activo, acción, entidad afectada, valores anteriores y posteriores cuando aplique, metadata y fecha.
 - Deberán auditarse cambios de usuarios, roles, contexto, inactivaciones, asignaciones, pagos, cobros, rendiciones, ajustes, anulaciones, aprobaciones, rechazos, reversiones y cambios de configuración.
 - El acceso a auditoría será restringido, con visibilidad total para Superadmin y alcance administrativo si se aprueba.
-- La retención exacta queda como decisión pendiente.
+- `audit_events` tendrá retención indefinida durante la primera versión productiva.
+- No se permitirá modificación ni eliminación de auditoría global desde la aplicación.
+- Los logs técnicos de infraestructura no se mezclarán con `audit_events`.
 
 Configuración persistente:
 
@@ -1369,10 +1380,12 @@ Aislamiento del Portal conductor:
 
 Storage futuro:
 
-- Documentos de vehículos, justificantes de gastos y otros adjuntos vivirán en Supabase Storage.
-- Las rutas deberán incluir referencias de entidad y control de propietario cuando corresponda.
-- El acceso deberá validarse con RLS, políticas de Storage o URLs firmadas.
-- La base conservará metadatos, rutas, estado, usuario, fechas y relaciones, no el binario.
+- Existirá un bucket privado para documentos de vehículos.
+- Existirá un bucket privado para justificantes de gastos.
+- Las rutas se organizarán por entidad UUID.
+- El acceso se validará con RLS de Storage y URLs firmadas de duración limitada cuando corresponda.
+- No se guardarán URLs públicas permanentes.
+- La base conservará bucket, path, nombre, MIME, tamaño, checksum opcional, estado, usuario, fechas y relaciones, no el binario.
 
 Funciones seguras necesarias:
 
@@ -1429,11 +1442,8 @@ Transformación de mocks:
 
 Riesgos pendientes:
 
-- Forma exacta de obtener y validar `session_id` de Supabase en RLS.
-- Retención y volumen de `audit_events`.
 - Separación final entre auditoría funcional y logs técnicos.
 - Qué permisos se persistirán en tablas y cuáles quedarán en funciones/políticas.
-- Diseño definitivo de Storage y URLs firmadas.
 - Alcance administrativo exacto sobre incidencias.
 - Estrategia de vistas o funciones para métricas derivadas.
 - Orden de implementación de funciones transaccionales.
@@ -1473,7 +1483,138 @@ domain tables
   └── audit_events globales
 ```
 
-## 12. Relaciones principales
+## 12. Decisiones consolidadas previas a SQL
+
+Esta sección cierra las inconsistencias críticas detectadas en la auditoría consolidada antes de escribir migraciones SQL.
+
+### Sesión y RLS
+
+- El identificador de sesión se obtendrá desde el claim verificado `session_id` del JWT de Supabase.
+- Ese valor corresponde a `auth.sessions.id`.
+- Las funciones y políticas podrán leerlo desde `auth.jwt()`.
+- La autorización deberá comprobar siempre `auth.uid()`, `session_id`, `app_users.status = active`, `app_sessions` válida y no finalizada, `active_context`, `user_roles` activos y `user_driver_links` activo cuando corresponda.
+- No se confiará únicamente en claims de rol del JWT porque pueden quedar desactualizados hasta que el token se refresque.
+
+### Estado financiero del servicio
+
+- `service_financials.financial_status` será una columna materializada.
+- No podrá ser modificada directamente por el frontend.
+- Se recalculará exclusivamente mediante funciones o lógica transaccional en base de datos.
+- La fuente económica subyacente seguirá siendo `total_amount`, `service_payments` activos, anulaciones y reembolsos.
+- Las validaciones de integridad deberán detectar cualquier divergencia.
+
+### Importe pendiente de CxC
+
+- `receivables.original_amount` será snapshot histórico al crear la cuenta.
+- `receivables.pending_amount` será una columna materializada.
+- En la versión inicial, como el cobro es completo, `pending` implica `original_amount`, `collected` implica 0 y tras anulación del cobro vuelve a `original_amount`.
+- No podrá modificarse directamente desde el frontend.
+- Se actualizará únicamente dentro de operaciones transaccionales seguras.
+
+### Relación entre pagos
+
+- `service_payments` representa el pago económico aplicado al servicio.
+- `receivable_payments` representa la operación administrativa de cobrar una cuenta pendiente.
+- Todo `receivable_payment` activo deberá vincularse exactamente con un `service_payment` y un `cash_movement` de entrada.
+- La anulación deberá vincularse con la anulación o reversión del `service_payment` y un `cash_movement` inverso.
+- La operación completa será atómica.
+
+### Gastos
+
+- Solo Superadmin podrá anular gastos, pagos de gastos y reembolsos.
+- Administrativo podrá crear, revisar, aprobar, rechazar, pagar y reembolsar según las reglas aprobadas.
+- No quedará abierta ninguna decisión que permita anulación administrativa en esta primera implementación.
+
+### Gastos en Liquidaciones
+
+- `settlement_expense_items` será el snapshot histórico del gasto incluido en una liquidación.
+- `expense_liquidation_links` será el mecanismo de bloqueo y trazabilidad que impide doble inclusión.
+- Al añadir un gasto a una liquidación, ambas filas se crearán en la misma transacción.
+- Al anular una liquidación o excluir un gasto, el item histórico no se borra, el link cambia a `reversed` o `excluded`, y se registra evento.
+- Ninguna de las dos tablas sustituye a la otra.
+
+### Historiales y eventos
+
+- `service_status_history` registrará únicamente transiciones de `operational_status`.
+- `service_events` registrará acciones operativas generales.
+- `service_payment_events` registrará acciones sobre un pago concreto.
+- `service_financial_events` registrará cambios generales de precio, IVA o estado financiero.
+- No deberán duplicarse eventos sin una razón de auditoría explícita.
+
+### Movimientos inversos
+
+- Todos los importes de Caja se almacenan positivos.
+- Una reversión usa un nuevo movimiento con el tipo contrario al original: `inflow` se revierte con `outflow`, y `outflow` se revierte con `inflow`.
+- `reversal_of_movement_id` enlaza el nuevo movimiento con el original.
+- Un movimiento original solo puede tener una reversión activa, salvo flujo futuro expresamente aprobado.
+- No se usará el término ambiguo "importe negativo".
+
+### Proveedores
+
+- `suppliers` será tabla conceptual del dominio Gastos.
+- Tendrá UUID interno, código humano `SUP-000001`, `supplier_type` `individual` o `company`, y exactamente una relación mediante `person_id` o `company_id` cuando exista normalización.
+- Podrá conservar `legal_name` o `display_name` cuando el proveedor no esté normalizado.
+- Podrá incluir `tax_id`, email, teléfono, dirección, estado `active` o `inactive`, timestamps y auditoría.
+- `expenses.supplier_id` será FK opcional hacia `suppliers`.
+
+### Permission policies
+
+- `permission_policies` no será una fuente de autorización en la primera implementación.
+- RLS y funciones seguras serán la autoridad real.
+- Puede mantenerse solo como documentación o catálogo futuro.
+- No deberá crearse inicialmente salvo necesidad comprobada.
+
+### Pagos parciales
+
+- Cuentas por cobrar no admitirá pagos parciales en la primera versión.
+- Pagos directos del servicio tampoco admitirán pagos parciales inicialmente.
+- Todo pago activo deberá cubrir exactamente el importe pendiente.
+- El estado `partial` puede conservarse en el modelo para evolución futura, pero no estará habilitado en los flujos iniciales.
+
+### Catálogos y estados
+
+- Se usarán checks o enums para estados estructurales muy estables.
+- Se usarán tablas para valores configurables o ampliables.
+- Las claves técnicas estarán en inglés.
+- Las etiquetas visibles estarán en español.
+- Los catálogos usados históricamente se inactivarán, no se eliminarán.
+
+### Storage
+
+- Habrá bucket privado para documentos de vehículos.
+- Habrá bucket privado para justificantes de gastos.
+- Las rutas se organizarán por entidad UUID.
+- El acceso se hará mediante RLS de Storage y URLs firmadas de duración limitada.
+- No se guardarán URLs públicas permanentes.
+- Las tablas guardarán bucket, path, nombre, MIME, tamaño y checksum opcional.
+
+### Auditoría
+
+- `audit_events` tendrá retención indefinida durante la primera versión productiva.
+- No se permitirá modificación ni eliminación desde la aplicación.
+- Solo Superadmin podrá consultar la auditoría global.
+- Los logs técnicos de infraestructura no se mezclarán con `audit_events`.
+
+### Operaciones atómicas
+
+Deberán ejecutarse mediante función segura o transacción:
+
+- cambiar contexto activo;
+- asignar o revocar roles;
+- proteger último Superadmin;
+- asignar o reasignar conductor-vehículo;
+- asignar o reasignar servicio;
+- iniciar, finalizar, cancelar o cerrar servicio;
+- registrar o anular pago de servicio;
+- cobrar o anular CxC;
+- registrar o anular rendición;
+- registrar ajuste o reversión de Caja;
+- pagar, reembolsar o anular gasto;
+- generar, aprobar, pagar o anular liquidación;
+- incluir servicios o gastos en liquidaciones;
+- generar códigos humanos.
+
+## 13. Relaciones principales
 
 Dominio de identidad:
 
@@ -1522,7 +1663,7 @@ driver_vehicle_assignments.status = active
 and ended_at is null
 ```
 
-## 13. Fuentes de verdad
+## 14. Fuentes de verdad
 
 - `auth.users`: autenticación.
 - `persons`: identidad humana central.
@@ -1562,6 +1703,7 @@ and ended_at is null
 - `receivable_payments`: cobros posteriores de cuentas por cobrar.
 - `receivable_events`: eventos append-only de CxC.
 - `expense_categories`: categorías de gasto.
+- `suppliers`: proveedores asociados a gastos.
 - `expenses`: gastos y solicitudes.
 - `expense_receipts`: metadatos de justificantes.
 - `expense_reviews`: decisiones administrativas.
@@ -1583,10 +1725,10 @@ and ended_at is null
 - `app_setting_events`: eventos append-only de configuración.
 - `technical_catalogs`: catálogos técnicos.
 - `technical_catalog_items`: elementos de catálogo.
-- `permission_policies`: posible capa documental de permisos declarativos.
+- `permission_policies`: posible documentación futura de permisos declarativos; no fuente de autorización inicial.
 - `integrity_checks`: registro opcional de validaciones de integridad.
 
-## 14. Campos legacy que no migrarán como fuentes de verdad
+## 15. Campos legacy que no migrarán como fuentes de verdad
 
 No deberán migrarse como fuentes de verdad:
 
@@ -1642,7 +1784,7 @@ No deberán migrarse como fuentes de verdad:
 
 Algunos de estos valores podrán transformarse durante el seed o conservarse como snapshots históricos solo cuando exista una razón de auditoría.
 
-## 15. Datos mock y estrategia de seed
+## 16. Datos mock y estrategia de seed
 
 Los datos ficticios actuales se transformarán antes de cargarse como seed de desarrollo.
 
@@ -1663,17 +1805,17 @@ Durante la transformación:
 - se transformarán movimientos, rendiciones, diferencias y arqueos mock en las tablas de Caja, sin migrar saldos ni métricas como verdad.
 - se transformarán cuentas y cobros mock de CxC en `receivables`, `receivable_payments` y `receivable_events`, sin migrar métricas ni resúmenes como verdad.
 - se transformarán gastos mock en `expense_categories`, `expenses`, `expense_receipts`, `expense_reviews`, `expense_payments`, `expense_reimbursements`, `expense_events` y, cuando exista inclusión real, `expense_liquidation_links`.
+- se transformarán proveedores mock en `suppliers` cuando representen una entidad funcional.
 - se transformarán liquidaciones mock en `settlement_configs`, `settlements`, `settlement_service_items`, `settlement_expense_items`, `settlement_payments` y `settlement_events`.
 - se transformarán incidencias, configuración y catálogos mock en `incidents`, `incident_events`, `app_settings`, `technical_catalogs` y `technical_catalog_items` cuando representen datos funcionales.
 - se crearán `audit_events` solo para acciones históricas relevantes que deban conservarse como evidencia.
 
 Los mocks no se copiarán literalmente a tablas.
 
-## 16. Decisiones abiertas
+## 17. Decisiones abiertas
 
 Decisiones pendientes del dominio de identidad:
 
-- Cómo obtener de forma fiable el identificador de sesión Supabase dentro de funciones y RLS.
 - Si se necesitará una Edge Function para crear o actualizar `app_sessions`.
 - Estrategia exacta para invalidar sesiones cuando se revocan roles.
 - Si `roles.id` será UUID o `key` textual como clave primaria.
@@ -1694,7 +1836,6 @@ Decisiones pendientes del dominio de vehículos:
 - Si la aprobación ELARA será campo en `vehicles` o tabla de revisiones.
 - Si un conductor podrá tener más de un vehículo activo en futuros escenarios.
 - Política RLS para documentación sensible y archivos.
-- Diseño de Storage para documentos: bucket, ruta, acceso y caducidad de URLs.
 - Coordinación con el futuro dominio Servicios para impedir asignaciones a vehículos no asignables.
 
 Decisiones pendientes del dominio de servicios:
@@ -1710,8 +1851,6 @@ Decisiones pendientes del dominio de servicios:
 
 Decisiones pendientes del dominio de finanzas del servicio:
 
-- Alcance inicial de pagos parciales.
-- Materialización o derivación del estado financiero.
 - Reglas de modificación de precio con pagos existentes.
 - Activación futura de transferencia y tarjeta.
 - Integración definitiva con Caja.
@@ -1734,7 +1873,6 @@ Decisiones pendientes del dominio de Caja:
 
 Decisiones pendientes del dominio de Cuentas por cobrar:
 
-- Materialización o derivación de `pending_amount`.
 - Tratamiento de cuentas anuladas si el servicio vuelve a quedar pendiente.
 - Catálogo final compartido de estados financieros.
 - Activación futura de métodos distintos de efectivo.
@@ -1746,12 +1884,9 @@ Decisiones pendientes del dominio de Cuentas por cobrar:
 Decisiones pendientes del dominio de Gastos:
 
 - Catálogo final de categorías.
-- Alcance de anulación para Administrativo frente a Superadmin.
 - Métodos de pago activos más allá de efectivo.
 - Reglas de edición cuando se requiere información.
 - Transición exacta hacia pago o reembolso pendiente.
-- Modelo definitivo de proveedores.
-- Diseño de Storage para justificantes.
 - Reglas fiscales futuras.
 - Integración exacta con Liquidaciones.
 - RLS para aislamiento del Portal conductor.
@@ -1768,17 +1903,13 @@ Decisiones pendientes del dominio de Liquidaciones:
 
 Decisiones pendientes del dominio transversal:
 
-- Validación exacta de `session_id` Supabase en RLS.
-- Retención y volumen de auditoría global.
 - Separación definitiva entre auditoría funcional y logs técnicos.
-- Persistencia o no de `permission_policies`.
-- Diseño de Storage y URLs firmadas.
 - Alcance administrativo sobre incidencias.
 - Estrategia de vistas o funciones para métricas derivadas.
 - Orden de implementación de funciones seguras transaccionales.
 - Batería final de pruebas de RLS por contexto.
 
-## 17. Próximos dominios
+## 18. Próximos dominios
 
 - Migraciones SQL.
 - Seed.
