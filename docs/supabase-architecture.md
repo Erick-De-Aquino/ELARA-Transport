@@ -1254,7 +1254,226 @@ settlement_payments = pagos de liquidación
 cash_movements = impacto en Caja
 ```
 
-## 11. Relaciones principales
+## 11. Incidencias, auditoría, configuración y RLS global
+
+Este dominio consolida los elementos transversales del sistema: incidencias, auditoría global, configuración persistente, catálogos técnicos, permisos y diseño conceptual de RLS. La auditoría no sustituye los estados de las tablas principales; cada dominio conserva su fuente de verdad y sus propios eventos.
+
+Tablas del dominio:
+
+- `incident_categories`: catálogo de categorías de incidencia.
+- `incidents`: incidencias operativas, administrativas, financieras o técnicas.
+- `incident_events`: eventos append-only de incidencias.
+- `audit_events`: auditoría global de acciones sensibles y relevantes.
+- `app_settings`: configuración persistente global o por alcance.
+- `app_setting_events`: historial append-only de cambios de configuración.
+- `technical_catalogs`: agrupaciones de catálogos técnicos.
+- `technical_catalog_items`: valores de catálogo con clave técnica y etiqueta visible.
+- `permission_policies`: posibilidad documental para persistir permisos declarativos por contexto.
+- `integrity_checks`: registro opcional de ejecuciones de validaciones de integridad.
+
+Decisiones fijadas:
+
+- La auditoría no sustituye los estados de las tablas principales.
+- Los eventos de dominio y auditoría serán append-only.
+- `audit_events` registrará acciones sensibles y relevantes.
+- La configuración dejará de depender de memoria o `localStorage`.
+- `app_settings` será la fuente persistente de configuración global o por alcance.
+- Los valores históricos usados en operaciones financieras se conservarán como snapshots en cada dominio.
+- Los permisos se resolverán usando `auth.uid()`, usuario activo, `session_id` verificado del JWT, `app_sessions`, `active_context`, `user_roles` activos y `user_driver_links` cuando corresponda.
+- No se confiará en frontend, `localStorage`, `user_metadata` ni parámetros enviados por el navegador.
+- Superadmin tendrá acceso total.
+- Administrativo tendrá acceso operativo sin acciones reservadas.
+- Conductor solo podrá acceder a sus propios datos del Portal.
+- Los ajustes de Caja, anulaciones críticas y protección del último Superadmin quedan reservados a Superadmin.
+- Los documentos y justificantes usarán Supabase Storage con control por entidad y URLs firmadas cuando corresponda.
+- Las operaciones financieras y cambios críticos deberán ejecutarse mediante funciones seguras y transacciones atómicas.
+- Los estados técnicos estables podrán usar checks o enums.
+- Los catálogos configurables usarán tablas con claves técnicas en inglés y etiquetas visibles en español.
+- Los elementos de catálogo con historial se inactivarán, no se eliminarán.
+- Reportes permanece fuera del alcance actual.
+
+Diferencias conceptuales:
+
+- Incidencia: registro gestionable que requiere seguimiento, revisión o resolución.
+- Alerta operativa: aviso derivado del estado actual de los datos; puede no persistirse.
+- Evento de dominio: historial append-only dentro de un módulo concreto.
+- Evento de auditoría: registro global de una acción sensible o relevante.
+- Log técnico: diagnóstico de sistema, no necesariamente funcional ni visible para operación.
+- Movimiento financiero: impacto económico real registrado en su dominio, no en auditoría.
+
+Modelo de incidencias:
+
+- `incidents` será la fuente de verdad de la incidencia.
+- `incident_events` conservará historial append-only.
+- Las categorías vivirán en `incident_categories`.
+- Las prioridades podrán ser `low`, `medium`, `high` y `critical`.
+- Los estados podrán ser `open`, `in_review`, `pending_action`, `resolved`, `dismissed` y `annulled`.
+- Una incidencia podrá relacionarse con servicio, conductor, vehículo, cliente, Caja, CxC, gasto, liquidación u otra entidad relevante mediante referencias específicas cuando existan.
+- Resolver una incidencia actualizará su estado principal y añadirá evento; no borrará el historial.
+
+Modelo de auditoría global:
+
+- `audit_events` registrará actor, sesión, contexto activo, acción, entidad afectada, valores anteriores y posteriores cuando aplique, metadata y fecha.
+- Deberán auditarse cambios de usuarios, roles, contexto, inactivaciones, asignaciones, pagos, cobros, rendiciones, ajustes, anulaciones, aprobaciones, rechazos, reversiones y cambios de configuración.
+- El acceso a auditoría será restringido, con visibilidad total para Superadmin y alcance administrativo si se aprueba.
+- La retención exacta queda como decisión pendiente.
+
+Configuración persistente:
+
+- `app_settings` almacenará valores globales y por alcance.
+- `app_setting_events` registrará cambios de configuración.
+- La configuración financiera vigente podrá leerse desde configuración o tablas específicas, pero los valores usados en operaciones se conservarán como snapshots del dominio correspondiente.
+- La configuración podrá aplicar por alcance global, por entidad o por tipo, según se defina en cada dominio.
+
+Catálogos técnicos:
+
+- Los estados técnicos muy estables podrán usar checks o enums.
+- Los catálogos configurables deberán usar tablas.
+- Las claves técnicas estarán en inglés.
+- Las etiquetas visibles estarán en español.
+- Los elementos con historial se inactivarán, no se eliminarán.
+
+Matriz global de permisos:
+
+- Usuarios: Superadmin gestiona todo; Administrativo sin acciones reservadas; Conductor sin acceso administrativo.
+- Clientes: Superadmin y Administrativo gestionan; Conductor sin acceso salvo datos relacionados con sus servicios si se aprueba.
+- Conductores: Superadmin y Administrativo gestionan; Conductor ve su perfil operativo propio.
+- Vehículos: Superadmin y Administrativo gestionan; Conductor ve vehículo propio asignado si corresponde.
+- Servicios: Superadmin y Administrativo gestionan; Conductor opera solo servicios propios.
+- Pagos: Superadmin y Administrativo registran según reglas; Conductor solo registra acciones permitidas del Portal cuando correspondan.
+- Caja: Superadmin acceso total; Administrativo acceso operativo; ajustes y anulaciones críticas reservadas a Superadmin; Conductor sin acceso administrativo.
+- CxC: Superadmin y Administrativo ven y cobran; anulación reservada a Superadmin; Conductor sin acceso.
+- Gastos: Superadmin acceso total; Administrativo gestión operativa; Conductor crea y ve gastos propios.
+- Liquidaciones: Superadmin acceso total; Administrativo genera, revisa, aprueba y paga; Conductor ve liquidaciones propias.
+- Incidencias: Superadmin acceso total; Administrativo gestión operativa; Conductor acceso solo a incidencias propias o relacionadas si se habilita.
+- Configuración: Superadmin gestiona; Administrativo lectura o gestión limitada si se aprueba; Conductor sin acceso.
+
+Diseño conceptual de RLS:
+
+- Toda política deberá partir de `auth.uid()`.
+- El usuario funcional deberá estar activo en `app_users`.
+- La sesión deberá existir, no estar expirada y coincidir con el `session_id` verificado del JWT.
+- El `active_context` se resolverá desde `app_sessions`.
+- El rol del contexto deberá existir activo en `user_roles`.
+- Para contexto conductor, deberá existir vínculo activo en `user_driver_links`.
+- Los permisos no se acumularán entre roles: solo aplica el `active_context` de la sesión.
+- Las sesiones expiradas, usuarios inactivos, roles revocados o vínculos conductor inactivos no tendrán acceso operativo.
+- Ninguna política deberá confiar en frontend, `localStorage`, `user_metadata` ni parámetros manipulables enviados por el navegador.
+
+Aislamiento del Portal conductor:
+
+- El `driver_id` operativo se resolverá desde `user_driver_links`.
+- El conductor solo accederá a servicios, gastos, liquidaciones, justificantes e información propia.
+- Si el vínculo usuario-conductor no existe o está inactivo, el Portal no deberá exponer datos operativos.
+- Un `driver_id` enviado por el navegador no será suficiente para autorizar acceso.
+
+Storage futuro:
+
+- Documentos de vehículos, justificantes de gastos y otros adjuntos vivirán en Supabase Storage.
+- Las rutas deberán incluir referencias de entidad y control de propietario cuando corresponda.
+- El acceso deberá validarse con RLS, políticas de Storage o URLs firmadas.
+- La base conservará metadatos, rutas, estado, usuario, fechas y relaciones, no el binario.
+
+Funciones seguras necesarias:
+
+- cambiar contexto activo;
+- generar códigos humanos;
+- proteger el último Superadmin;
+- asignar conductor-vehículo;
+- asignar servicio;
+- registrar pagos;
+- cobrar CxC;
+- registrar rendición;
+- pagar o reembolsar gastos;
+- pagar liquidaciones;
+- crear reversiones;
+- validar integridad.
+
+Operaciones transaccionales y atómicas:
+
+- cambio de contexto;
+- cambios de roles e inactivaciones críticas;
+- protección del último Superadmin;
+- asignación y reasignación conductor-vehículo;
+- asignación y reasignación de servicio;
+- inicio, avance y cierre de servicio;
+- registro y anulación de pagos;
+- cobro y anulación de CxC;
+- rendiciones, ajustes y arqueos;
+- pagos, reembolsos y anulaciones de gastos;
+- generación, aprobación, pago y anulación de liquidaciones;
+- creación de movimientos inversos.
+
+Datos derivados que no deberán almacenarse como fuentes paralelas:
+
+- métricas;
+- saldos;
+- estados visuales;
+- permisos efectivos;
+- totales agregados;
+- próximos servicios;
+- disponibilidad efectiva;
+- asignabilidad;
+- nombres completos;
+- resúmenes por cliente, conductor, servicio o periodo;
+- alertas derivadas de datos actuales.
+
+Transformación de mocks:
+
+- Las incidencias mock se transformarán en `incidents` e `incident_events`.
+- Las configuraciones mock pasarán a `app_settings` o catálogos específicos.
+- Los catálogos mock se normalizarán como `technical_catalogs` y `technical_catalog_items` cuando sean configurables.
+- Los eventos históricos relevantes se transformarán en eventos de dominio o `audit_events` según su alcance.
+- Los permisos mock se convertirán en reglas RLS y funciones seguras; `permission_policies` solo se usará si se decide persistir una capa declarativa.
+- No se migrarán logs técnicos, métricas ni alertas derivadas como fuentes de verdad.
+
+Riesgos pendientes:
+
+- Forma exacta de obtener y validar `session_id` de Supabase en RLS.
+- Retención y volumen de `audit_events`.
+- Separación final entre auditoría funcional y logs técnicos.
+- Qué permisos se persistirán en tablas y cuáles quedarán en funciones/políticas.
+- Diseño definitivo de Storage y URLs firmadas.
+- Alcance administrativo exacto sobre incidencias.
+- Estrategia de vistas o funciones para métricas derivadas.
+- Orden de implementación de funciones transaccionales.
+- Pruebas de RLS para evitar fugas entre conductores.
+
+Diagrama textual:
+
+```text
+auth.users
+  └── app_users
+        ├── user_roles
+        ├── app_sessions
+        └── audit_events
+
+app_sessions.active_context
+  └── valida permisos por contexto
+
+incidents
+  ├── incident_categories
+  └── incident_events
+
+app_settings
+  └── app_setting_events
+
+technical_catalogs
+  └── technical_catalog_items
+
+audit_events
+  ├── actor_user_id
+  ├── app_session_id
+  ├── active_context
+  └── entity_type / entity_id
+
+domain tables
+  ├── created_by / updated_by
+  ├── domain_events append-only
+  └── audit_events globales
+```
+
+## 12. Relaciones principales
 
 Dominio de identidad:
 
@@ -1303,7 +1522,7 @@ driver_vehicle_assignments.status = active
 and ended_at is null
 ```
 
-## 12. Fuentes de verdad
+## 13. Fuentes de verdad
 
 - `auth.users`: autenticación.
 - `persons`: identidad humana central.
@@ -1356,8 +1575,18 @@ and ended_at is null
 - `settlement_expense_items`: gastos incluidos en liquidaciones.
 - `settlement_payments`: pagos de liquidaciones.
 - `settlement_events`: eventos append-only de liquidaciones.
+- `incidents`: incidencias.
+- `incident_categories`: categorías de incidencia.
+- `incident_events`: eventos append-only de incidencias.
+- `audit_events`: auditoría global.
+- `app_settings`: configuración persistente.
+- `app_setting_events`: eventos append-only de configuración.
+- `technical_catalogs`: catálogos técnicos.
+- `technical_catalog_items`: elementos de catálogo.
+- `permission_policies`: posible capa documental de permisos declarativos.
+- `integrity_checks`: registro opcional de validaciones de integridad.
 
-## 13. Campos legacy que no migrarán como fuentes de verdad
+## 14. Campos legacy que no migrarán como fuentes de verdad
 
 No deberán migrarse como fuentes de verdad:
 
@@ -1405,10 +1634,15 @@ No deberán migrarse como fuentes de verdad:
 - porcentajes actuales aplicados retroactivamente
 - servicios liquidados como texto visible
 - gastos liquidados como texto visible
+- configuración en memoria
+- configuración en `localStorage`
+- permisos efectivos calculados en frontend
+- alertas derivadas como registros operativos principales
+- logs técnicos como auditoría funcional
 
 Algunos de estos valores podrán transformarse durante el seed o conservarse como snapshots históricos solo cuando exista una razón de auditoría.
 
-## 14. Datos mock y estrategia de seed
+## 15. Datos mock y estrategia de seed
 
 Los datos ficticios actuales se transformarán antes de cargarse como seed de desarrollo.
 
@@ -1430,10 +1664,12 @@ Durante la transformación:
 - se transformarán cuentas y cobros mock de CxC en `receivables`, `receivable_payments` y `receivable_events`, sin migrar métricas ni resúmenes como verdad.
 - se transformarán gastos mock en `expense_categories`, `expenses`, `expense_receipts`, `expense_reviews`, `expense_payments`, `expense_reimbursements`, `expense_events` y, cuando exista inclusión real, `expense_liquidation_links`.
 - se transformarán liquidaciones mock en `settlement_configs`, `settlements`, `settlement_service_items`, `settlement_expense_items`, `settlement_payments` y `settlement_events`.
+- se transformarán incidencias, configuración y catálogos mock en `incidents`, `incident_events`, `app_settings`, `technical_catalogs` y `technical_catalog_items` cuando representen datos funcionales.
+- se crearán `audit_events` solo para acciones históricas relevantes que deban conservarse como evidencia.
 
 Los mocks no se copiarán literalmente a tablas.
 
-## 15. Decisiones abiertas
+## 16. Decisiones abiertas
 
 Decisiones pendientes del dominio de identidad:
 
@@ -1530,10 +1766,19 @@ Decisiones pendientes del dominio de Liquidaciones:
 - RLS exacta para el Portal conductor.
 - Integridad definitiva entre pagos de liquidación y Caja.
 
-## 16. Próximos dominios
+Decisiones pendientes del dominio transversal:
 
-- Incidencias y auditoría.
-- Configuración.
-- RLS completo.
+- Validación exacta de `session_id` Supabase en RLS.
+- Retención y volumen de auditoría global.
+- Separación definitiva entre auditoría funcional y logs técnicos.
+- Persistencia o no de `permission_policies`.
+- Diseño de Storage y URLs firmadas.
+- Alcance administrativo sobre incidencias.
+- Estrategia de vistas o funciones para métricas derivadas.
+- Orden de implementación de funciones seguras transaccionales.
+- Batería final de pruebas de RLS por contexto.
+
+## 17. Próximos dominios
+
 - Migraciones SQL.
 - Seed.
