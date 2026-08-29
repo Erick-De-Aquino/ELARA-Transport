@@ -33,8 +33,6 @@ set
   allowed_mime_types = excluded.allowed_mime_types,
   updated_at = now();
 
-alter table storage.objects enable row level security;
-
 create or replace function public.storage_path_has_exact_segments(
   p_name text,
   p_prefix text,

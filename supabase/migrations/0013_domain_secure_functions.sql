@@ -1532,15 +1532,16 @@ returns uuid language plpgsql volatile security definer set search_path = public
 declare v_actor uuid; v_item public.configurable_catalog_items%rowtype;
 begin v_actor:=public.require_admin_user(); select * into v_item from public.configurable_catalog_items where id=p_item_id for update; if not found then raise exception 'Catalog item was not found.' using errcode='23503'; end if; if v_item.is_system then perform public.require_superadmin_user(); end if; update public.configurable_catalog_items set is_active=coalesce(p_is_active,false), updated_by=v_actor where id=p_item_id; perform public.secure_audit('update','configurable_catalog_items',p_item_id,null,to_jsonb(v_item),jsonb_build_object('is_active',coalesce(p_is_active,false)),'Catalog item active flag changed.','{}'::jsonb,v_actor,null); return p_item_id; end; $$;
 -- Permissions.
-revoke all on function public.current_active_context() from public;
-revoke all on function public.require_current_app_user() from public;
-revoke all on function public.require_any_role(text[]) from public;
-revoke all on function public.require_role(text) from public;
-revoke all on function public.require_admin_user() from public;
-revoke all on function public.require_superadmin_user() from public;
-revoke all on function public.current_driver_id() from public;
-revoke all on function public.secure_audit(text,text,uuid,text,jsonb,jsonb,text,jsonb,uuid,uuid) from public;
-revoke all on function public.secure_not_implemented(text,text) from public;
+revoke all on function public.current_active_context() from public, anon, authenticated, service_role;
+revoke all on function public.require_current_app_user() from public, anon, authenticated, service_role;
+revoke all on function public.require_any_role(text[]) from public, anon, authenticated, service_role;
+revoke all on function public.require_role(text) from public, anon, authenticated, service_role;
+revoke all on function public.require_admin_user() from public, anon, authenticated, service_role;
+revoke all on function public.require_superadmin_user() from public, anon, authenticated, service_role;
+revoke all on function public.current_driver_id() from public, anon, authenticated, service_role;
+revoke all on function public.secure_audit(text,text,uuid,text,jsonb,jsonb,text,jsonb,uuid,uuid) from public, anon, authenticated, service_role;
+revoke all on function public.secure_not_implemented(text,text) from public, anon, authenticated, service_role;
+revoke all on function public.advance_service_progress(uuid,text,text) from public, anon, authenticated, service_role;
 
 grant execute on function public.current_active_context() to service_role;
 grant execute on function public.require_current_app_user() to service_role;
@@ -1551,56 +1552,56 @@ grant execute on function public.require_superadmin_user() to service_role;
 grant execute on function public.current_driver_id() to service_role;
 grant execute on function public.secure_audit(text,text,uuid,text,jsonb,jsonb,text,jsonb,uuid,uuid) to service_role;
 grant execute on function public.secure_not_implemented(text,text) to service_role;
+grant execute on function public.advance_service_progress(uuid,text,text) to service_role;
 
-revoke all on function public.set_active_context(text) from public;
-revoke all on function public.assign_user_role(uuid,text,text) from public;
-revoke all on function public.revoke_user_role(uuid,text) from public;
-revoke all on function public.create_service(uuid,text,timestamp with time zone,text,text,text,text,text,text,text) from public;
-revoke all on function public.update_service(uuid,timestamp with time zone,text,text) from public;
-revoke all on function public.assign_service(uuid,uuid,uuid,boolean,text) from public;
-revoke all on function public.reassign_service(uuid,uuid,uuid,text,boolean) from public;
-revoke all on function public.accept_service_assignment(uuid) from public;
-revoke all on function public.reject_service_assignment(uuid,text) from public;
-revoke all on function public.advance_service_progress(uuid,text,text) from public;
-revoke all on function public.start_service_on_way(uuid,text) from public;
-revoke all on function public.mark_service_arrived(uuid,text) from public;
-revoke all on function public.mark_passenger_on_board(uuid,text) from public;
-revoke all on function public.mark_service_finishing(uuid,text) from public;
-revoke all on function public.complete_service(uuid,text) from public;
-revoke all on function public.cancel_service(uuid,text,text) from public;
-revoke all on function public.finalize_service_pricing(uuid,numeric,numeric,text) from public;
-revoke all on function public.register_service_payment(uuid,numeric,text,uuid,timestamp with time zone,text,text,text) from public;
-revoke all on function public.reverse_service_payment(uuid,text) from public;
-revoke all on function public.create_cash_movement(uuid,text,numeric,text,timestamp with time zone,text,jsonb) from public;
-revoke all on function public.reverse_cash_movement(uuid,text) from public;
-revoke all on function public.create_cash_remittance(uuid,uuid,numeric,text) from public;
-revoke all on function public.verify_cash_remittance(uuid,numeric) from public;
-revoke all on function public.create_cash_count(uuid,numeric,timestamp with time zone,text) from public;
-revoke all on function public.create_receivable_from_service(uuid,timestamp with time zone,text) from public;
-revoke all on function public.collect_receivable(uuid,uuid,timestamp with time zone,text,text) from public;
-revoke all on function public.annul_receivable_payment(uuid,text) from public;
-revoke all on function public.create_expense(uuid,numeric,numeric,text,date,uuid,uuid,uuid,uuid,text,boolean,text) from public;
-revoke all on function public.register_expense_payment(uuid,numeric,text,uuid,timestamp with time zone,text) from public;
-revoke all on function public.cancel_expense(uuid,text) from public;
-revoke all on function public.generate_settlement(uuid,date,date,text) from public;
-revoke all on function public.submit_settlement(uuid) from public;
-revoke all on function public.approve_settlement(uuid) from public;
-revoke all on function public.reject_settlement(uuid,text) from public;
-revoke all on function public.pay_settlement(uuid,uuid,timestamp with time zone,text) from public;
-revoke all on function public.cancel_settlement(uuid,text) from public;
-revoke all on function public.cancel_approved_settlement(uuid,text) from public;
-revoke all on function public.annul_settlement_payment(uuid,text) from public;
-revoke all on function public.create_incident(uuid,text,text,text,uuid,uuid,uuid,uuid,uuid,text) from public;
-revoke all on function public.acknowledge_incident(uuid) from public;
-revoke all on function public.investigate_incident(uuid) from public;
-revoke all on function public.resolve_incident(uuid,text) from public;
-revoke all on function public.cancel_incident(uuid,text) from public;
-revoke all on function public.add_incident_comment(uuid,text,text,boolean) from public;
-revoke all on function public.get_app_setting(text,text,uuid) from public;
-revoke all on function public.set_app_setting(text,text,uuid,text,jsonb,text) from public;
-revoke all on function public.create_configurable_catalog_item(uuid,text,text,text,integer,jsonb) from public;
-revoke all on function public.update_configurable_catalog_item(uuid,text,text,integer,jsonb) from public;
-revoke all on function public.set_configurable_catalog_item_active(uuid,boolean) from public;
+revoke all on function public.set_active_context(text) from public, anon, authenticated, service_role;
+revoke all on function public.assign_user_role(uuid,text,text) from public, anon, authenticated, service_role;
+revoke all on function public.revoke_user_role(uuid,text) from public, anon, authenticated, service_role;
+revoke all on function public.create_service(uuid,text,timestamp with time zone,text,text,text,text,text,text,text) from public, anon, authenticated, service_role;
+revoke all on function public.update_service(uuid,timestamp with time zone,text,text) from public, anon, authenticated, service_role;
+revoke all on function public.assign_service(uuid,uuid,uuid,boolean,text) from public, anon, authenticated, service_role;
+revoke all on function public.reassign_service(uuid,uuid,uuid,text,boolean) from public, anon, authenticated, service_role;
+revoke all on function public.accept_service_assignment(uuid) from public, anon, authenticated, service_role;
+revoke all on function public.reject_service_assignment(uuid,text) from public, anon, authenticated, service_role;
+revoke all on function public.start_service_on_way(uuid,text) from public, anon, authenticated, service_role;
+revoke all on function public.mark_service_arrived(uuid,text) from public, anon, authenticated, service_role;
+revoke all on function public.mark_passenger_on_board(uuid,text) from public, anon, authenticated, service_role;
+revoke all on function public.mark_service_finishing(uuid,text) from public, anon, authenticated, service_role;
+revoke all on function public.complete_service(uuid,text) from public, anon, authenticated, service_role;
+revoke all on function public.cancel_service(uuid,text,text) from public, anon, authenticated, service_role;
+revoke all on function public.finalize_service_pricing(uuid,numeric,numeric,text) from public, anon, authenticated, service_role;
+revoke all on function public.register_service_payment(uuid,numeric,text,uuid,timestamp with time zone,text,text,text) from public, anon, authenticated, service_role;
+revoke all on function public.reverse_service_payment(uuid,text) from public, anon, authenticated, service_role;
+revoke all on function public.create_cash_movement(uuid,text,numeric,text,timestamp with time zone,text,jsonb) from public, anon, authenticated, service_role;
+revoke all on function public.reverse_cash_movement(uuid,text) from public, anon, authenticated, service_role;
+revoke all on function public.create_cash_remittance(uuid,uuid,numeric,text) from public, anon, authenticated, service_role;
+revoke all on function public.verify_cash_remittance(uuid,numeric) from public, anon, authenticated, service_role;
+revoke all on function public.create_cash_count(uuid,numeric,timestamp with time zone,text) from public, anon, authenticated, service_role;
+revoke all on function public.create_receivable_from_service(uuid,timestamp with time zone,text) from public, anon, authenticated, service_role;
+revoke all on function public.collect_receivable(uuid,uuid,timestamp with time zone,text,text) from public, anon, authenticated, service_role;
+revoke all on function public.annul_receivable_payment(uuid,text) from public, anon, authenticated, service_role;
+revoke all on function public.create_expense(uuid,numeric,numeric,text,date,uuid,uuid,uuid,uuid,text,boolean,text) from public, anon, authenticated, service_role;
+revoke all on function public.register_expense_payment(uuid,numeric,text,uuid,timestamp with time zone,text) from public, anon, authenticated, service_role;
+revoke all on function public.cancel_expense(uuid,text) from public, anon, authenticated, service_role;
+revoke all on function public.generate_settlement(uuid,date,date,text) from public, anon, authenticated, service_role;
+revoke all on function public.submit_settlement(uuid) from public, anon, authenticated, service_role;
+revoke all on function public.approve_settlement(uuid) from public, anon, authenticated, service_role;
+revoke all on function public.reject_settlement(uuid,text) from public, anon, authenticated, service_role;
+revoke all on function public.pay_settlement(uuid,uuid,timestamp with time zone,text) from public, anon, authenticated, service_role;
+revoke all on function public.cancel_settlement(uuid,text) from public, anon, authenticated, service_role;
+revoke all on function public.cancel_approved_settlement(uuid,text) from public, anon, authenticated, service_role;
+revoke all on function public.annul_settlement_payment(uuid,text) from public, anon, authenticated, service_role;
+revoke all on function public.create_incident(uuid,text,text,text,uuid,uuid,uuid,uuid,uuid,text) from public, anon, authenticated, service_role;
+revoke all on function public.acknowledge_incident(uuid) from public, anon, authenticated, service_role;
+revoke all on function public.investigate_incident(uuid) from public, anon, authenticated, service_role;
+revoke all on function public.resolve_incident(uuid,text) from public, anon, authenticated, service_role;
+revoke all on function public.cancel_incident(uuid,text) from public, anon, authenticated, service_role;
+revoke all on function public.add_incident_comment(uuid,text,text,boolean) from public, anon, authenticated, service_role;
+revoke all on function public.get_app_setting(text,text,uuid) from public, anon, authenticated, service_role;
+revoke all on function public.set_app_setting(text,text,uuid,text,jsonb,text) from public, anon, authenticated, service_role;
+revoke all on function public.create_configurable_catalog_item(uuid,text,text,text,integer,jsonb) from public, anon, authenticated, service_role;
+revoke all on function public.update_configurable_catalog_item(uuid,text,text,integer,jsonb) from public, anon, authenticated, service_role;
+revoke all on function public.set_configurable_catalog_item_active(uuid,boolean) from public, anon, authenticated, service_role;
 
 grant execute on function public.set_active_context(text) to authenticated, service_role;
 grant execute on function public.assign_user_role(uuid,text,text) to authenticated, service_role;
@@ -1623,11 +1624,9 @@ grant execute on function public.reverse_service_payment(uuid,text) to authentic
 grant execute on function public.create_cash_movement(uuid,text,numeric,text,timestamp with time zone,text,jsonb) to authenticated, service_role;
 grant execute on function public.reverse_cash_movement(uuid,text) to authenticated, service_role;
 grant execute on function public.create_cash_remittance(uuid,uuid,numeric,text) to authenticated, service_role;
-grant execute on function public.verify_cash_remittance(uuid,numeric) to service_role;
 grant execute on function public.create_cash_count(uuid,numeric,timestamp with time zone,text) to authenticated, service_role;
 grant execute on function public.create_receivable_from_service(uuid,timestamp with time zone,text) to authenticated, service_role;
 grant execute on function public.collect_receivable(uuid,uuid,timestamp with time zone,text,text) to authenticated, service_role;
-grant execute on function public.annul_receivable_payment(uuid,text) to service_role;
 grant execute on function public.create_expense(uuid,numeric,numeric,text,date,uuid,uuid,uuid,uuid,text,boolean,text) to authenticated, service_role;
 grant execute on function public.register_expense_payment(uuid,numeric,text,uuid,timestamp with time zone,text) to authenticated, service_role;
 grant execute on function public.cancel_expense(uuid,text) to authenticated, service_role;
@@ -1638,7 +1637,6 @@ grant execute on function public.reject_settlement(uuid,text) to authenticated, 
 grant execute on function public.pay_settlement(uuid,uuid,timestamp with time zone,text) to authenticated, service_role;
 grant execute on function public.cancel_settlement(uuid,text) to authenticated, service_role;
 grant execute on function public.cancel_approved_settlement(uuid,text) to authenticated, service_role;
-grant execute on function public.annul_settlement_payment(uuid,text) to service_role;
 grant execute on function public.create_incident(uuid,text,text,text,uuid,uuid,uuid,uuid,uuid,text) to authenticated, service_role;
 grant execute on function public.acknowledge_incident(uuid) to authenticated, service_role;
 grant execute on function public.investigate_incident(uuid) to authenticated, service_role;
@@ -1650,6 +1648,10 @@ grant execute on function public.set_app_setting(text,text,uuid,text,jsonb,text)
 grant execute on function public.create_configurable_catalog_item(uuid,text,text,text,integer,jsonb) to authenticated, service_role;
 grant execute on function public.update_configurable_catalog_item(uuid,text,text,integer,jsonb) to authenticated, service_role;
 grant execute on function public.set_configurable_catalog_item_active(uuid,boolean) to authenticated, service_role;
+
+grant execute on function public.verify_cash_remittance(uuid,numeric) to service_role;
+grant execute on function public.annul_receivable_payment(uuid,text) to service_role;
+grant execute on function public.annul_settlement_payment(uuid,text) to service_role;
 
 -- Static validations. They do not create business rows and do not consume human codes.
 do $$
@@ -1682,6 +1684,10 @@ begin
     raise exception 'anon must not execute secure domain RPC functions.';
   end if;
 
+
+  if has_function_privilege('authenticated', 'public.require_current_app_user()', 'EXECUTE') then
+    raise exception 'authenticated must not execute secure domain helper functions.';
+  end if;
   if has_function_privilege('authenticated', 'public.verify_cash_remittance(uuid,numeric)', 'EXECUTE')
     or has_function_privilege('authenticated', 'public.annul_receivable_payment(uuid,text)', 'EXECUTE')
     or has_function_privilege('authenticated', 'public.annul_settlement_payment(uuid,text)', 'EXECUTE')
