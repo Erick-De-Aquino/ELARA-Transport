@@ -466,6 +466,8 @@ function renderAuthState(options = {}) {
   const userRole = document.getElementById("session-user-role");
   const isRestoring = Boolean(options.isRestoring || isRestoringSession);
 
+  document.body.classList.toggle("auth-pending", isRestoring);
+
   if (loginScreen) {
     loginScreen.hidden = isRestoring || Boolean(activeUser);
   }
