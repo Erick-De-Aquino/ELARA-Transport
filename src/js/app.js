@@ -8,7 +8,7 @@
 // Arranque de la aplicacion
 // =========================
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   window.ElaraDashboard.initDashboard();
   window.ElaraServices.initServices();
   window.ElaraCollaborators.initCollaborators();
@@ -22,21 +22,17 @@ document.addEventListener("DOMContentLoaded", () => {
   window.ElaraDriver.initDriver();
   initMobileNavigation();
   initCompactFilters();
-  window.ElaraAuth.initAuth({
+  await window.ElaraAuth.initAuth({
     onLogin: startAuthenticatedApp,
     onLogout: stopAuthenticatedApp,
   });
-
-  if (window.ElaraAuth.getCurrentUser()) {
-    startAuthenticatedApp(window.ElaraAuth.getCurrentUser());
-  }
 });
 
 // =========================
-// Sesion mock
+// Sesion de aplicacion
 // =========================
 
-function startAuthenticatedApp(user) {
+function startAuthenticatedApp() {
   window.ElaraRouter.renderNavigationForCurrentContext();
   window.ElaraRouter.initRouter({ silent: true });
 }

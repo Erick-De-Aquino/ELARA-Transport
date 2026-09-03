@@ -40,17 +40,17 @@
         <div class="login-card__heading">
           <p class="panel__eyebrow">Acceso MVP</p>
           <h1>Iniciar sesi&oacute;n</h1>
-          <p>Acceso visual con usuarios mock para validar roles y navegaci&oacute;n.</p>
+          <p>Acceso operativo para validar identidad, sesi&oacute;n y contexto.</p>
         </div>
 
         <label class="field">
           <span>Email</span>
-          <input name="email" type="email" autocomplete="username" placeholder="admin@elara.test" required />
+          <input name="email" type="email" autocomplete="username" placeholder="email@empresa.com" required />
         </label>
 
         <label class="field">
           <span>Contrase&ntilde;a</span>
-          <input name="password" type="password" autocomplete="current-password" placeholder="123456" required />
+          <input name="password" type="password" autocomplete="current-password" placeholder="Contrase&ntilde;a" required />
         </label>
 
         <p class="login-card__error" id="login-error" role="alert" hidden></p>
@@ -78,7 +78,7 @@
         <div class="sidebar__status" aria-label="Estado operativo">
           <span class="status-dot"></span>
           <div>
-            <strong id="session-user-name">Sesi&oacute;n mock</strong>
+            <strong id="session-user-name">Sesi&oacute;n</strong>
             <span id="session-user-role">Datos simulados</span>
           </div>
         </div>
@@ -3630,6 +3630,9 @@
     <script src="js/mock/users.mock.js"></script>
     <script src="js/mock/driver.mock.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="js/config.js"></script>
+    <script src="js/supabase.js"></script>
     <script src="js/permissions.js"></script>
     <script src="js/auth.js"></script>
     <script src="js/notifications.js"></script>

@@ -11,7 +11,7 @@ const DRIVER_NO_PORTAL_ACCESS_MESSAGE = "No tienes acceso al Portal conductor.";
 const DRIVER_INACTIVE_USER_MESSAGE = "Tu cuenta est\u00e1 inactiva. Contacta con administraci\u00f3n.";
 const DRIVER_MISSING_LINK_MESSAGE = "Tu usuario no tiene un conductor vinculado. Contacta con administraci\u00f3n.";
 const DRIVER_LINK_NOT_FOUND_MESSAGE = "No se encontr\u00f3 el perfil de conductor vinculado a tu usuario.";
-const DRIVER_EMAIL_FALLBACK_WARNING = "[ELARA] Portal conductor resuelto temporalmente por email. Falta driverId.";
+const DRIVER_IDENTITY_LOADING_MESSAGE = "Resolviendo conductor vinculado...";
 const DRIVER_INACTIVE_PROFILE_MESSAGE = "Tu perfil no est\u00e1 activo para operar. Contacta con administraci\u00f3n.";
 const DRIVER_CLOSED_CENTRAL_SERVICE_STATUSES = ["Cancelado", "Finalizado", "No show", "No-show", "No realizado"];
 const DRIVER_CENTRAL_STAGE_SEQUENCE = ["en_camino", "esperando_pasajero", "pasajero_a_bordo"];
@@ -351,7 +351,8 @@ function showDriverSettlements() {
 function renderDriverAccessState(viewName) {
   setDriverActiveMode(false);
   const message = driverAccessMessage || DRIVER_UNASSOCIATED_MESSAGE;
-  setDriverHeader("Portal conductor", "Acceso no disponible", message);
+  const title = message === DRIVER_IDENTITY_LOADING_MESSAGE ? "Cargando portal conductor" : "Acceso no disponible";
+  setDriverHeader("Portal conductor", title, message);
 
   const dashboard = getElement("driver-dashboard");
   const activePanel = getElement("driver-active-service");
@@ -6064,9 +6065,14 @@ function getDriverCollaboratorForUser(user) {
   if (driverId) {
     const collaborator = getDriverCollaboratorById(driverId);
 
+    if (!collaborator && isRealDriverAuthUser(user) && user.driverIdentityStatus === "resolved") {
+      driverAccessMessage = "";
+      return buildDriverCollaboratorFromIdentity(user.driverIdentity, user);
+    }
+
     if (!collaborator) {
       driverAccessMessage = DRIVER_LINK_NOT_FOUND_MESSAGE;
-      console.warn(`[ELARA] No se encontr\u00f3 el conductor vinculado por driverId: ${driverId}`);
+      console.warn(`[ELARA] No se encontr\u00f3 el conductor vinculado por driverId real: ${driverId}`);
       return null;
     }
 
@@ -6074,7 +6080,13 @@ function getDriverCollaboratorForUser(user) {
     return collaborator;
   }
 
-  return getDriverCollaboratorByEmailFallback(user);
+  if (isRealDriverAuthUser(user)) {
+    driverAccessMessage = getRealDriverIdentityAccessMessage(user);
+    return null;
+  }
+
+  driverAccessMessage = DRIVER_MISSING_LINK_MESSAGE;
+  return null;
 }
 
 function getDriverUserAccessMessage(user) {
@@ -6114,28 +6126,76 @@ function driverAuthUserHasRole(user, role) {
   return roles.map((value) => String(value || "").trim().toLowerCase()).includes(role);
 }
 
-function getDriverCollaboratorByEmailFallback(user) {
-  const userEmail = normalizeDriverEmail(user?.email);
+function isRealDriverAuthUser(user) {
+  return Boolean(user?.supabaseUserId || user?.appSessionId || user?.driverIdentityStatus);
+}
 
-  if (!userEmail) {
-    driverAccessMessage = DRIVER_MISSING_LINK_MESSAGE;
-    console.warn("[ELARA] Usuario conductor sin driverId ni email para resolver el Portal conductor.");
-    return null;
+function getRealDriverIdentityAccessMessage(user) {
+  if (user?.driverIdentityStatus === "pending") {
+    return DRIVER_IDENTITY_LOADING_MESSAGE;
   }
 
-  const matches = (window.ElaraCollaboratorsMock?.collaborators || []).filter(
-    (collaborator) => normalizeDriverEmail(collaborator.email) === userEmail,
-  );
-
-  if (matches.length === 1) {
-    console.warn(DRIVER_EMAIL_FALLBACK_WARNING);
-    driverAccessMessage = "";
-    return matches[0];
+  if (user?.driverIdentityStatus === "driver-not-visible") {
+    return DRIVER_LINK_NOT_FOUND_MESSAGE;
   }
 
-  driverAccessMessage = DRIVER_MISSING_LINK_MESSAGE;
-  console.warn("[ELARA] Usuario conductor sin driverId y sin coincidencia \u00fanica por email.");
-  return null;
+  return DRIVER_MISSING_LINK_MESSAGE;
+}
+
+function buildDriverCollaboratorFromIdentity(identity, user) {
+  return {
+    id: identity?.driverId || user?.driverId || "",
+    name: identity?.name || user?.name || "Conductor ELARA",
+    driverType: getDriverIdentityTypeLabel(identity?.driverType),
+    countryCode: "",
+    phone: identity?.phone || "",
+    email: identity?.email || user?.email || "",
+    baseCity: "",
+    licenseExpiration: "",
+    administrativeStatus: getDriverIdentityAdministrativeStatusLabel(identity?.administrativeStatus),
+    operationalStatus: getDriverIdentityAvailabilityLabel(identity?.availabilityPreference),
+    availability: getDriverIdentityAvailabilityLabel(identity?.availabilityPreference),
+    availabilityPreference: getDriverIdentityAvailabilityLabel(identity?.availabilityPreference),
+    vehicleId: "",
+    nextService: null,
+    observations: identity?.humanCode ? `Perfil real ${identity.humanCode}. Datos operativos temporales en mock.` : "Perfil real. Datos operativos temporales en mock.",
+  };
+}
+
+function getDriverIdentityTypeLabel(driverType) {
+  if (driverType === "internal_driver") {
+    return "Chofer";
+  }
+
+  if (driverType === "external_collaborator") {
+    return "Colaborador";
+  }
+
+  return "Conductor";
+}
+
+function getDriverIdentityAdministrativeStatusLabel(status) {
+  if (status === "active") {
+    return "Activo";
+  }
+
+  if (status === "suspended") {
+    return "Suspendido";
+  }
+
+  if (status === "inactive") {
+    return "Inactivo";
+  }
+
+  if (status === "pending_documents") {
+    return "Pendiente documentacion";
+  }
+
+  return status || "No disponible";
+}
+
+function getDriverIdentityAvailabilityLabel(availabilityPreference) {
+  return availabilityPreference === "available" ? "Disponible" : "No disponible";
 }
 
 function getDriverCollaboratorById(collaboratorId) {
@@ -6177,9 +6237,6 @@ function getDriverVehicleById(vehicleId) {
   return (window.ElaraVehiclesMock?.vehicles || []).find((vehicle) => vehicle.id === vehicleId) || null;
 }
 
-function normalizeDriverEmail(value) {
-  return String(value || "").trim().toLowerCase();
-}
 
 function normalizeDriverText(value) {
   return String(value || "")

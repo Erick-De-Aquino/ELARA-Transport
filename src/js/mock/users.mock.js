@@ -13,7 +13,6 @@ window.ElaraUsersMock = [
     lastName: "De Aquino",
     name: "Erick De Aquino",
     email: "chofer@elara.test",
-    password: "123456",
     roles: ["superadmin", "conductor"],
     defaultContext: "superadmin",
     activeContext: "superadmin",
