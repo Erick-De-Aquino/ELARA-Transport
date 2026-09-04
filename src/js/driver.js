@@ -124,6 +124,7 @@ let driverServicesLoadState = {
   error: "",
 };
 let driverServicesRenderRequestId = 0;
+let driverHistoryRenderRequestId = 0;
 let activeServiceId = null;
 let selectedServiceId = null;
 let editingPickupServiceId = null;
@@ -339,10 +340,16 @@ function showDriverProfile() {
   renderDriverProfile();
 }
 
-function showDriverHistory() {
+async function showDriverHistory() {
   setDriverActiveMode(false);
+
   if (!refreshDriverProfile()) {
     renderDriverAccessState("historial");
+    return;
+  }
+
+  if (shouldUseRealDriverServices()) {
+    await showDriverRealHistory();
     return;
   }
 
@@ -1096,6 +1103,80 @@ function renderServiceList() {
   container.innerHTML = services.map((service) => renderServiceCard(service, "compact")).join("");
 }
 
+async function showDriverRealHistory() {
+  const requestId = ++driverHistoryRenderRequestId;
+  const driverId = driverProfile?.id || "";
+
+  if (driverServicesLoadState.status === "loaded" && driverServicesLoadState.driverId === driverId) {
+    driverServices = driverServicesLoadState.services.slice();
+    setDriverHeader("", "Historial", "Servicios cerrados visibles para tu conductor.");
+    renderDriverHistory();
+    return;
+  }
+
+  renderDriverHistoryLoadingState();
+
+  try {
+    const services = await loadDriverServices();
+
+    if (requestId !== driverHistoryRenderRequestId || !isDriverHistoryViewVisible()) {
+      return;
+    }
+
+    driverServices = services;
+    setDriverHeader("", "Historial", "Servicios cerrados visibles para tu conductor.");
+    renderDriverHistory();
+  } catch (error) {
+    if (requestId !== driverHistoryRenderRequestId || !isDriverHistoryViewVisible()) {
+      return;
+    }
+
+    console.error("[ELARA Driver] No se pudo cargar el historial real del conductor.", {
+      message: error?.message || "",
+      code: error?.code || "",
+      stage: "driver-history",
+    });
+    renderDriverHistoryErrorState();
+  }
+}
+
+function isDriverHistoryViewVisible() {
+  const historyPanel = getElement("historial");
+
+  return Boolean(historyPanel && !historyPanel.hidden);
+}
+
+function renderDriverHistoryLoadingState() {
+  const filters = getElement("driver-history-filters");
+  const container = getElement("driver-history-list");
+
+  setDriverActiveMode(false);
+  setDriverHeader("", "Historial", "Cargando historial...");
+
+  if (filters) {
+    filters.innerHTML = "";
+  }
+
+  if (container) {
+    container.innerHTML = '<p class="driver-empty" role="status" aria-live="polite">Cargando historial...</p>';
+  }
+}
+
+function renderDriverHistoryErrorState() {
+  const filters = getElement("driver-history-filters");
+  const container = getElement("driver-history-list");
+
+  setDriverActiveMode(false);
+  setDriverHeader("", "Historial", "No se pudo cargar tu historial.");
+
+  if (filters) {
+    filters.innerHTML = "";
+  }
+
+  if (container) {
+    container.innerHTML = '<p class="driver-empty" role="alert">No se pudo cargar tu historial. Intentalo de nuevo mas tarde.</p>';
+  }
+}
 function renderDriverHistory() {
   renderDriverHistoryFilters();
   renderDriverHistoryList();
@@ -1136,7 +1217,7 @@ function renderDriverHistoryList() {
   const services = getDriverHistoryServices();
 
   if (!services.length) {
-    container.innerHTML = `<p class="driver-empty">No hay servicios cerrados para este filtro.</p>`;
+    container.innerHTML = `<p class="driver-empty">No tienes servicios en el historial.</p>`;
     return;
   }
 
@@ -2773,7 +2854,7 @@ function renderHistoryServiceCard(service) {
             <p class="panel__eyebrow">${escapeHtml(service.type)}</p>
             <h3>${escapeHtml(routeSummary)}</h3>
           </div>
-          ${renderStatusPill(service.status)}
+          ${renderStatusPill(service.status, service.displayStatus)}
         </div>
 
         <div class="driver-history-card__meta" aria-label="Resumen del servicio cerrado">
@@ -2804,13 +2885,24 @@ function renderHistoryExpandedDetail(service) {
       ${isReporting ? renderHistoryIncidentForm(service) : ""}
 
       <div class="driver-history-card__actions">
-        ${isReporting ? "" : `<button class="button button--secondary driver-button" type="button" data-driver-action="history-report" data-service-id="${service.id}">Reportar incidencia</button>`}
+        ${renderDriverHistoryReportAction(service, isReporting)}
         <button class="button button--secondary driver-button" type="button" data-driver-action="history-close" data-service-id="${service.id}">Cerrar</button>
       </div>
     </div>
   `;
 }
 
+function renderDriverHistoryReportAction(service, isReporting) {
+  if (isReporting) {
+    return "";
+  }
+
+  if (service?.isRealDriverService) {
+    return '<button class="button button--secondary driver-button" type="button" disabled aria-disabled="true">Incidencia pendiente de RPC</button>';
+  }
+
+  return `<button class="button button--secondary driver-button" type="button" data-driver-action="history-report" data-service-id="${service.id}">Reportar incidencia</button>`;
+}
 function getDriverHistoryCashIncidentFields(service) {
   const incident = getDriverCashCollectionIncidentForService(service);
 
@@ -5611,7 +5703,25 @@ function getDriverHistoryServices() {
   return driverServices
     .filter((service) => isClosedServiceStatus(service.status))
     .filter((service) => driverHistoryFilter === "all" || service.status === driverHistoryFilter)
-    .sort((a, b) => getServiceDateTime(b) - getServiceDateTime(a));
+    .sort((a, b) => getDriverHistorySortTime(b) - getDriverHistorySortTime(a));
+}
+
+function getDriverHistorySortTime(service) {
+  const closedAt = Date.parse(service?.closedAt || service?.closing?.closedAt || "");
+
+  if (Number.isFinite(closedAt)) {
+    return closedAt;
+  }
+
+  const scheduledAt = Date.parse(service?.scheduledStartAt || "");
+
+  if (Number.isFinite(scheduledAt)) {
+    return scheduledAt;
+  }
+
+  const fallbackTime = getServiceDateTime(service).getTime();
+
+  return Number.isFinite(fallbackTime) ? fallbackTime : 0;
 }
 
 function isClosedServiceStatus(status) {
@@ -6134,6 +6244,7 @@ function adaptDriverServiceOverviewRow(row) {
     estimatedPrice: "Sin importe",
     isNewAssignment: status === "asignado",
     changeLog: [],
+    closedAt: row?.closed_at || row?.ended_at || "",
     closing: getDriverOverviewClosing(row),
     isRealDriverService: true,
     operationalStatus: row?.operational_status || "",
