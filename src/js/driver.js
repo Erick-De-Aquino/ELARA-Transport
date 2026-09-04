@@ -20,6 +20,38 @@ const DRIVER_FINANCE_DEFAULT_HISTORY_DAYS = 30;
 const DRIVER_EXPENSE_PAGE_SIZE = 10;
 const DRIVER_SETTLEMENT_PAGE_SIZE = 10;
 const DRIVER_SETTLEMENT_STATUSES = ["Pendiente de aprobación", "Aprobada", "Pagada", "Para revisión", "Anulada"];
+const DRIVER_SERVICE_OVERVIEW_SELECT = [
+  "service_id",
+  "human_code",
+  "service_type",
+  "operational_status",
+  "scheduled_start_at",
+  "assignment_id",
+  "assignment_status",
+  "assigned_at",
+  "accepted_at",
+  "rejected_at",
+  "ended_at",
+  "vehicle_id",
+  "vehicle_human_code",
+  "plate_normalized",
+  "brand",
+  "model",
+  "customer_display_name",
+  "origin_label",
+  "origin_address",
+  "origin_city",
+  "destination_label",
+  "destination_address",
+  "destination_city",
+  "primary_passenger_name",
+  "primary_passenger_phone",
+  "driver_stage",
+  "driver_stage_updated_at",
+  "closure_type",
+  "closed_at",
+].join(",");
+const DRIVER_REAL_SERVICE_ACTION_PENDING_LABEL = "Accion real pendiente";
 const DRIVER_EXPENSE_STATUSES = [
   "Pendiente de revisi\u00f3n",
   "Requiere informaci\u00f3n",
@@ -84,6 +116,14 @@ const driverNoShowReasonOptions = [
 
 let driverServices = [];
 let driverProfile = null;
+let driverServicesLoadState = {
+  driverId: "",
+  status: "idle",
+  promise: null,
+  services: [],
+  error: "",
+};
+let driverServicesRenderRequestId = 0;
 let activeServiceId = null;
 let selectedServiceId = null;
 let editingPickupServiceId = null;
@@ -248,10 +288,16 @@ function refreshDriverVisibleSettlementsView() {
   }
 }
 
-function showDriverServices() {
+async function showDriverServices() {
   setDriverActiveMode(false);
+
   if (!refreshDriverProfile()) {
     renderDriverAccessState("mis-servicios");
+    return;
+  }
+
+  if (shouldUseRealDriverServices()) {
+    await showDriverRealServices();
     return;
   }
 
@@ -878,6 +924,104 @@ function handleDriverSettlementKeydown(event) {
   }
 }
 
+function shouldUseRealDriverServices() {
+  const user = getDriverAuthenticatedUser();
+
+  return Boolean(
+    window.ElaraSupabase?.client &&
+      driverProfile?.id &&
+      getDriverAuthUserActiveContext(user) === "conductor" &&
+      user?.driverIdentityStatus === "resolved" &&
+      String(user?.driverId || "").trim() === driverProfile.id
+  );
+}
+
+async function showDriverRealServices() {
+  const requestId = ++driverServicesRenderRequestId;
+  const driverId = driverProfile?.id || "";
+
+  isDriverUsingCentralServices = false;
+  activeServiceId = null;
+  pendingDriverRejectionServiceId = null;
+
+  if (driverServicesLoadState.status === "loaded" && driverServicesLoadState.driverId === driverId) {
+    driverServices = driverServicesLoadState.services.slice();
+    renderDriverServices();
+    return;
+  }
+
+  renderDriverServicesLoadingState();
+
+  try {
+    const services = await loadDriverServices();
+
+    if (requestId !== driverServicesRenderRequestId || !isDriverServicesViewVisible()) {
+      return;
+    }
+
+    driverServices = services;
+    renderDriverServices();
+  } catch (error) {
+    if (requestId !== driverServicesRenderRequestId || !isDriverServicesViewVisible()) {
+      return;
+    }
+
+    console.error("[ELARA Driver] No se pudieron cargar los servicios reales del conductor.", {
+      message: error?.message || "",
+      code: error?.code || "",
+      stage: "driver-services",
+    });
+    renderDriverServicesErrorState();
+  }
+}
+
+function isDriverServicesViewVisible() {
+  const servicesPanel = getElement("mis-servicios");
+
+  return Boolean(servicesPanel && !servicesPanel.hidden);
+}
+
+function renderDriverServicesLoadingState() {
+  const dashboard = getElement("driver-dashboard");
+  const activePanel = getElement("driver-active-service");
+  const container = getElement("driver-services-list");
+
+  setDriverActiveMode(false);
+  setDriverHeader("", `Hola, ${driverProfile.name}`, "Cargando servicios asignados...");
+
+  if (dashboard) {
+    dashboard.hidden = false;
+  }
+
+  if (activePanel) {
+    activePanel.hidden = true;
+  }
+
+  if (container) {
+    container.innerHTML = '<p class="driver-empty" role="status" aria-live="polite">Cargando servicios...</p>';
+  }
+}
+
+function renderDriverServicesErrorState() {
+  const dashboard = getElement("driver-dashboard");
+  const activePanel = getElement("driver-active-service");
+  const container = getElement("driver-services-list");
+
+  setDriverActiveMode(false);
+  setDriverHeader("", `Hola, ${driverProfile.name}`, "No se pudieron cargar tus servicios.");
+
+  if (dashboard) {
+    dashboard.hidden = false;
+  }
+
+  if (activePanel) {
+    activePanel.hidden = true;
+  }
+
+  if (container) {
+    container.innerHTML = '<p class="driver-empty" role="alert">No se pudieron cargar tus servicios. Intentalo de nuevo mas tarde.</p>';
+  }
+}
 function renderDriverServices() {
   const dashboard = getElement("driver-dashboard");
   const activePanel = getElement("driver-active-service");
@@ -894,7 +1038,7 @@ function renderDriverServices() {
 
   const activeService = activeServiceId ? getServiceById(activeServiceId) : null;
 
-  if (activeService) {
+  if (activeService && !activeService.isRealDriverService) {
     setDriverActiveMode(true);
     dashboard.hidden = true;
     activePanel.hidden = false;
@@ -2975,6 +3119,10 @@ function getDriverServiceCollectionInfo(service) {
 }
 
 function isDriverCollectionInfoVisible(service) {
+  if (service?.isRealDriverService) {
+    return false;
+  }
+
   const displayStatus = service?.displayStatus || "";
 
   return displayStatus === "Confirmado" || displayStatus === "En curso" || service?.status === "aceptado" || service?.status === "en_camino";
@@ -3009,6 +3157,13 @@ function renderDriverServiceActionButtons(service, primaryAction) {
     return "";
   }
 
+  if (service?.isRealDriverService) {
+    return `
+      <button class="button button--secondary driver-button" type="button" data-driver-action="detail" data-service-id="${service.id}">Detalle</button>
+      ${primaryAction}
+    `;
+  }
+
   const canOperate = isDriverProfileAdministrativelyActive();
 
   return `
@@ -3031,6 +3186,10 @@ function renderDriverAssignmentRejectionConfirmation(service) {
 }
 
 function getPrimaryAction(service) {
+  if (service?.isRealDriverService) {
+    return getRealDriverServicePrimaryAction(service);
+  }
+
   if (!isDriverProfileAdministrativelyActive()) {
     return `<button class="button button--secondary driver-button" type="button" disabled>Perfil no habilitado</button>`;
   }
@@ -3062,6 +3221,19 @@ function getPrimaryAction(service) {
   return `<button class="button button--secondary driver-button" type="button" disabled>Sin accion disponible</button>`;
 }
 
+function getRealDriverServicePrimaryAction(service) {
+  const labelByStatus = {
+    asignado: "Aceptar pendiente de RPC",
+    aceptado: "Inicio pendiente de RPC",
+    en_camino: "Servicio en curso",
+    esperando_pasajero: "Servicio en curso",
+    pasajero_a_bordo: "Servicio en curso",
+    en_servicio: "Servicio en curso",
+  };
+  const label = labelByStatus[service?.status] || DRIVER_REAL_SERVICE_ACTION_PENDING_LABEL;
+
+  return `<button class="button button--secondary driver-button" type="button" disabled aria-disabled="true">${escapeHtml(label)}</button>`;
+}
 function startService(serviceId) {
   if (isDriverUsingCentralServices) {
     startCentralDriverService(serviceId);
@@ -3762,7 +3934,7 @@ function openServiceDetail(serviceId) {
   }
 
   if (actions) {
-    actions.hidden = false;
+    actions.hidden = Boolean(service.isRealDriverService);
   }
 
   selectedServiceId = serviceId;
@@ -5872,6 +6044,220 @@ function isCentralServiceAssignedToCurrentDriver(service) {
   return Boolean(driverProfile?.id && getCentralServiceDriverId(service) === driverProfile.id);
 }
 
+async function loadDriverServices(options = {}) {
+  const driverId = driverProfile?.id || "";
+
+  if (!driverId || !shouldUseRealDriverServices()) {
+    return [];
+  }
+
+  if (!options.force && driverServicesLoadState.status === "loaded" && driverServicesLoadState.driverId === driverId) {
+    return driverServicesLoadState.services.slice();
+  }
+
+  if (!options.force && driverServicesLoadState.status === "loading" && driverServicesLoadState.driverId === driverId && driverServicesLoadState.promise) {
+    return driverServicesLoadState.promise;
+  }
+
+  driverServicesLoadState = {
+    driverId,
+    status: "loading",
+    promise: fetchDriverServiceOverview().then((rows) => rows.map(adaptDriverServiceOverviewRow)),
+    services: [],
+    error: "",
+  };
+
+  try {
+    const services = await driverServicesLoadState.promise;
+    driverServicesLoadState = {
+      driverId,
+      status: "loaded",
+      promise: null,
+      services: services.slice(),
+      error: "",
+    };
+    return services;
+  } catch (error) {
+    driverServicesLoadState = {
+      driverId,
+      status: "error",
+      promise: null,
+      services: [],
+      error: error?.message || "driver-services-error",
+    };
+    throw error;
+  }
+}
+
+async function fetchDriverServiceOverview() {
+  const { data, error } = await window.ElaraSupabase.client
+    .from("v_driver_service_overview")
+    .select(DRIVER_SERVICE_OVERVIEW_SELECT)
+    .order("scheduled_start_at", { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return Array.isArray(data) ? data : [];
+}
+
+function adaptDriverServiceOverviewRow(row) {
+  const schedule = getDriverServiceScheduleParts(row?.scheduled_start_at);
+  const status = getDriverStatusFromServiceOverview(row);
+  const displayStatus = getDriverDisplayStatusFromServiceOverview(row, status);
+  const vehicleLabel = [row?.brand, row?.model].map((value) => String(value || "").trim()).filter(Boolean).join(" ");
+  const customerName = String(row?.customer_display_name || "").trim() || "Cliente sin identificar";
+  const passengerName = String(row?.primary_passenger_name || "").trim() || customerName;
+
+  return {
+    id: row?.human_code || row?.service_id || "",
+    centralServiceId: row?.service_id || "",
+    assignmentId: row?.assignment_id || "",
+    date: schedule.date,
+    time: schedule.time,
+    type: getDriverServiceTypeLabel(row?.service_type),
+    origin: getDriverLocationLabel(row, "origin"),
+    destination: getDriverLocationLabel(row, "destination"),
+    stops: [],
+    passengerName,
+    passengerPhone: row?.primary_passenger_phone || "",
+    passengerEmail: "",
+    customerName,
+    passengers: "-",
+    luggage: "-",
+    notes: "",
+    assignedVehicle: vehicleLabel || row?.vehicle_human_code || "Vehiculo pendiente",
+    plate: row?.plate_normalized || "",
+    status,
+    displayStatus,
+    estimatedPrice: "Sin importe",
+    isNewAssignment: status === "asignado",
+    changeLog: [],
+    closing: getDriverOverviewClosing(row),
+    isRealDriverService: true,
+    operationalStatus: row?.operational_status || "",
+    assignmentStatus: row?.assignment_status || "",
+    scheduledStartAt: row?.scheduled_start_at || "",
+    driverStage: row?.driver_stage || "",
+  };
+}
+
+function getDriverStatusFromServiceOverview(row) {
+  const operationalStatus = normalizeDriverCode(row?.operational_status);
+  const assignmentStatus = normalizeDriverCode(row?.assignment_status);
+  const closureType = normalizeDriverCode(row?.closure_type);
+  const driverStage = normalizeDriverCode(row?.driver_stage);
+
+  if (operationalStatus === "in_progress") {
+    return DRIVER_CENTRAL_STAGE_SEQUENCE.includes(driverStage) ? driverStage : "en_camino";
+  }
+
+  if (assignmentStatus === "pending_acceptance" || assignmentStatus === "reassignment_required") {
+    return "asignado";
+  }
+
+  if (operationalStatus === "completed" || assignmentStatus === "ended" || closureType === "completed") {
+    return "finalizado";
+  }
+
+  if (operationalStatus === "no_show" || closureType === "no_show") {
+    return "no_show";
+  }
+
+  if (operationalStatus === "not_performed" || closureType === "not_performed") {
+    return "no_realizado";
+  }
+
+  if (operationalStatus === "cancelled" || assignmentStatus === "cancelled" || assignmentStatus === "rejected") {
+    return "cancelado";
+  }
+
+  if (assignmentStatus === "accepted" || operationalStatus === "confirmed") {
+    return "aceptado";
+  }
+
+  return "asignado";
+}
+
+function getDriverDisplayStatusFromServiceOverview(row, status) {
+  const operationalStatus = normalizeDriverCode(row?.operational_status);
+  const assignmentStatus = normalizeDriverCode(row?.assignment_status);
+
+  if (operationalStatus === "in_progress") {
+    return "En curso";
+  }
+
+  if (assignmentStatus === "rejected") {
+    return "Rechazado";
+  }
+
+  return driverStatusLabels[status] || status || "";
+}
+
+function getDriverOverviewClosing(row) {
+  const status = getDriverStatusFromServiceOverview(row);
+
+  if (!isClosedServiceStatus(status)) {
+    return null;
+  }
+
+  return {
+    type: row?.closure_type || "",
+    rating: "",
+    ratingLabel: "",
+    reasons: [],
+    hadIncident: "",
+    finalNotes: "",
+    closedAt: row?.closed_at || "",
+  };
+}
+
+function getDriverServiceScheduleParts(value) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return { date: "", time: "--:--" };
+  }
+
+  return {
+    date: getDriverLocalDateValue(date),
+    time: date.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }),
+  };
+}
+
+function getDriverLocalDateValue(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function getDriverLocationLabel(row, prefix) {
+  const label = String(row?.[`${prefix}_label`] || "").trim();
+  const address = String(row?.[`${prefix}_address`] || "").trim();
+  const city = String(row?.[`${prefix}_city`] || "").trim();
+
+  return [label, address, city].filter(Boolean).join(" - ") || "-";
+}
+
+function getDriverServiceTypeLabel(serviceType) {
+  const normalizedType = normalizeDriverCode(serviceType);
+  const labelByType = {
+    airport: "Aeropuerto",
+    point_to_point: "Punto a punto",
+    full_day: "Full Day",
+    pet: "Mascotas",
+    long_distance: "Larga distancia",
+  };
+
+  return labelByType[normalizedType] || serviceType || "Servicio";
+}
+
+function normalizeDriverCode(value) {
+  return String(value || "").trim().toLowerCase();
+}
 function loadServices() {
   if (window.ElaraServices && typeof window.ElaraServices.reconcileExpiredServices === "function") {
     window.ElaraServices.reconcileExpiredServices();
