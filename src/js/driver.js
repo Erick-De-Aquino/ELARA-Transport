@@ -17,6 +17,49 @@ const DRIVER_CLOSED_CENTRAL_SERVICE_STATUSES = ["Cancelado", "Finalizado", "No s
 const DRIVER_CENTRAL_STAGE_SEQUENCE = ["en_camino", "esperando_pasajero", "pasajero_a_bordo"];
 const DRIVER_FINANCE_HISTORY_PAGE_SIZE = 10;
 const DRIVER_FINANCE_DEFAULT_HISTORY_DAYS = 30;
+const DRIVER_FINANCE_REMITTANCE_SELECT = [
+  "id",
+  "human_code",
+  "status",
+  "declared_amount",
+  "verified_amount",
+  "currency_code",
+  "submitted_at",
+  "received_at",
+  "verified_at",
+  "cancelled_at",
+  "cancellation_reason",
+  "notes",
+  "created_at",
+].join(",");
+const DRIVER_FINANCE_REMITTANCE_STATUS_OPTIONS = [
+  { value: "", label: "Todos" },
+  { value: "preparation", label: "En preparacion" },
+  { value: "submitted", label: "Enviada" },
+  { value: "received", label: "Recibida" },
+  { value: "verified", label: "Verificada" },
+  { value: "cancelled", label: "Anulada" },
+];
+const DRIVER_FINANCE_REMITTANCE_STATUS_FILTERS = {
+  preparation: ["draft", "prepared"],
+  submitted: ["submitted"],
+  received: ["received"],
+  verified: ["verified"],
+  cancelled: ["cancelled"],
+};
+const DRIVER_FINANCE_REMITTANCE_STATUS_LABELS = {
+  draft: "En preparacion",
+  prepared: "En preparacion",
+  submitted: "Enviada",
+  received: "Recibida",
+  verified: "Verificada",
+  cancelled: "Anulada",
+};
+const DRIVER_FINANCE_MOCK_STATUS_OPTIONS = [
+  { value: "", label: "Todos" },
+  { value: "V\u00e1lida", label: "V\u00e1lida" },
+  { value: "Anulada", label: "Anulada" },
+];
 const DRIVER_EXPENSE_PAGE_SIZE = 10;
 const DRIVER_SETTLEMENT_PAGE_SIZE = 10;
 const DRIVER_SETTLEMENT_STATUSES = ["Pendiente de aprobación", "Aprobada", "Pagada", "Para revisión", "Anulada"];
@@ -123,8 +166,18 @@ let driverServicesLoadState = {
   services: [],
   error: "",
 };
+let driverFinanceLoadState = {
+  driverId: "",
+  status: "idle",
+  promise: null,
+  summary: null,
+  remittances: [],
+  summaryError: "",
+  remittancesError: "",
+};
 let driverServicesRenderRequestId = 0;
 let driverHistoryRenderRequestId = 0;
+let driverFinanceRenderRequestId = 0;
 let activeServiceId = null;
 let selectedServiceId = null;
 let editingPickupServiceId = null;
@@ -197,6 +250,7 @@ function initDriverFinanceUpdatedListener() {
   window.addEventListener("elara:cash-updated", refreshDriverVisibleFinanceView);
   window.addEventListener("elara:remittances-updated", refreshDriverVisibleFinanceView);
   window.addEventListener("elara:admin-incidents-updated", refreshDriverVisibleFinanceView);
+  window.addEventListener("elara:auth-session-updated", handleDriverFinanceAuthSessionUpdated);
   isDriverFinanceUpdatedListenerRegistered = true;
 }
 
@@ -247,9 +301,17 @@ function refreshDriverVisibleViewFromServicesUpdate() {
 function refreshDriverVisibleFinanceView() {
   const financesPanel = getElement("mis-finanzas");
 
+  resetDriverFinanceLoadState();
+
   if (financesPanel && !financesPanel.hidden) {
-    showDriverFinances();
+    void showDriverFinances();
   }
+}
+
+function handleDriverFinanceAuthSessionUpdated() {
+  resetDriverFinanceLoadState();
+  selectedDriverFinanceRemittanceId = "";
+  returnToFinanceDetailAfterDiscrepancy = false;
 }
 
 function refreshDriverVisibleExpensesView() {
@@ -357,7 +419,7 @@ async function showDriverHistory() {
   renderDriverHistory();
 }
 
-function showDriverFinances() {
+async function showDriverFinances() {
   setDriverActiveMode(false);
 
   if (!refreshDriverProfile()) {
@@ -366,6 +428,12 @@ function showDriverFinances() {
   }
 
   setDriverHeader("Portal conductor", "Mis finanzas", "Consulta tus rendiciones y diferencias financieras.");
+
+  if (shouldUseRealDriverFinances()) {
+    await showDriverRealFinances();
+    return;
+  }
+
   renderDriverFinances();
 }
 
@@ -943,6 +1011,191 @@ function shouldUseRealDriverServices() {
   );
 }
 
+function shouldUseRealDriverFinances() {
+  const user = getDriverAuthenticatedUser();
+
+  return Boolean(
+    window.ElaraSupabase?.client &&
+      driverProfile?.id &&
+      getDriverAuthUserActiveContext(user) === "conductor" &&
+      user?.driverIdentityStatus === "resolved" &&
+      String(user?.driverId || "").trim() === driverProfile.id
+  );
+}
+
+async function showDriverRealFinances() {
+  const requestId = ++driverFinanceRenderRequestId;
+
+  renderDriverFinanceLoadingState();
+  await loadDriverCashFinances();
+
+  if (requestId !== driverFinanceRenderRequestId || !isDriverFinancesViewVisible()) {
+    return;
+  }
+
+  renderDriverFinances();
+}
+
+function isDriverFinancesViewVisible() {
+  const financesPanel = getElement("mis-finanzas");
+  return Boolean(financesPanel && !financesPanel.hidden);
+}
+
+function resetDriverFinanceLoadState() {
+  driverFinanceLoadState = {
+    driverId: "",
+    status: "idle",
+    promise: null,
+    summary: null,
+    remittances: [],
+    summaryError: "",
+    remittancesError: "",
+  };
+}
+
+function isDriverFinanceLoading() {
+  return shouldUseRealDriverFinances() && driverFinanceLoadState.status === "loading";
+}
+
+async function loadDriverCashFinances(options = {}) {
+  const driverId = driverProfile?.id || "";
+
+  if (!driverId || !shouldUseRealDriverFinances()) {
+    return { summary: null, remittances: [], summaryError: "", remittancesError: "" };
+  }
+
+  if (!options.force && driverFinanceLoadState.status === "loaded" && driverFinanceLoadState.driverId === driverId) {
+    return {
+      summary: driverFinanceLoadState.summary,
+      remittances: driverFinanceLoadState.remittances.slice(),
+      summaryError: driverFinanceLoadState.summaryError,
+      remittancesError: driverFinanceLoadState.remittancesError,
+    };
+  }
+
+  if (!options.force && driverFinanceLoadState.status === "loading" && driverFinanceLoadState.driverId === driverId && driverFinanceLoadState.promise) {
+    return driverFinanceLoadState.promise;
+  }
+
+  const promise = Promise.allSettled([loadDriverCashFinanceSummary(), loadDriverCashFinanceRemittances()]).then(([summaryResult, remittancesResult]) => {
+    const summary = summaryResult.status === "fulfilled" ? summaryResult.value : null;
+    const remittances = remittancesResult.status === "fulfilled" ? remittancesResult.value : [];
+    let summaryError = summaryResult.status === "rejected" ? summaryResult.reason?.message || "driver-cash-summary-error" : "";
+    let remittancesError = remittancesResult.status === "rejected" ? remittancesResult.reason?.message || "driver-cash-remittances-error" : "";
+
+    if (summary?.currencyCode) {
+      const mismatch = remittances.some((remittance) => remittance.currencyCode && remittance.currencyCode !== summary.currencyCode);
+
+      if (mismatch) {
+        remittancesError = remittancesError || "driver-cash-currency-mismatch";
+      }
+    }
+
+    return { summary, remittances, summaryError, remittancesError };
+  });
+
+  driverFinanceLoadState = {
+    driverId,
+    status: "loading",
+    promise,
+    summary: null,
+    remittances: [],
+    summaryError: "",
+    remittancesError: "",
+  };
+
+  const result = await promise;
+  driverFinanceLoadState = {
+    driverId,
+    status: "loaded",
+    promise: null,
+    summary: result.summary,
+    remittances: result.remittances.slice(),
+    summaryError: result.summaryError,
+    remittancesError: result.remittancesError,
+  };
+
+  if (result.summaryError) {
+    console.error("[ELARA Driver] No se pudo cargar el resumen real de caja del conductor.", { error: result.summaryError });
+  }
+
+  if (result.remittancesError) {
+    console.error("[ELARA Driver] No se pudo cargar el historial real de rendiciones del conductor.", { error: result.remittancesError });
+  }
+
+  return result;
+}
+
+async function loadDriverCashFinanceSummary() {
+  const { data, error } = await window.ElaraSupabase.client.rpc("get_driver_cash_finance_summary");
+
+  if (error) {
+    throw error;
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  return adaptDriverCashFinanceSummary(row || {});
+}
+
+async function loadDriverCashFinanceRemittances() {
+  const { data, error } = await window.ElaraSupabase.client
+    .from("cash_remittances")
+    .select(DRIVER_FINANCE_REMITTANCE_SELECT)
+    .order("submitted_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw error;
+  }
+
+  return Array.isArray(data) ? data.map(adaptDriverCashRemittanceRow) : [];
+}
+
+function adaptDriverCashFinanceSummary(row) {
+  return {
+    driverId: row?.driver_id || "",
+    currencyCode: row?.currency_code || "",
+    cashCollectedAmount: Number(row?.cash_collected_amount) || 0,
+    remittedAmount: Number(row?.remitted_amount) || 0,
+    pendingRemittanceAmount: Number(row?.pending_remittance_amount) || 0,
+    openDiscrepancyCount: Number(row?.open_discrepancy_count) || 0,
+    openDiscrepancyAmount: Number(row?.open_discrepancy_amount) || 0,
+    excessUnderReviewAmount: Number(row?.excess_under_review_amount) || 0,
+  };
+}
+
+function adaptDriverCashRemittanceRow(row) {
+  const rawStatus = String(row?.status || "").trim();
+  const amount = rawStatus === "verified" && row?.verified_amount !== null && row?.verified_amount !== undefined ? row.verified_amount : row?.declared_amount;
+
+  return {
+    id: row?.human_code || row?.id || "",
+    remittanceId: row?.human_code || row?.id || "",
+    remittanceUuid: row?.id || "",
+    rawStatus,
+    status: rawStatus,
+    amount: Number(amount) || 0,
+    declaredAmount: Number(row?.declared_amount) || 0,
+    verifiedAmount: row?.verified_amount === null || row?.verified_amount === undefined ? null : Number(row.verified_amount) || 0,
+    currencyCode: row?.currency_code || driverFinanceLoadState.summary?.currencyCode || "",
+    submittedAt: row?.submitted_at || "",
+    receivedAt: row?.received_at || "",
+    verifiedAt: row?.verified_at || "",
+    createdAt: getDriverFinanceRemittanceDateValue(row),
+    cancelledAt: row?.cancelled_at || "",
+    annulledAt: row?.cancelled_at || "",
+    annulledByName: "",
+    annulmentReason: row?.cancellation_reason || "",
+    registeredByName: "Administracion",
+    observations: row?.notes || "",
+    notes: row?.notes || "",
+  };
+}
+
+function getDriverFinanceRemittanceDateValue(remittance) {
+  return remittance?.submittedAt || remittance?.submitted_at || remittance?.createdAt || remittance?.created_at || "";
+}
+
 async function showDriverRealServices() {
   const requestId = ++driverServicesRenderRequestId;
   const driverId = driverProfile?.id || "";
@@ -1228,9 +1481,17 @@ function renderDriverFinances() {
   renderDriverFinanceFilters();
   renderDriverFinanceSummary();
   renderDriverFinanceHistory();
+  setDriverFinanceFiltersDisabled(isDriverFinanceLoading());
 }
 
 function renderDriverFinanceFilters() {
+  const statusFilter = getElement("driver-finance-filter-status");
+
+  if (statusFilter) {
+    const options = shouldUseRealDriverFinances() ? DRIVER_FINANCE_REMITTANCE_STATUS_OPTIONS : DRIVER_FINANCE_MOCK_STATUS_OPTIONS;
+    statusFilter.innerHTML = options.map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`).join("");
+  }
+
   const fields = [
     ["driver-finance-filter-status", "status"],
     ["driver-finance-filter-from", "from"],
@@ -1247,6 +1508,47 @@ function renderDriverFinanceFilters() {
   });
 }
 
+function setDriverFinanceFiltersDisabled(disabled) {
+  [
+    "driver-finance-filter-status",
+    "driver-finance-filter-from",
+    "driver-finance-filter-to",
+    "driver-finance-filter-id",
+  ].forEach((id) => {
+    const element = getElement(id);
+
+    if (element) {
+      element.disabled = Boolean(disabled);
+    }
+  });
+}
+
+function renderDriverFinanceLoadingState() {
+  renderDriverFinanceFilters();
+  setDriverFinanceFiltersDisabled(true);
+
+  const summary = getElement("driver-finance-summary");
+  const list = getElement("driver-finance-list");
+  const meta = getElement("driver-finance-meta");
+  const pagination = getElement("driver-finance-pagination");
+
+  if (summary) {
+    summary.innerHTML = '<p class="driver-empty" role="status" aria-live="polite">Cargando finanzas...</p>';
+  }
+
+  if (list) {
+    list.innerHTML = '<p class="driver-empty" role="status" aria-live="polite">Cargando finanzas...</p>';
+  }
+
+  if (meta) {
+    meta.textContent = "Cargando finanzas...";
+  }
+
+  if (pagination) {
+    pagination.innerHTML = "";
+  }
+}
+
 function renderDriverFinanceSummary() {
   const container = getElement("driver-finance-summary");
 
@@ -1254,19 +1556,31 @@ function renderDriverFinanceSummary() {
     return;
   }
 
+  if (isDriverFinanceLoading()) {
+    container.innerHTML = '<p class="driver-empty" role="status" aria-live="polite">Cargando finanzas...</p>';
+    return;
+  }
+
+  if (shouldUseRealDriverFinances() && driverFinanceLoadState.summaryError) {
+    container.innerHTML = '<p class="driver-empty" role="alert">No se pudo cargar el resumen financiero. Intentalo de nuevo mas tarde.</p>';
+    return;
+  }
+
   const position = getDriverFinancePosition();
   const periodRemittances = getDriverFinanceRemittances();
-  const openDifferences = getDriverFinanceOpenDifferences();
+  const openDifferenceCount = getDriverFinanceOpenDifferenceCount();
+  const openDifferenceAmount = Number(position.openDiscrepancyAmount) || 0;
+  const showRealFinance = shouldUseRealDriverFinances();
   const cards = [
-    ["Efectivo cobrado", formatDriverFinanceMoney(position.totalCollected), "neutral"],
-    ["Total rendido", formatDriverFinanceMoney(position.totalRendered), "success"],
-    ["Pendiente de rendir", formatDriverFinanceMoney(position.pendingAmount), "warning"],
+    ["Efectivo cobrado", formatDriverFinanceMoney(position.totalCollected, position.currencyCode), "neutral"],
+    ["Total rendido", formatDriverFinanceMoney(position.totalRendered, position.currencyCode), "success"],
+    ["Pendiente de rendir", formatDriverFinanceMoney(position.pendingAmount, position.currencyCode), "warning"],
     ["Rendiciones del periodo", String(periodRemittances.length), "neutral"],
-    ["Diferencias abiertas", String(openDifferences.length), openDifferences.length ? "danger" : "neutral"],
+    ["Diferencias abiertas", `${openDifferenceCount} · ${formatDriverFinanceMoney(openDifferenceAmount, position.currencyCode)}`, openDifferenceCount ? "danger" : "neutral"],
   ];
 
-  if (position.excessAmount > 0 || openDifferences.some((incident) => normalizeDriverText(incident.type) === "excedente en rendicion")) {
-    cards.push(["Excedente en revision", formatDriverFinanceMoney(position.excessAmount), "danger"]);
+  if (showRealFinance || position.excessAmount > 0 || getDriverFinanceOpenDifferences().some((incident) => normalizeDriverText(incident.type) === "excedente en rendicion")) {
+    cards.push(["Excedente en revision", formatDriverFinanceMoney(position.excessAmount, position.currencyCode), position.excessAmount > 0 ? "danger" : "neutral"]);
   }
 
   container.innerHTML = cards
@@ -1290,6 +1604,20 @@ function renderDriverFinanceHistory() {
     return;
   }
 
+  if (isDriverFinanceLoading()) {
+    container.innerHTML = '<p class="driver-empty" role="status" aria-live="polite">Cargando finanzas...</p>';
+    if (meta) meta.textContent = "Cargando finanzas...";
+    if (pagination) pagination.innerHTML = "";
+    return;
+  }
+
+  if (shouldUseRealDriverFinances() && driverFinanceLoadState.remittancesError) {
+    container.innerHTML = '<p class="driver-empty" role="alert">No se pudo cargar el historial de rendiciones. Intentalo de nuevo mas tarde.</p>';
+    if (meta) meta.textContent = "-";
+    if (pagination) pagination.innerHTML = "";
+    return;
+  }
+
   const remittances = getDriverFinanceRemittances();
   const totalPages = Math.max(1, Math.ceil(remittances.length / DRIVER_FINANCE_HISTORY_PAGE_SIZE));
   driverFinanceHistoryPage = Math.min(Math.max(driverFinanceHistoryPage, 1), totalPages);
@@ -1301,7 +1629,8 @@ function renderDriverFinanceHistory() {
   }
 
   if (!pageItems.length) {
-    container.innerHTML = `<p class="driver-empty">No hay rendiciones para los filtros seleccionados.</p>`;
+    const hasAnyRemittances = getDriverFinanceAllRemittances().length > 0;
+    container.innerHTML = `<p class="driver-empty">${hasAnyRemittances ? "No hay rendiciones para los filtros seleccionados." : "No tienes rendiciones registradas."}</p>`;
     renderDriverFinancePagination(pagination, driverFinanceHistoryPage, totalPages);
     return;
   }
@@ -1312,10 +1641,10 @@ function renderDriverFinanceHistory() {
         <article class="driver-finance-row">
           <div>
             <strong>${escapeHtml(getDriverFinanceRemittanceId(remittance))}</strong>
-            <span>${escapeHtml(formatDriverFinanceDateTime(remittance.createdAt))} · ${escapeHtml(remittance.registeredByName || "Administracion")}</span>
+            <span>${escapeHtml(formatDriverFinanceDateTime(getDriverFinanceRemittanceDateValue(remittance)))} · ${escapeHtml(remittance.registeredByName || "Administracion")}</span>
             ${remittance.observations ? `<small>${escapeHtml(remittance.observations)}</small>` : ""}
           </div>
-          <strong>${escapeHtml(formatDriverFinanceMoney(remittance.amount))}</strong>
+          <strong>${escapeHtml(formatDriverFinanceMoney(remittance.amount, remittance.currencyCode))}</strong>
           <span class="cash-row__status">${escapeHtml(getDriverFinanceRemittanceStatus(remittance))}</span>
           <button class="button button--compact button--muted" type="button" data-driver-action="finance-detail" data-remittance-id="${escapeHtml(getDriverFinanceRemittanceId(remittance))}">Detalle</button>
         </article>
@@ -1366,6 +1695,25 @@ function clearDriverFinanceFilters() {
 }
 
 function getDriverFinancePosition() {
+  if (shouldUseRealDriverFinances()) {
+    const summary = driverFinanceLoadState.summary || {};
+
+    return {
+      driverId: summary.driverId || driverProfile?.id || "",
+      driverName: driverProfile?.name || "Conductor",
+      driverType: driverProfile?.driverType || "Conductor",
+      currencyCode: summary.currencyCode || "",
+      totalCollected: Number(summary.cashCollectedAmount) || 0,
+      totalRendered: Number(summary.remittedAmount) || 0,
+      balanceAmount: Number(summary.cashCollectedAmount || 0) - Number(summary.remittedAmount || 0),
+      pendingAmount: Number(summary.pendingRemittanceAmount) || 0,
+      excessAmount: Number(summary.excessUnderReviewAmount) || 0,
+      openDiscrepancyCount: Number(summary.openDiscrepancyCount) || 0,
+      openDiscrepancyAmount: Number(summary.openDiscrepancyAmount) || 0,
+      status: "Real",
+    };
+  }
+
   if (!driverProfile || !window.ElaraCash || typeof window.ElaraCash.getCashDriverPosition !== "function") {
     return { totalCollected: 0, totalRendered: 0, pendingAmount: 0, excessAmount: 0, status: "Pendiente" };
   }
@@ -1384,6 +1732,10 @@ function getDriverFinancePosition() {
 }
 
 function getDriverFinanceRemittances() {
+  if (shouldUseRealDriverFinances()) {
+    return getFilteredDriverFinanceRealRemittances();
+  }
+
   if (!driverProfile || !window.ElaraCash || typeof window.ElaraCash.getCashRemittancesForDriver !== "function") {
     return [];
   }
@@ -1391,12 +1743,80 @@ function getDriverFinanceRemittances() {
   return window.ElaraCash.getCashRemittancesForDriver(driverProfile.id, driverFinanceFilters);
 }
 
+function getDriverFinanceAllRemittances() {
+  if (shouldUseRealDriverFinances()) {
+    return driverFinanceLoadState.driverId === driverProfile?.id ? driverFinanceLoadState.remittances.slice() : [];
+  }
+
+  if (!driverProfile || !window.ElaraCash || typeof window.ElaraCash.getCashRemittancesForDriver !== "function") {
+    return [];
+  }
+
+  return window.ElaraCash.getCashRemittancesForDriver(driverProfile.id);
+}
+
+function getFilteredDriverFinanceRealRemittances() {
+  const remittances = getDriverFinanceAllRemittances();
+  const status = String(driverFinanceFilters.status || "").trim();
+  const acceptedStatuses = DRIVER_FINANCE_REMITTANCE_STATUS_FILTERS[status] || (status ? [status] : []);
+  const queryId = normalizeDriverText(driverFinanceFilters.remittanceId);
+  const fromTimestamp = getDriverFinanceDateBoundaryTimestamp(driverFinanceFilters.from, "start");
+  const toTimestamp = getDriverFinanceDateBoundaryTimestamp(driverFinanceFilters.to, "end");
+
+  return remittances.filter((remittance) => {
+    const remittanceTimestamp = getDriverFinanceRemittanceTimestamp(remittance);
+    const remittanceId = normalizeDriverText(getDriverFinanceRemittanceId(remittance));
+
+    if (acceptedStatuses.length && !acceptedStatuses.includes(remittance.rawStatus)) {
+      return false;
+    }
+
+    if (fromTimestamp && remittanceTimestamp < fromTimestamp) {
+      return false;
+    }
+
+    if (toTimestamp && remittanceTimestamp > toTimestamp) {
+      return false;
+    }
+
+    return !queryId || remittanceId.includes(queryId);
+  });
+}
+
+function getDriverFinanceDateBoundaryTimestamp(value, boundary) {
+  const dateValue = String(value || "").trim();
+
+  if (!dateValue) {
+    return null;
+  }
+
+  const timestamp = boundary === "end" ? new Date(`${dateValue}T23:59:59.999`).getTime() : new Date(`${dateValue}T00:00:00.000`).getTime();
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function getDriverFinanceRemittanceTimestamp(remittance) {
+  const timestamp = new Date(getDriverFinanceRemittanceDateValue(remittance)).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
 function getDriverFinanceOpenDifferences() {
+  if (shouldUseRealDriverFinances()) {
+    return [];
+  }
+
   if (!driverProfile || !window.ElaraCash || typeof window.ElaraCash.getCashOpenFinancialIncidentsForDriver !== "function") {
     return [];
   }
 
   return window.ElaraCash.getCashOpenFinancialIncidentsForDriver(driverProfile.id);
+}
+
+function getDriverFinanceOpenDifferenceCount() {
+  if (shouldUseRealDriverFinances()) {
+    return Number(driverFinanceLoadState.summary?.openDiscrepancyCount) || 0;
+  }
+
+  return getDriverFinanceOpenDifferences().length;
 }
 
 function renderDriverSettlements() {
@@ -1862,8 +2282,8 @@ function openDriverFinanceRemittanceDetail(remittanceId) {
 
   selectedDriverFinanceRemittanceId = getDriverFinanceRemittanceId(remittance);
   setText("driver-finance-detail-id", selectedDriverFinanceRemittanceId);
-  setText("driver-finance-detail-date", formatDriverFinanceDateTime(remittance.createdAt));
-  setText("driver-finance-detail-amount", formatDriverFinanceMoney(remittance.amount));
+  setText("driver-finance-detail-date", formatDriverFinanceDateTime(getDriverFinanceRemittanceDateValue(remittance)));
+  setText("driver-finance-detail-amount", formatDriverFinanceMoney(remittance.amount, remittance.currencyCode));
   setText("driver-finance-detail-status", getDriverFinanceRemittanceStatus(remittance));
   setText("driver-finance-detail-registered-by", remittance.registeredByName || "Administracion");
   setText("driver-finance-detail-difference", getDriverFinanceRemittanceDifferenceLabel(remittance));
@@ -1871,10 +2291,24 @@ function openDriverFinanceRemittanceDetail(remittanceId) {
   setText("driver-finance-detail-annulled-at", remittance.annulledAt ? formatDriverFinanceDateTime(remittance.annulledAt) : "-");
   setText("driver-finance-detail-annulled-by", remittance.annulledByName || "-");
   setText("driver-finance-detail-annulment-reason", remittance.annulmentReason || "-");
+
+  const discrepancyButton = getElement("driver-finance-discrepancy-action");
+
+  if (discrepancyButton) {
+    const disableRealAction = shouldUseRealDriverFinances();
+    discrepancyButton.hidden = disableRealAction;
+    discrepancyButton.disabled = disableRealAction;
+  }
+
   openModal("driver-finance-detail-modal");
 }
 
 function openDriverFinanceDiscrepancyModal(remittanceId) {
+  if (shouldUseRealDriverFinances()) {
+    window.ElaraNotifications.showToast("El reporte de discrepancias reales se integrara en una fase posterior.", "info");
+    return;
+  }
+
   const remittance = getDriverFinanceRemittanceById(remittanceId);
 
   if (!remittance) {
@@ -1901,6 +2335,11 @@ function openDriverFinanceDiscrepancyModal(remittanceId) {
 
 function submitDriverFinanceDiscrepancy(event) {
   event.preventDefault();
+
+  if (shouldUseRealDriverFinances()) {
+    showDriverFinanceDiscrepancyError("El reporte de discrepancias reales se integrara en una fase posterior.");
+    return;
+  }
 
   if (!refreshDriverProfile()) {
     window.ElaraNotifications.showToast(driverAccessMessage || DRIVER_NO_PORTAL_ACCESS_MESSAGE, "error");
@@ -1980,11 +2419,21 @@ function closeDriverFinanceDiscrepancyModal({ returnToDetail = false } = {}) {
 }
 
 function getDriverFinanceRemittanceById(remittanceId) {
-  if (!window.ElaraCash || typeof window.ElaraCash.findCashRemittance !== "function" || !driverProfile) {
+  const id = String(remittanceId || "").trim();
+
+  if (!id || !driverProfile) {
     return null;
   }
 
-  const remittance = window.ElaraCash.findCashRemittance(remittanceId);
+  if (shouldUseRealDriverFinances()) {
+    return getDriverFinanceAllRemittances().find((remittance) => getDriverFinanceRemittanceId(remittance) === id || remittance.remittanceUuid === id) || null;
+  }
+
+  if (!window.ElaraCash || typeof window.ElaraCash.findCashRemittance !== "function") {
+    return null;
+  }
+
+  const remittance = window.ElaraCash.findCashRemittance(id);
 
   return remittance && remittance.driverId === driverProfile.id ? remittance : null;
 }
@@ -2004,14 +2453,21 @@ function getDriverFinanceRemittanceId(remittance) {
 }
 
 function getDriverFinanceRemittanceStatus(remittance) {
+  if (shouldUseRealDriverFinances()) {
+    return DRIVER_FINANCE_REMITTANCE_STATUS_LABELS[remittance?.rawStatus] || remittance?.rawStatus || "-";
+  }
+
   if (window.ElaraCash && typeof window.ElaraCash.getCashRemittanceStatus === "function") {
     return window.ElaraCash.getCashRemittanceStatus(remittance);
   }
 
-  return remittance?.status === "Anulada" || remittance?.annulledAt ? "Anulada" : "Válida";
+  return remittance?.status === "Anulada" || remittance?.annulledAt ? "Anulada" : "Valida";
 }
-
 function getDriverFinanceRemittanceDifferenceLabel(remittance) {
+  if (shouldUseRealDriverFinances()) {
+    return "No disponible en esta fase";
+  }
+
   if (window.ElaraCash && typeof window.ElaraCash.getCashRemittanceDifferenceLabel === "function") {
     return window.ElaraCash.getCashRemittanceDifferenceLabel(remittance);
   }
@@ -2020,27 +2476,47 @@ function getDriverFinanceRemittanceDifferenceLabel(remittance) {
 }
 
 function getDefaultDriverFinanceFilters() {
-  const now = new Date();
-  const fromDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (DRIVER_FINANCE_DEFAULT_HISTORY_DAYS - 1));
-
   return {
     status: "",
-    from: formatDriverDateInputValue(fromDate),
-    to: formatDriverDateInputValue(now),
+    from: "",
+    to: "",
     remittanceId: "",
   };
 }
-
 function formatDriverDateInputValue(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-function formatDriverFinanceMoney(value) {
-  return window.ElaraCash && typeof window.ElaraCash.formatCashMoney === "function" ? window.ElaraCash.formatCashMoney(value) : formatDriverMoney(value);
+function formatDriverFinanceMoney(value, currencyCode = "") {
+  if (!shouldUseRealDriverFinances() && window.ElaraCash && typeof window.ElaraCash.formatCashMoney === "function") {
+    return window.ElaraCash.formatCashMoney(value);
+  }
+
+  const currency = String(currencyCode || driverFinanceLoadState.summary?.currencyCode || "").trim().toUpperCase();
+  const amount = Number(value);
+  const safeAmount = Number.isFinite(amount) ? Math.round((amount + Number.EPSILON) * 100) / 100 : 0;
+
+  if (!currency) {
+    return formatDriverMoney(safeAmount);
+  }
+
+  try {
+    return new Intl.NumberFormat("es-ES", { style: "currency", currency }).format(safeAmount);
+  } catch (error) {
+    return `${safeAmount.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+  }
 }
 
 function formatDriverFinanceDateTime(value) {
-  return window.ElaraCash && typeof window.ElaraCash.formatCashDateTime === "function" ? window.ElaraCash.formatCashDateTime(value) : new Date(value).toLocaleString("es-ES");
+  if (!value) {
+    return "-";
+  }
+
+  if (!shouldUseRealDriverFinances() && window.ElaraCash && typeof window.ElaraCash.formatCashDateTime === "function") {
+    return window.ElaraCash.formatCashDateTime(value);
+  }
+
+  return new Date(value).toLocaleString("es-ES");
 }
 
 function showDriverFinanceDiscrepancyError(message) {
