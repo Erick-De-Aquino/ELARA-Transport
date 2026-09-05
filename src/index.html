@@ -1437,11 +1437,12 @@
                   <span>Estado</span>
                   <select id="driver-settlement-filter-status">
                     <option value="">Todos</option>
-                    <option value="Pendiente de aprobaci&oacute;n">Pendiente de aprobaci&oacute;n</option>
-                    <option value="Aprobada">Aprobada</option>
-                    <option value="Pagada">Pagada</option>
-                    <option value="Para revisi&oacute;n">Para revisi&oacute;n</option>
-                    <option value="Anulada">Anulada</option>
+                    <option value="draft">Borrador</option>
+                    <option value="generated">Generada</option>
+                    <option value="submitted">Enviada</option>
+                    <option value="approved">Aprobada</option>
+                    <option value="rejected">Rechazada</option>
+                    <option value="cancelled">Cancelada</option>
                   </select>
                 </label>
                 <label class="field">
@@ -1454,14 +1455,16 @@
                 </label>
                 <label class="field">
                   <span>ID liquidaci&oacute;n</span>
-                  <input id="driver-settlement-filter-query" type="search" placeholder="LIQ-0001" />
+                  <input id="driver-settlement-filter-query" type="search" placeholder="SET-000001" />
                 </label>
                 <label class="field">
-                  <span>Cobro de servicios</span>
+                  <span>Estado pago</span>
                   <select id="driver-settlement-filter-collection">
-                    <option value="">Todas</option>
-                    <option value="pending">Con servicios pendientes de cobro</option>
-                    <option value="settled">Sin servicios pendientes de cobro</option>
+                    <option value="">Todos</option>
+                    <option value="unpaid">Pendiente de pago</option>
+                    <option value="partial">Pago parcial</option>
+                    <option value="paid">Pagada</option>
+                    <option value="cancelled">Pago cancelado</option>
                   </select>
                 </label>
                 <button class="button button--compact button--muted" type="button" data-driver-action="settlement-clear-filters">Limpiar</button>

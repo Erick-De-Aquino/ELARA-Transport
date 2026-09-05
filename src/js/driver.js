@@ -62,7 +62,81 @@ const DRIVER_FINANCE_MOCK_STATUS_OPTIONS = [
 ];
 const DRIVER_EXPENSE_PAGE_SIZE = 10;
 const DRIVER_SETTLEMENT_PAGE_SIZE = 10;
-const DRIVER_SETTLEMENT_STATUSES = ["Pendiente de aprobación", "Aprobada", "Pagada", "Para revisión", "Anulada"];
+const DRIVER_SETTLEMENT_STATUSES = ["Pendiente de aprobaci\u00f3n", "Aprobada", "Pagada", "Para revisi\u00f3n", "Anulada"];
+const DRIVER_SETTLEMENT_SUMMARY_SELECT = [
+  "settlement_id",
+  "human_code",
+  "driver_id",
+  "period_start",
+  "period_end",
+  "status",
+  "payment_status",
+  "currency_code",
+  "driver_type_snapshot",
+  "frequency_snapshot",
+  "gross_eligible_amount",
+  "expense_deduction_amount",
+  "adjustment_amount",
+  "calculation_base_amount",
+  "driver_percentage",
+  "elara_percentage",
+  "driver_amount",
+  "paid_amount",
+  "pending_amount",
+  "completed_payment_count",
+  "last_payment_at",
+].join(",");
+const DRIVER_SETTLEMENT_REAL_STATUS_OPTIONS = [
+  { value: "", label: "Todos" },
+  { value: "draft", label: "Borrador" },
+  { value: "generated", label: "Generada" },
+  { value: "submitted", label: "Enviada" },
+  { value: "approved", label: "Aprobada" },
+  { value: "rejected", label: "Rechazada" },
+  { value: "cancelled", label: "Cancelada" },
+];
+const DRIVER_SETTLEMENT_PAYMENT_STATUS_OPTIONS = [
+  { value: "", label: "Todos" },
+  { value: "unpaid", label: "Pendiente de pago" },
+  { value: "partial", label: "Pago parcial" },
+  { value: "paid", label: "Pagada" },
+  { value: "cancelled", label: "Pago cancelado" },
+];
+const DRIVER_SETTLEMENT_MOCK_STATUS_OPTIONS = [
+  { value: "", label: "Todos" },
+  { value: "Pendiente de aprobaci\u00f3n", label: "Pendiente de aprobaci\u00f3n" },
+  { value: "Aprobada", label: "Aprobada" },
+  { value: "Pagada", label: "Pagada" },
+  { value: "Para revisi\u00f3n", label: "Para revisi\u00f3n" },
+  { value: "Anulada", label: "Anulada" },
+];
+const DRIVER_SETTLEMENT_MOCK_COLLECTION_OPTIONS = [
+  { value: "", label: "Todas" },
+  { value: "pending", label: "Con servicios pendientes de cobro" },
+  { value: "settled", label: "Sin servicios pendientes de cobro" },
+];
+const DRIVER_SETTLEMENT_STATUS_LABELS = {
+  draft: "Borrador",
+  generated: "Generada",
+  submitted: "Enviada",
+  approved: "Aprobada",
+  rejected: "Rechazada",
+  cancelled: "Cancelada",
+};
+const DRIVER_SETTLEMENT_PAYMENT_STATUS_LABELS = {
+  unpaid: "Pendiente de pago",
+  partial: "Pago parcial",
+  paid: "Pagada",
+  cancelled: "Pago cancelado",
+};
+const DRIVER_SETTLEMENT_DRIVER_TYPE_LABELS = {
+  internal_driver: "Conductor interno",
+  external_collaborator: "Colaborador externo",
+};
+const DRIVER_SETTLEMENT_FREQUENCY_LABELS = {
+  monthly: "Mensual",
+  weekly: "Semanal",
+};
 const DRIVER_SERVICE_OVERVIEW_SELECT = [
   "service_id",
   "human_code",
@@ -175,9 +249,17 @@ let driverFinanceLoadState = {
   summaryError: "",
   remittancesError: "",
 };
+let driverSettlementsLoadState = {
+  driverId: "",
+  status: "idle",
+  promise: null,
+  settlements: [],
+  error: "",
+};
 let driverServicesRenderRequestId = 0;
 let driverHistoryRenderRequestId = 0;
 let driverFinanceRenderRequestId = 0;
+let driverSettlementsRenderRequestId = 0;
 let activeServiceId = null;
 let selectedServiceId = null;
 let editingPickupServiceId = null;
@@ -269,6 +351,7 @@ function initDriverSettlementsUpdatedListener() {
   }
 
   window.addEventListener("elara:settlements-updated", refreshDriverVisibleSettlementsView);
+  window.addEventListener("elara:auth-session-updated", handleDriverSettlementAuthSessionUpdated);
   isDriverSettlementsUpdatedListenerRegistered = true;
 }
 
@@ -334,23 +417,32 @@ function refreshDriverVisibleExpensesView() {
 
 function refreshDriverVisibleSettlementsView() {
   const settlementsPanel = getElement("mis-liquidaciones");
+  const refreshOpenDetail = () => {
+    if (!getElement("driver-settlement-detail-modal")?.hidden && selectedDriverSettlementId) {
+      const settlement = getDriverSettlementById(selectedDriverSettlementId);
+
+      if (settlement) {
+        renderDriverSettlementDetail(settlement);
+      } else {
+        selectedDriverSettlementId = "";
+        closeModal("driver-settlement-detail-modal");
+      }
+    }
+  };
+
+  resetDriverSettlementsLoadState();
 
   if (settlementsPanel && !settlementsPanel.hidden) {
-    showDriverSettlements();
+    void showDriverSettlements().then(refreshOpenDetail);
+    return;
   }
 
-  if (!getElement("driver-settlement-detail-modal")?.hidden && selectedDriverSettlementId) {
-    const settlement = getDriverSettlementById(selectedDriverSettlementId);
-
-    if (settlement) {
-      renderDriverSettlementDetail(settlement);
-    } else {
-      selectedDriverSettlementId = "";
-      closeModal("driver-settlement-detail-modal");
-    }
-  }
+  refreshOpenDetail();
 }
-
+function handleDriverSettlementAuthSessionUpdated() {
+  resetDriverSettlementsLoadState();
+  selectedDriverSettlementId = "";
+}
 async function showDriverServices() {
   setDriverActiveMode(false);
 
@@ -451,7 +543,7 @@ function showDriverExpenses() {
   renderDriverExpenses();
 }
 
-function showDriverSettlements() {
+async function showDriverSettlements() {
   setDriverActiveMode(false);
 
   if (!refreshDriverProfile()) {
@@ -466,9 +558,14 @@ function showDriverSettlements() {
   }
 
   setDriverHeader("Portal conductor", "Mis liquidaciones", "Consulta tus periodos, servicios incluidos e importes aprobados o pagados.");
+
+  if (shouldUseRealDriverSettlements()) {
+    await showDriverRealSettlements();
+    return;
+  }
+
   renderDriverSettlements();
 }
-
 function renderDriverAccessState(viewName) {
   setDriverActiveMode(false);
   const message = driverAccessMessage || DRIVER_UNASSOCIATED_MESSAGE;
@@ -1021,6 +1118,170 @@ function shouldUseRealDriverFinances() {
       user?.driverIdentityStatus === "resolved" &&
       String(user?.driverId || "").trim() === driverProfile.id
   );
+}
+function shouldUseRealDriverSettlements() {
+  const user = getDriverAuthenticatedUser();
+
+  return Boolean(
+    window.ElaraSupabase?.client &&
+      driverProfile?.id &&
+      getDriverAuthUserActiveContext(user) === "conductor" &&
+      user?.driverIdentityStatus === "resolved" &&
+      String(user?.driverId || "").trim() === driverProfile.id
+  );
+}
+
+async function showDriverRealSettlements() {
+  const requestId = ++driverSettlementsRenderRequestId;
+
+  renderDriverSettlementLoadingState();
+  await loadDriverSettlements().catch((error) => {
+    console.error("[ELARA Driver] No se pudieron cargar las liquidaciones reales del conductor.", { error: error?.message || error });
+  });
+
+  if (requestId !== driverSettlementsRenderRequestId || !isDriverSettlementsViewVisible()) {
+    return;
+  }
+
+  renderDriverSettlements();
+}
+
+function isDriverSettlementsViewVisible() {
+  const settlementsPanel = getElement("mis-liquidaciones");
+  return Boolean(settlementsPanel && !settlementsPanel.hidden);
+}
+
+function resetDriverSettlementsLoadState() {
+  driverSettlementsLoadState = {
+    driverId: "",
+    status: "idle",
+    promise: null,
+    settlements: [],
+    error: "",
+  };
+}
+
+function isDriverSettlementsLoading() {
+  return shouldUseRealDriverSettlements() && driverSettlementsLoadState.status === "loading";
+}
+
+async function loadDriverSettlements(options = {}) {
+  const driverId = driverProfile?.id || "";
+
+  if (!driverId || !shouldUseRealDriverSettlements()) {
+    return [];
+  }
+
+  if (!options.force && driverSettlementsLoadState.status === "loaded" && driverSettlementsLoadState.driverId === driverId) {
+    return driverSettlementsLoadState.settlements.slice();
+  }
+
+  if (!options.force && driverSettlementsLoadState.status === "loading" && driverSettlementsLoadState.driverId === driverId && driverSettlementsLoadState.promise) {
+    return driverSettlementsLoadState.promise;
+  }
+
+  driverSettlementsLoadState = {
+    driverId,
+    status: "loading",
+    promise: fetchDriverSettlementSummaryRows().then((rows) => rows.map(adaptDriverSettlementSummaryRow)),
+    settlements: [],
+    error: "",
+  };
+
+  try {
+    const settlements = await driverSettlementsLoadState.promise;
+    driverSettlementsLoadState = {
+      driverId,
+      status: "loaded",
+      promise: null,
+      settlements: settlements.slice(),
+      error: "",
+    };
+    return settlements;
+  } catch (error) {
+    driverSettlementsLoadState = {
+      driverId,
+      status: "error",
+      promise: null,
+      settlements: [],
+      error: error?.message || "driver-settlements-error",
+    };
+    throw error;
+  }
+}
+
+async function fetchDriverSettlementSummaryRows() {
+  const { data, error } = await window.ElaraSupabase.client
+    .from("v_driver_settlement_summary")
+    .select(DRIVER_SETTLEMENT_SUMMARY_SELECT)
+    .order("period_end", { ascending: false, nullsFirst: false })
+    .order("period_start", { ascending: false, nullsFirst: false });
+
+  if (error) {
+    throw error;
+  }
+
+  return Array.isArray(data) ? data : [];
+}
+
+function adaptDriverSettlementSummaryRow(row) {
+  const rawStatus = String(row?.status || "").trim();
+  const rawPaymentStatus = String(row?.payment_status || "").trim();
+  const currencyCode = String(row?.currency_code || "").trim().toUpperCase();
+
+  return {
+    settlementId: row?.human_code || row?.settlement_id || "",
+    settlementUuid: row?.settlement_id || "",
+    humanCode: row?.human_code || "",
+    driverId: row?.driver_id || "",
+    periodStart: row?.period_start || "",
+    periodEnd: row?.period_end || "",
+    rawStatus,
+    status: DRIVER_SETTLEMENT_STATUS_LABELS[rawStatus] || rawStatus || "-",
+    rawPaymentStatus,
+    paymentStatus: DRIVER_SETTLEMENT_PAYMENT_STATUS_LABELS[rawPaymentStatus] || rawPaymentStatus || "-",
+    currencyCode,
+    driverTypeSnapshot: row?.driver_type_snapshot || "",
+    frequencySnapshot: row?.frequency_snapshot || "",
+    driverType: DRIVER_SETTLEMENT_DRIVER_TYPE_LABELS[row?.driver_type_snapshot] || row?.driver_type_snapshot || "-",
+    periodType: DRIVER_SETTLEMENT_FREQUENCY_LABELS[row?.frequency_snapshot] || row?.frequency_snapshot || "-",
+    grossEligibleAmount: Number(row?.gross_eligible_amount) || 0,
+    expenseDeductionAmount: Number(row?.expense_deduction_amount) || 0,
+    adjustmentAmount: Number(row?.adjustment_amount) || 0,
+    calculationBaseAmount: Number(row?.calculation_base_amount) || 0,
+    driverPercentage: Number(row?.driver_percentage) || 0,
+    elaraPercentage: Number(row?.elara_percentage) || 0,
+    driverAmount: Number(row?.driver_amount) || 0,
+    paidAmount: Number(row?.paid_amount) || 0,
+    pendingAmount: Number(row?.pending_amount) || 0,
+    completedPaymentCount: Number(row?.completed_payment_count) || 0,
+    lastPaymentAt: row?.last_payment_at || "",
+    createdAt: row?.period_end || row?.period_start || "",
+    payment: {
+      status: DRIVER_SETTLEMENT_PAYMENT_STATUS_LABELS[rawPaymentStatus] || rawPaymentStatus || "-",
+      amount: Number(row?.paid_amount) || 0,
+      paidAt: row?.last_payment_at || "",
+      completedPaymentCount: Number(row?.completed_payment_count) || 0,
+    },
+    percentageSnapshot: {
+      appliedPercentage: Number(row?.driver_percentage) || 0,
+      mode: "snapshot",
+    },
+    totals: {
+      grossEligibleAmount: Number(row?.gross_eligible_amount) || 0,
+      expenseDeductionAmount: Number(row?.expense_deduction_amount) || 0,
+      adjustmentAmount: Number(row?.adjustment_amount) || 0,
+      calculationBaseAmount: Number(row?.calculation_base_amount) || 0,
+      driverAmount: Number(row?.driver_amount) || 0,
+      paidAmount: Number(row?.paid_amount) || 0,
+      pendingAmount: Number(row?.pending_amount) || 0,
+      servicesCount: 0,
+      pendingCollectionAmount: 0,
+      liquidableMargin: Number(row?.calculation_base_amount) || 0,
+    },
+    serviceItems: [],
+    returnHistory: [],
+  };
 }
 
 async function showDriverRealFinances() {
@@ -1826,6 +2087,25 @@ function renderDriverSettlements() {
 }
 
 function renderDriverSettlementFilters() {
+  const statusFilter = getElement("driver-settlement-filter-status");
+  const paymentFilter = getElement("driver-settlement-filter-collection");
+  const paymentLabel = paymentFilter?.closest("label")?.querySelector("span");
+  const isReal = shouldUseRealDriverSettlements();
+
+  if (statusFilter) {
+    const options = isReal ? DRIVER_SETTLEMENT_REAL_STATUS_OPTIONS : DRIVER_SETTLEMENT_MOCK_STATUS_OPTIONS;
+    statusFilter.innerHTML = options.map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`).join("");
+  }
+
+  if (paymentFilter) {
+    const options = isReal ? DRIVER_SETTLEMENT_PAYMENT_STATUS_OPTIONS : DRIVER_SETTLEMENT_MOCK_COLLECTION_OPTIONS;
+    paymentFilter.innerHTML = options.map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`).join("");
+  }
+
+  if (paymentLabel) {
+    paymentLabel.textContent = isReal ? "Estado pago" : "Cobro de servicios";
+  }
+
   [
     ["driver-settlement-filter-status", "status"],
     ["driver-settlement-filter-from", "from"],
@@ -1839,6 +2119,8 @@ function renderDriverSettlementFilters() {
       element.value = driverSettlementFilters[key] || "";
     }
   });
+
+  setDriverSettlementFiltersDisabled(isDriverSettlementsLoading());
 
   const filtersContainer = getElement("driver-settlement-filters");
   const filterButton = getElement("driver-settlement-filter-toggle");
@@ -1854,6 +2136,47 @@ function renderDriverSettlementFilters() {
   }
 }
 
+function setDriverSettlementFiltersDisabled(disabled) {
+  [
+    "driver-settlement-filter-status",
+    "driver-settlement-filter-from",
+    "driver-settlement-filter-to",
+    "driver-settlement-filter-query",
+    "driver-settlement-filter-collection",
+  ].forEach((id) => {
+    const element = getElement(id);
+
+    if (element) {
+      element.disabled = Boolean(disabled);
+    }
+  });
+}
+
+function renderDriverSettlementLoadingState() {
+  renderDriverSettlementFilters();
+  setDriverSettlementFiltersDisabled(true);
+
+  const summary = getElement("driver-settlement-summary");
+  const list = getElement("driver-settlement-list");
+  const meta = getElement("driver-settlement-meta");
+  const pagination = getElement("driver-settlement-pagination");
+
+  if (summary) {
+    summary.innerHTML = '<p class="driver-empty" role="status" aria-live="polite">Cargando liquidaciones...</p>';
+  }
+
+  if (list) {
+    list.innerHTML = '<p class="driver-empty" role="status" aria-live="polite">Cargando liquidaciones...</p>';
+  }
+
+  if (meta) {
+    meta.textContent = "Cargando liquidaciones...";
+  }
+
+  if (pagination) {
+    pagination.innerHTML = "";
+  }
+}
 function renderDriverSettlementSummary() {
   const container = getElement("driver-settlement-summary");
 
@@ -1861,15 +2184,32 @@ function renderDriverSettlementSummary() {
     return;
   }
 
+  if (isDriverSettlementsLoading()) {
+    container.innerHTML = '<p class="driver-empty" role="status" aria-live="polite">Cargando liquidaciones...</p>';
+    return;
+  }
+
+  if (shouldUseRealDriverSettlements() && driverSettlementsLoadState.error) {
+    container.innerHTML = '<p class="driver-empty" role="alert">No se pudo cargar el resumen de liquidaciones. Intentalo de nuevo mas tarde.</p>';
+    return;
+  }
+
   const summary = getDriverSettlementSummary();
-  const cards = [
-    ["Pendiente aprobación", formatDriverSettlementMoney(summary.pendingApprovalAmount), "warning"],
-    ["Aprobado pendiente pago", formatDriverSettlementMoney(summary.approvedPendingPaymentAmount), "info"],
-    ["Total pagado", formatDriverSettlementMoney(summary.paidAmount), "success"],
-    ["Liquidaciones pagadas", String(summary.paidCount), "success"],
-    ["Servicios liquidados", String(summary.settledServices), "neutral"],
-    ["Próxima liquidación", summary.nextSettlement || "Sin calcular", "neutral"],
-  ];
+  const cards = shouldUseRealDriverSettlements()
+    ? [
+        ["Importe conductor", formatDriverSettlementMoney(summary.driverAmount, summary.currencyCode), "neutral"],
+        ["Total pagado", formatDriverSettlementMoney(summary.paidAmount, summary.currencyCode), "success"],
+        ["Pendiente", formatDriverSettlementMoney(summary.pendingAmount, summary.currencyCode), "warning"],
+        ["Liquidaciones", String(summary.settlementCount), "neutral"],
+      ]
+    : [
+        ["Pendiente aprobaciÃ³n", formatDriverSettlementMoney(summary.pendingApprovalAmount), "warning"],
+        ["Aprobado pendiente pago", formatDriverSettlementMoney(summary.approvedPendingPaymentAmount), "info"],
+        ["Total pagado", formatDriverSettlementMoney(summary.paidAmount), "success"],
+        ["Liquidaciones pagadas", String(summary.paidCount), "success"],
+        ["Servicios liquidados", String(summary.settledServices), "neutral"],
+        ["PrÃ³xima liquidaciÃ³n", summary.nextSettlement || "Sin calcular", "neutral"],
+      ];
 
   container.innerHTML = cards
     .map(
@@ -1882,13 +2222,26 @@ function renderDriverSettlementSummary() {
     )
     .join("");
 }
-
 function renderDriverSettlementList() {
   const container = getElement("driver-settlement-list");
   const meta = getElement("driver-settlement-meta");
   const pagination = getElement("driver-settlement-pagination");
 
   if (!container) {
+    return;
+  }
+
+  if (isDriverSettlementsLoading()) {
+    container.innerHTML = '<p class="driver-empty" role="status" aria-live="polite">Cargando liquidaciones...</p>';
+    if (meta) meta.textContent = "Cargando liquidaciones...";
+    if (pagination) pagination.innerHTML = "";
+    return;
+  }
+
+  if (shouldUseRealDriverSettlements() && driverSettlementsLoadState.error) {
+    container.innerHTML = '<p class="driver-empty" role="alert">No se pudieron cargar tus liquidaciones. Intentalo de nuevo mas tarde.</p>';
+    if (meta) meta.textContent = "-";
+    if (pagination) pagination.innerHTML = "";
     return;
   }
 
@@ -1904,7 +2257,7 @@ function renderDriverSettlementList() {
   }
 
   if (!pageItems.length) {
-    container.innerHTML = `<p class="driver-empty">${hasOwnSettlements ? "No hay liquidaciones que coincidan con los filtros." : "Todavía no tienes liquidaciones disponibles."}</p>`;
+    container.innerHTML = `<p class="driver-empty">${hasOwnSettlements ? "No hay liquidaciones que coincidan con los filtros." : "No tienes liquidaciones registradas."}</p>`;
     renderDriverSettlementPagination(pagination, driverSettlementPage, totalPages);
     return;
   }
@@ -1912,8 +2265,11 @@ function renderDriverSettlementList() {
   container.innerHTML = pageItems.map(renderDriverSettlementRow).join("");
   renderDriverSettlementPagination(pagination, driverSettlementPage, totalPages);
 }
-
 function renderDriverSettlementRow(settlement) {
+  if (shouldUseRealDriverSettlements()) {
+    return renderDriverRealSettlementRow(settlement);
+  }
+
   const paidDate = isDriverSettlementPaymentActive(settlement.payment) ? `<small>Pagada: ${escapeHtml(formatDriverSettlementDate(settlement.payment.paidAt))}</small>` : "";
   const pendingCollection = settlement.totals.pendingCollectionAmount
     ? `<small>Incluye servicios pendientes de cobro</small>`
@@ -1940,6 +2296,27 @@ function renderDriverSettlementRow(settlement) {
   `;
 }
 
+function renderDriverRealSettlementRow(settlement) {
+  return `
+    <article class="driver-settlement-row">
+      <div class="driver-settlement-row__main">
+        <div>
+          <strong>${escapeHtml(settlement.settlementId)}</strong>
+          <span>${escapeHtml(formatDriverSettlementDate(settlement.periodStart))} - ${escapeHtml(formatDriverSettlementDate(settlement.periodEnd))} \u00b7 ${escapeHtml(settlement.periodType)}</span>
+        </div>
+        <p>${escapeHtml(settlement.driverType)} \u00b7 Bruto ${escapeHtml(formatDriverSettlementMoney(settlement.grossEligibleAmount, settlement.currencyCode))}</p>
+        <p>Porcentaje conductor ${escapeHtml(formatDriverSettlementPercentage(settlement.driverPercentage))}</p>
+        <small>Pagado ${escapeHtml(formatDriverSettlementMoney(settlement.paidAmount, settlement.currencyCode))} \u00b7 Pendiente ${escapeHtml(formatDriverSettlementMoney(settlement.pendingAmount, settlement.currencyCode))}</small>
+      </div>
+      <div class="driver-settlement-row__side">
+        <strong>${escapeHtml(formatDriverSettlementMoney(settlement.driverAmount, settlement.currencyCode))}</strong>
+        ${renderDriverSettlementStatusBadge(settlement.status)}
+        ${renderDriverSettlementPaymentStatusBadge(settlement.paymentStatus)}
+        <button class="button button--compact button--muted" type="button" data-driver-action="settlement-detail" data-settlement-id="${escapeHtml(settlement.settlementId)}">Detalle</button>
+      </div>
+    </article>
+  `;
+}
 function renderDriverSettlementPagination(container, currentPage, totalPages) {
   if (!container) {
     return;
@@ -2002,6 +2379,11 @@ function renderDriverSettlementDetail(settlement) {
     return;
   }
 
+  if (shouldUseRealDriverSettlements()) {
+    renderDriverRealSettlementDetail(settlement, container);
+    return;
+  }
+
   setText("driver-settlement-detail-title", settlement.settlementId);
   setText("driver-settlement-detail-status", settlement.status);
   const statusBadge = getElement("driver-settlement-detail-status");
@@ -2026,6 +2408,27 @@ function renderDriverSettlementDetail(settlement) {
   `;
 }
 
+function renderDriverRealSettlementDetail(settlement, container) {
+  setText("driver-settlement-detail-title", settlement.settlementId);
+  setText("driver-settlement-detail-status", settlement.status);
+  const statusBadge = getElement("driver-settlement-detail-status");
+
+  if (statusBadge) {
+    statusBadge.className = `expense-status-badge expense-status-badge--${getDriverSettlementStatusTone(settlement.status)}`;
+  }
+
+  container.innerHTML = `
+    ${renderDriverSettlementDetailSection("Resumen", [
+      ["Periodo", `${formatDriverSettlementDate(settlement.periodStart)} - ${formatDriverSettlementDate(settlement.periodEnd)}`],
+      ["Frecuencia", settlement.periodType],
+      ["Tipo", settlement.driverType],
+      ["Estado pago", settlement.paymentStatus],
+      ["Pagos completados", String(settlement.completedPaymentCount)],
+      ["Ultimo pago", settlement.lastPaymentAt ? formatDriverSettlementDateTime(settlement.lastPaymentAt) : "-"],
+    ])}
+    ${renderDriverSettlementAmountSummary(settlement)}
+  `;
+}
 function renderDriverSettlementDetailSection(title, fields) {
   return `
     <section class="expense-detail-section">
@@ -2041,6 +2444,21 @@ function renderDriverSettlementDetailSection(title, fields) {
 }
 
 function renderDriverSettlementAmountSummary(settlement) {
+  if (shouldUseRealDriverSettlements()) {
+    return `
+      <section class="expense-detail-amount-grid">
+        <article class="expense-detail-amount"><span>Bruto elegible</span><strong>${escapeHtml(formatDriverSettlementMoney(settlement.grossEligibleAmount, settlement.currencyCode))}</strong></article>
+        <article class="expense-detail-amount"><span>Gastos deducidos</span><strong>${escapeHtml(formatDriverSettlementMoney(settlement.expenseDeductionAmount, settlement.currencyCode))}</strong></article>
+        <article class="expense-detail-amount"><span>Ajustes</span><strong>${escapeHtml(formatDriverSettlementMoney(settlement.adjustmentAmount, settlement.currencyCode))}</strong></article>
+        <article class="expense-detail-amount"><span>Base calculo</span><strong>${escapeHtml(formatDriverSettlementMoney(settlement.calculationBaseAmount, settlement.currencyCode))}</strong></article>
+        <article class="expense-detail-amount"><span>Porcentaje conductor</span><strong>${escapeHtml(formatDriverSettlementPercentage(settlement.driverPercentage))}</strong></article>
+        <article class="expense-detail-amount"><span>Importe conductor</span><strong>${escapeHtml(formatDriverSettlementMoney(settlement.driverAmount, settlement.currencyCode))}</strong></article>
+        <article class="expense-detail-amount"><span>Pagado</span><strong>${escapeHtml(formatDriverSettlementMoney(settlement.paidAmount, settlement.currencyCode))}</strong></article>
+        <article class="expense-detail-amount"><span>Pendiente</span><strong>${escapeHtml(formatDriverSettlementMoney(settlement.pendingAmount, settlement.currencyCode))}</strong></article>
+      </section>
+    `;
+  }
+
   const totals = settlement.totals;
 
   return `
@@ -2054,7 +2472,6 @@ function renderDriverSettlementAmountSummary(settlement) {
     </section>
   `;
 }
-
 function renderDriverSettlementPendingCollectionNotice(settlement) {
   const pendingItems = settlement.serviceItems.filter((item) => item.hasPendingCollection);
 
@@ -2141,6 +2558,10 @@ function renderDriverSettlementPaymentSection(settlement) {
 }
 
 function getFilteredDriverSettlements() {
+  if (shouldUseRealDriverSettlements()) {
+    return getFilteredDriverRealSettlements();
+  }
+
   if (!driverProfile || !window.ElaraSettlementsCore || typeof window.ElaraSettlementsCore.getSettlementsForDriver !== "function") {
     return [];
   }
@@ -2154,23 +2575,85 @@ function getFilteredDriverSettlements() {
   });
 }
 
+function getFilteredDriverRealSettlements() {
+  const settlements = getDriverOwnSettlements();
+  const status = String(driverSettlementFilters.status || "").trim();
+  const paymentStatus = String(driverSettlementFilters.collection || "").trim();
+  const query = normalizeDriverText(driverSettlementFilters.query);
+  const fromTimestamp = getDriverSettlementDateBoundaryTimestamp(driverSettlementFilters.from, "start");
+  const toTimestamp = getDriverSettlementDateBoundaryTimestamp(driverSettlementFilters.to, "end");
+
+  return settlements.filter((settlement) => {
+    const settlementTimestamp = getDriverSettlementPeriodTimestamp(settlement);
+    const settlementId = normalizeDriverText(settlement.humanCode || settlement.settlementId || settlement.settlementUuid);
+
+    if (status && settlement.rawStatus !== status) {
+      return false;
+    }
+
+    if (paymentStatus && settlement.rawPaymentStatus !== paymentStatus) {
+      return false;
+    }
+
+    if (fromTimestamp && settlementTimestamp < fromTimestamp) {
+      return false;
+    }
+
+    if (toTimestamp && settlementTimestamp > toTimestamp) {
+      return false;
+    }
+
+    return !query || settlementId.includes(query);
+  });
+}
 function getDriverOwnSettlements() {
+  if (shouldUseRealDriverSettlements()) {
+    return driverSettlementsLoadState.driverId === driverProfile?.id ? driverSettlementsLoadState.settlements.slice() : [];
+  }
+
   if (!driverProfile || !window.ElaraSettlementsCore || typeof window.ElaraSettlementsCore.getSettlementsForDriver !== "function") {
     return [];
   }
 
   return window.ElaraSettlementsCore.getSettlementsForDriver(driverProfile.id);
 }
-
 function getDriverSettlementById(settlementId) {
+  const id = String(settlementId || "").trim();
+
+  if (shouldUseRealDriverSettlements()) {
+    return getDriverOwnSettlements().find((settlement) => settlement.settlementId === id || settlement.humanCode === id || settlement.settlementUuid === id) || null;
+  }
+
   if (!driverProfile || !window.ElaraSettlementsCore || typeof window.ElaraSettlementsCore.getDriverSettlementById !== "function") {
     return null;
   }
 
-  return window.ElaraSettlementsCore.getDriverSettlementById(driverProfile.id, settlementId);
+  return window.ElaraSettlementsCore.getDriverSettlementById(driverProfile.id, id);
 }
-
 function getDriverSettlementSummary() {
+  if (shouldUseRealDriverSettlements()) {
+    const settlements = getFilteredDriverSettlements();
+    const currencyCodes = Array.from(new Set(settlements.map((settlement) => settlement.currencyCode).filter(Boolean)));
+    const currencyCode = currencyCodes.length === 1 ? currencyCodes[0] : "";
+
+    return settlements.reduce(
+      (summary, settlement) => {
+        summary.driverAmount += Number(settlement.driverAmount) || 0;
+        summary.paidAmount += Number(settlement.paidAmount) || 0;
+        summary.pendingAmount += Number(settlement.pendingAmount) || 0;
+        summary.settlementCount += 1;
+        return summary;
+      },
+      {
+        driverAmount: 0,
+        paidAmount: 0,
+        pendingAmount: 0,
+        settlementCount: 0,
+        currencyCode,
+      },
+    );
+  }
+
   if (!driverProfile || !window.ElaraSettlementsCore || typeof window.ElaraSettlementsCore.getDriverSettlementSummary !== "function") {
     return {
       pendingApprovalAmount: 0,
@@ -2190,7 +2673,6 @@ function getDriverSettlementSummary() {
     collection: driverSettlementFilters.collection,
   });
 }
-
 function getDefaultDriverSettlementFilters() {
   return {
     status: "",
@@ -2215,6 +2697,10 @@ function canDriverSettlementAction(action) {
 }
 
 function getDriverSettlementPercentageLabel(settlement) {
+  if (shouldUseRealDriverSettlements()) {
+    return `${formatDriverSettlementPercentage(settlement.driverPercentage)} para ti`;
+  }
+
   const percentage = settlement.percentageSnapshot?.appliedPercentage ?? 0;
 
   if (settlement.driverType === "Chofer") {
@@ -2223,7 +2709,6 @@ function getDriverSettlementPercentageLabel(settlement) {
 
   return settlement.percentageSnapshot?.mode === "custom" ? `${percentage} % personalizado para ELARA` : `${percentage} % para ELARA`;
 }
-
 function isDriverSettlementPaymentActive(payment = {}) {
   return payment.status === "Pagado" && Boolean(payment.cashMovementId) && !payment.annulledAt && !payment.reversalCashMovementId;
 }
@@ -2234,20 +2719,75 @@ function renderDriverSettlementStatusBadge(status) {
   return `<span class="expense-status-badge expense-status-badge--${tone}">${escapeHtml(status)}</span>`;
 }
 
+function renderDriverSettlementPaymentStatusBadge(status) {
+  const tone = getDriverSettlementPaymentStatusTone(status);
+
+  return `<span class="expense-status-badge expense-status-badge--${tone}">${escapeHtml(status)}</span>`;
+}
 function getDriverSettlementStatusTone(status) {
   return {
-    "Para revisión": "warning",
-    "Pendiente de aprobación": "warning",
+    Borrador: "neutral",
+    Generada: "info",
+    Enviada: "info",
+    Rechazada: "danger",
+    Cancelada: "danger",
+    "Para revisiÃ³n": "warning",
+    "Pendiente de aprobaciÃ³n": "warning",
     Aprobada: "success",
     Pagada: "success",
     Anulada: "danger",
   }[status] || "neutral";
 }
 
-function formatDriverSettlementMoney(value) {
-  return window.ElaraCash && typeof window.ElaraCash.formatCashMoney === "function" ? window.ElaraCash.formatCashMoney(value) : formatDriverMoney(value);
+function getDriverSettlementPaymentStatusTone(status) {
+  return {
+    "Pendiente de pago": "warning",
+    "Pago parcial": "info",
+    Pagada: "success",
+    "Pago cancelado": "danger",
+  }[status] || "neutral";
 }
 
+function getDriverSettlementDateBoundaryTimestamp(value, boundary) {
+  const dateValue = String(value || "").trim();
+
+  if (!dateValue) {
+    return null;
+  }
+
+  const timestamp = boundary === "end" ? new Date(`${dateValue}T23:59:59.999`).getTime() : new Date(`${dateValue}T00:00:00.000`).getTime();
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function getDriverSettlementPeriodTimestamp(settlement) {
+  const timestamp = new Date(settlement?.periodEnd || settlement?.periodStart || "").getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function formatDriverSettlementPercentage(value) {
+  const percentage = Number(value);
+  const safePercentage = Number.isFinite(percentage) ? percentage : 0;
+  return `${safePercentage.toLocaleString("es-ES", { maximumFractionDigits: 2 })} %`;
+}
+function formatDriverSettlementMoney(value, currencyCode = "") {
+  if (!shouldUseRealDriverSettlements() && window.ElaraCash && typeof window.ElaraCash.formatCashMoney === "function") {
+    return window.ElaraCash.formatCashMoney(value);
+  }
+
+  const currency = String(currencyCode || "").trim().toUpperCase();
+  const amount = Number(value);
+  const safeAmount = Number.isFinite(amount) ? Math.round((amount + Number.EPSILON) * 100) / 100 : 0;
+
+  if (!currency) {
+    return formatDriverMoney(safeAmount);
+  }
+
+  try {
+    return new Intl.NumberFormat("es-ES", { style: "currency", currency }).format(safeAmount);
+  } catch (error) {
+    return `${safeAmount.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+  }
+}
 function formatDriverSettlementDate(value) {
   const normalizedDate = String(value || "").trim().slice(0, 10);
 
