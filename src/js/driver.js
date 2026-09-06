@@ -179,6 +179,32 @@ const DRIVER_EXPENSE_STATUSES = [
   "Rechazada",
   "Anulada",
 ];
+const DRIVER_EXPENSE_REAL_REIMBURSEMENT_STATUS_OPTIONS = [
+  { value: "", label: "Todos" },
+  { value: "not_applicable", label: "No aplica" },
+  { value: "pending", label: "Pendiente de reembolso" },
+  { value: "reimbursed", label: "Reembolsado" },
+  { value: "cancelled", label: "Reembolso cancelado" },
+];
+const DRIVER_EXPENSE_REAL_EXPENSE_STATUS_LABELS = {
+  draft: "Borrador",
+  submitted: "Enviada",
+  approved: "Aprobada",
+  rejected: "Rechazada",
+  cancelled: "Cancelada",
+};
+const DRIVER_EXPENSE_REAL_PAYMENT_STATUS_LABELS = {
+  unpaid: "Pendiente",
+  partial: "Parcial",
+  paid: "Pagado",
+  cancelled: "Cancelado",
+};
+const DRIVER_EXPENSE_REAL_REIMBURSEMENT_STATUS_LABELS = {
+  not_applicable: "No aplica",
+  pending: "Pendiente de reembolso",
+  reimbursed: "Reembolsado",
+  cancelled: "Reembolso cancelado",
+};
 
 const driverStatusLabels = {
   asignado: "Por aceptar",
@@ -256,10 +282,20 @@ let driverSettlementsLoadState = {
   settlements: [],
   error: "",
 };
+let driverExpensesLoadState = {
+  driverId: "",
+  status: "idle",
+  promise: null,
+  expenses: [],
+  detailCache: new Map(),
+  detailPromises: new Map(),
+  error: "",
+};
 let driverServicesRenderRequestId = 0;
 let driverHistoryRenderRequestId = 0;
 let driverFinanceRenderRequestId = 0;
 let driverSettlementsRenderRequestId = 0;
+let driverExpensesRenderRequestId = 0;
 let activeServiceId = null;
 let selectedServiceId = null;
 let editingPickupServiceId = null;
@@ -342,6 +378,7 @@ function initDriverExpensesUpdatedListener() {
   }
 
   window.addEventListener("elara:expenses-updated", refreshDriverVisibleExpensesView);
+  window.addEventListener("elara:auth-session-updated", handleDriverExpenseAuthSessionUpdated);
   isDriverExpensesUpdatedListenerRegistered = true;
 }
 
@@ -377,7 +414,7 @@ function refreshDriverVisibleViewFromServicesUpdate() {
   }
 
   if (expensesPanel && !expensesPanel.hidden) {
-    showDriverExpenses();
+    void showDriverExpenses();
   }
 }
 
@@ -399,12 +436,20 @@ function handleDriverFinanceAuthSessionUpdated() {
 
 function refreshDriverVisibleExpensesView() {
   const expensesPanel = getElement("mis-gastos");
+  const hasOpenDetail = !getElement("driver-expense-detail-modal")?.hidden && selectedDriverExpenseId;
 
-  if (expensesPanel && !expensesPanel.hidden) {
-    showDriverExpenses();
-  }
+  resetDriverExpensesLoadState();
 
-  if (!getElement("driver-expense-detail-modal")?.hidden && selectedDriverExpenseId) {
+  const refreshOpenDetail = () => {
+    if (!hasOpenDetail || !selectedDriverExpenseId) {
+      return;
+    }
+
+    if (shouldUseRealDriverExpenses()) {
+      void openDriverExpenseDetail(selectedDriverExpenseId);
+      return;
+    }
+
     const expense = getDriverExpenseById(selectedDriverExpenseId);
 
     if (expense) {
@@ -412,7 +457,19 @@ function refreshDriverVisibleExpensesView() {
     } else {
       closeDriverExpenseModals();
     }
+  };
+
+  if (expensesPanel && !expensesPanel.hidden) {
+    void showDriverExpenses().then(refreshOpenDetail);
+    return;
   }
+
+  refreshOpenDetail();
+}
+
+function handleDriverExpenseAuthSessionUpdated() {
+  resetDriverExpensesLoadState();
+  selectedDriverExpenseId = "";
 }
 
 function refreshDriverVisibleSettlementsView() {
@@ -529,7 +586,7 @@ async function showDriverFinances() {
   renderDriverFinances();
 }
 
-function showDriverExpenses() {
+async function showDriverExpenses() {
   setDriverActiveMode(false);
 
   if (!refreshDriverProfile()) {
@@ -539,7 +596,13 @@ function showDriverExpenses() {
   }
 
   setDriverExpenseCreateButtonVisibility(canDriverExpenseAction("expenses:createOwn"));
-  setDriverHeader("Portal conductor", "Mis gastos", "Solicitudes y reembolsos vinculados a tu perfil.");
+  setDriverHeader("Portal conductor", "Mis gastos", "Gastos adelantados por ti y estado de reembolso.");
+
+  if (shouldUseRealDriverExpenses()) {
+    await showDriverRealExpenses();
+    return;
+  }
+
   renderDriverExpenses();
 }
 
@@ -1131,6 +1194,219 @@ function shouldUseRealDriverSettlements() {
   );
 }
 
+function shouldUseRealDriverExpenses() {
+  const user = getDriverAuthenticatedUser();
+
+  return Boolean(
+    window.ElaraSupabase?.client &&
+      driverProfile?.id &&
+      getDriverAuthUserActiveContext(user) === "conductor" &&
+      user?.driverIdentityStatus === "resolved" &&
+      String(user?.driverId || "").trim() === driverProfile.id
+  );
+}
+
+async function showDriverRealExpenses() {
+  const requestId = ++driverExpensesRenderRequestId;
+
+  renderDriverExpenseLoadingState();
+  await loadDriverExpenses().catch((error) => {
+    console.error("[ELARA Driver] No se pudieron cargar los gastos reales del conductor.", { error: error?.message || error });
+  });
+
+  if (requestId !== driverExpensesRenderRequestId || !isDriverExpensesViewVisible()) {
+    return;
+  }
+
+  renderDriverExpenses();
+}
+
+function isDriverExpensesViewVisible() {
+  const expensesPanel = getElement("mis-gastos");
+  return Boolean(expensesPanel && !expensesPanel.hidden);
+}
+
+function resetDriverExpensesLoadState() {
+  driverExpensesLoadState = {
+    driverId: "",
+    status: "idle",
+    promise: null,
+    expenses: [],
+    detailCache: new Map(),
+    detailPromises: new Map(),
+    error: "",
+  };
+}
+
+function isDriverExpensesLoading() {
+  return shouldUseRealDriverExpenses() && driverExpensesLoadState.status === "loading";
+}
+
+async function loadDriverExpenses(options = {}) {
+  const driverId = driverProfile?.id || "";
+
+  if (!driverId || !shouldUseRealDriverExpenses()) {
+    return [];
+  }
+
+  if (!options.force && driverExpensesLoadState.status === "loaded" && driverExpensesLoadState.driverId === driverId) {
+    return driverExpensesLoadState.expenses.slice();
+  }
+
+  if (!options.force && driverExpensesLoadState.status === "loading" && driverExpensesLoadState.driverId === driverId && driverExpensesLoadState.promise) {
+    return driverExpensesLoadState.promise;
+  }
+
+  driverExpensesLoadState = {
+    driverId,
+    status: "loading",
+    promise: fetchDriverExpenseRows().then((rows) => rows.map(adaptDriverExpenseRow)),
+    expenses: [],
+    detailCache: new Map(),
+    detailPromises: new Map(),
+    error: "",
+  };
+
+  try {
+    const expenses = await driverExpensesLoadState.promise;
+    driverExpensesLoadState = {
+      driverId,
+      status: "loaded",
+      promise: null,
+      expenses: expenses.slice(),
+      detailCache: new Map(),
+      detailPromises: new Map(),
+      error: "",
+    };
+    return expenses;
+  } catch (error) {
+    driverExpensesLoadState = {
+      driverId,
+      status: "error",
+      promise: null,
+      expenses: [],
+      detailCache: new Map(),
+      detailPromises: new Map(),
+      error: error?.message || "driver-expenses-error",
+    };
+    throw error;
+  }
+}
+
+async function fetchDriverExpenseRows() {
+  const { data, error } = await window.ElaraSupabase.client.rpc("get_driver_expenses");
+
+  if (error) {
+    throw error;
+  }
+
+  return Array.isArray(data) ? data : [];
+}
+
+async function loadDriverExpenseDetail(expenseId) {
+  const id = String(expenseId || "").trim();
+
+  if (!id || !shouldUseRealDriverExpenses()) {
+    return null;
+  }
+
+  const cached = driverExpensesLoadState.detailCache.get(id);
+  if (cached) {
+    return { ...cached };
+  }
+
+  const existingPromise = driverExpensesLoadState.detailPromises.get(id);
+  if (existingPromise) {
+    return existingPromise;
+  }
+
+  const promise = fetchDriverExpenseDetailRow(id).then((row) => {
+    const detail = row ? adaptDriverExpenseRow(row, { detail: true }) : null;
+
+    if (detail) {
+      driverExpensesLoadState.detailCache.set(id, detail);
+      driverExpensesLoadState.detailCache.set(detail.expenseId, detail);
+      if (detail.expenseUuid) {
+        driverExpensesLoadState.detailCache.set(detail.expenseUuid, detail);
+      }
+    }
+
+    return detail;
+  });
+
+  driverExpensesLoadState.detailPromises.set(id, promise);
+
+  try {
+    return await promise;
+  } finally {
+    driverExpensesLoadState.detailPromises.delete(id);
+  }
+}
+
+async function fetchDriverExpenseDetailRow(expenseId) {
+  const { data, error } = await window.ElaraSupabase.client.rpc("get_driver_expense_detail", {
+    p_expense_id: expenseId,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return Array.isArray(data) ? data[0] || null : data || null;
+}
+
+function adaptDriverExpenseRow(row, options = {}) {
+  const rawStatus = String(row?.status || "").trim();
+  const rawPaymentStatus = String(row?.payment_status || "").trim();
+  const rawReimbursementStatus = String(row?.reimbursement_status || "").trim();
+  const amount = getDriverExpenseAmount(row?.amount);
+  const reimbursedAmount = row?.reimbursed_amount === null || row?.reimbursed_amount === undefined ? null : getDriverExpenseAmount(row.reimbursed_amount);
+  const expenseId = row?.human_code || row?.expense_id || "";
+
+  return {
+    isRealDriverExpense: true,
+    expenseId,
+    expenseUuid: row?.expense_id || "",
+    humanCode: row?.human_code || "",
+    expenseDate: row?.expense_date || "",
+    categoryId: row?.category_id || "",
+    categoryKey: row?.category_key || "",
+    category: row?.category_name || row?.category_key || "-",
+    concept: row?.description || expenseId,
+    description: row?.description || "",
+    amount,
+    amountRequested: amount,
+    amountApproved: rawStatus === "approved" ? amount : null,
+    currencyCode: String(row?.currency_code || "").trim().toUpperCase(),
+    rawStatus,
+    status: DRIVER_EXPENSE_REAL_EXPENSE_STATUS_LABELS[rawStatus] || rawStatus || "-",
+    rawPaymentStatus,
+    paymentStatus: DRIVER_EXPENSE_REAL_PAYMENT_STATUS_LABELS[rawPaymentStatus] || rawPaymentStatus || "-",
+    rawReimbursementStatus,
+    reimbursementStatus: DRIVER_EXPENSE_REAL_REIMBURSEMENT_STATUS_LABELS[rawReimbursementStatus] || rawReimbursementStatus || "-",
+    approvedAt: row?.approved_at || "",
+    rejectedAt: row?.rejected_at || "",
+    rejectionReason: options.detail ? row?.rejection_reason || "" : "",
+    cancelledAt: row?.cancelled_at || "",
+    createdAt: row?.created_at || "",
+    updatedAt: row?.updated_at || "",
+    serviceHumanCode: row?.service_human_code || "",
+    vehicleHumanCode: row?.vehicle_human_code || "",
+    serviceId: row?.service_human_code || "",
+    vehicleId: row?.vehicle_human_code || "",
+    reimbursedAmount,
+    lastReimbursedAt: row?.last_reimbursed_at || "",
+    completedReimbursementCount: Number(row?.completed_reimbursement_count) || 0,
+    reimbursement: {
+      required: Boolean(row?.reimbursable),
+      rawStatus: rawReimbursementStatus,
+      status: DRIVER_EXPENSE_REAL_REIMBURSEMENT_STATUS_LABELS[rawReimbursementStatus] || rawReimbursementStatus || "-",
+      amount: reimbursedAmount,
+      paidAt: row?.last_reimbursed_at || "",
+      completedCount: Number(row?.completed_reimbursement_count) || 0,
+    },
+  };
+}
 async function showDriverRealSettlements() {
   const requestId = ++driverSettlementsRenderRequestId;
 
@@ -3085,6 +3361,33 @@ function setDriverFinanceDiscrepancySubmitDisabled(disabled) {
   }
 }
 
+function renderDriverExpenseLoadingState() {
+  const summary = getElement("driver-expense-summary");
+  const list = getElement("driver-expense-list");
+  const meta = getElement("driver-expense-meta");
+  const pagination = getElement("driver-expense-pagination");
+
+  if (summary) {
+    summary.innerHTML = "";
+  }
+
+  if (meta) {
+    meta.textContent = "Cargando gastos...";
+  }
+
+  if (pagination) {
+    pagination.innerHTML = "";
+  }
+
+  if (list) {
+    list.innerHTML = `<p class="driver-empty" role="status" aria-live="polite">Cargando gastos...</p>`;
+  }
+}
+
+function getDriverExpenseSummaryCurrency(expenses) {
+  const currencyCodes = Array.from(new Set(expenses.map((expense) => expense.currencyCode).filter(Boolean)));
+  return currencyCodes.length === 1 ? currencyCodes[0] : "";
+}
 function renderDriverExpenses() {
   renderDriverExpenseFilters();
   renderDriverExpenseSummary();
@@ -3092,21 +3395,45 @@ function renderDriverExpenses() {
 }
 
 function setDriverExpenseCreateButtonVisibility(isVisible) {
+  const isRealMode = shouldUseRealDriverExpenses();
+
   document.querySelectorAll('[data-driver-action="expense-new"]').forEach((button) => {
     button.hidden = !isVisible;
+    button.disabled = Boolean(isVisible && isRealMode);
+    button.textContent = isRealMode ? "Solicitud pendiente de RPC" : "Nueva solicitud";
+    button.title = isRealMode ? "Solicitud pendiente de RPC" : "";
   });
 }
 
 function renderDriverExpenseFilters() {
+  const statusSelect = getElement("driver-expense-filter-status");
   const categorySelect = getElement("driver-expense-filter-category");
   const filtersContainer = getElement("driver-expense-filters");
   const filterButton = getElement("driver-expense-filter-toggle");
+  const statusOptions = getDriverExpenseStatusFilterOptions();
+  const categoryOptions = getDriverExpenseFilterCategories();
+  const mode = shouldUseRealDriverExpenses() ? "real" : "mock";
+  const categorySignature = categoryOptions.map((category) => `${category.value}:${category.label}`).join("|");
 
-  if (categorySelect && !categorySelect.dataset.loaded) {
-    categorySelect.innerHTML = `<option value="">Todas</option>${getDriverExpenseCategories()
-      .map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`)
+  if (driverExpenseFilters.status && !statusOptions.some((option) => option.value === driverExpenseFilters.status)) {
+    driverExpenseFilters.status = "";
+  }
+
+  if (driverExpenseFilters.category && !categoryOptions.some((category) => category.value === driverExpenseFilters.category)) {
+    driverExpenseFilters.category = "";
+  }
+
+  if (statusSelect && statusSelect.dataset.mode !== mode) {
+    statusSelect.innerHTML = statusOptions.map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`).join("");
+    statusSelect.dataset.mode = mode;
+  }
+
+  if (categorySelect && (categorySelect.dataset.mode !== mode || categorySelect.dataset.signature !== categorySignature)) {
+    categorySelect.innerHTML = `<option value="">Todas</option>${categoryOptions
+      .map((category) => `<option value="${escapeHtml(category.value)}">${escapeHtml(category.label)}</option>`)
       .join("")}`;
-    categorySelect.dataset.loaded = "true";
+    categorySelect.dataset.mode = mode;
+    categorySelect.dataset.signature = categorySignature;
   }
 
   [
@@ -3133,7 +3460,6 @@ function renderDriverExpenseFilters() {
     filterButton.setAttribute("aria-expanded", areDriverExpenseFiltersVisible ? "true" : "false");
   }
 }
-
 function renderDriverExpenseSummary() {
   const container = getElement("driver-expense-summary");
 
@@ -3141,53 +3467,93 @@ function renderDriverExpenseSummary() {
     return;
   }
 
+  if (isDriverExpensesLoading() || (shouldUseRealDriverExpenses() && driverExpensesLoadState.status === "error")) {
+    container.innerHTML = "";
+    return;
+  }
+
   const expenses = getFilteredDriverExpenses();
-  const summary = expenses.reduce(
-    (acc, expense) => {
-      if (expense.status !== "Anulada") {
-        acc.totalRequested += getDriverExpenseAmount(expense.amountRequested);
-      }
+  let cards;
 
-      if (expense.status === "Pendiente de revisi\u00f3n") {
-        acc.pendingReview += 1;
-      }
+  if (shouldUseRealDriverExpenses()) {
+    const summary = expenses.reduce(
+      (acc, expense) => {
+        acc.totalAmount += getDriverExpenseAmount(expense.amount);
+        acc.requestCount += 1;
 
-      if (expense.status === "Requiere informaci\u00f3n") {
-        acc.requiresInfo += 1;
-      }
+        if (expense.rawReimbursementStatus === "pending") {
+          acc.pendingReimbursement += getDriverExpenseAmount(expense.amount);
+        }
 
-      if (expense.reimbursement?.required && expense.reimbursement.status === "Pendiente") {
-        acc.pendingReimbursement += getDriverExpenseAmount(expense.reimbursement.amount || expense.amountApproved);
-      }
+        if (expense.rawReimbursementStatus === "reimbursed") {
+          acc.reimbursed += expense.reimbursedAmount === null || expense.reimbursedAmount === undefined ? 0 : getDriverExpenseAmount(expense.reimbursedAmount);
+        }
 
-      if (expense.reimbursement?.status === "Pagado" || expense.status === "Reembolsada") {
-        acc.reimbursed += getDriverExpenseAmount(expense.reimbursement?.amount || expense.amountApproved);
-      }
+        return acc;
+      },
+      {
+        totalAmount: 0,
+        pendingReimbursement: 0,
+        reimbursed: 0,
+        requestCount: 0,
+      },
+    );
+    const currencyCode = getDriverExpenseSummaryCurrency(expenses);
 
-      if (expense.status === "Rechazada") {
-        acc.rejected += 1;
-      }
+    cards = [
+      ["Total gastos", formatDriverExpenseMoney(summary.totalAmount, currencyCode), "neutral"],
+      ["Pendiente reembolso", formatDriverExpenseMoney(summary.pendingReimbursement, currencyCode), "warning"],
+      ["Reembolsado", formatDriverExpenseMoney(summary.reimbursed, currencyCode), "success"],
+      ["Solicitudes", String(summary.requestCount), "neutral"],
+    ];
+  } else {
+    const summary = expenses.reduce(
+      (acc, expense) => {
+        if (expense.status !== "Anulada") {
+          acc.totalRequested += getDriverExpenseAmount(expense.amountRequested);
+        }
 
-      return acc;
-    },
-    {
-      totalRequested: 0,
-      pendingReview: 0,
-      requiresInfo: 0,
-      pendingReimbursement: 0,
-      reimbursed: 0,
-      rejected: 0,
-    },
-  );
+        if (expense.status === "Pendiente de revisi\u00f3n") {
+          acc.pendingReview += 1;
+        }
 
-  const cards = [
-    ["Total solicitado", formatDriverExpenseMoney(summary.totalRequested), "neutral"],
-    ["Pendientes revision", String(summary.pendingReview), "warning"],
-    ["Requiere info", String(summary.requiresInfo), summary.requiresInfo ? "danger" : "neutral"],
-    ["Pendiente reembolso", formatDriverExpenseMoney(summary.pendingReimbursement), "warning"],
-    ["Reembolsado", formatDriverExpenseMoney(summary.reimbursed), "success"],
-    ["Rechazadas", String(summary.rejected), summary.rejected ? "danger" : "neutral"],
-  ];
+        if (expense.status === "Requiere informaci\u00f3n") {
+          acc.requiresInfo += 1;
+        }
+
+        if (expense.reimbursement?.required && expense.reimbursement.status === "Pendiente") {
+          acc.pendingReimbursement += getDriverExpenseAmount(expense.reimbursement.amount || expense.amountApproved);
+        }
+
+        if (expense.reimbursement?.status === "Pagado" || expense.status === "Reembolsada") {
+          acc.reimbursed += getDriverExpenseAmount(expense.reimbursement?.amount || expense.amountApproved);
+        }
+
+        if (expense.status === "Rechazada") {
+          acc.rejected += 1;
+        }
+
+        return acc;
+      },
+      {
+        totalRequested: 0,
+        pendingReview: 0,
+        requiresInfo: 0,
+        pendingReimbursement: 0,
+        reimbursed: 0,
+        rejected: 0,
+      },
+    );
+
+    cards = [
+      ["Total solicitado", formatDriverExpenseMoney(summary.totalRequested), "neutral"],
+      ["Pendientes revision", String(summary.pendingReview), "warning"],
+      ["Requiere info", String(summary.requiresInfo), summary.requiresInfo ? "danger" : "neutral"],
+      ["Pendiente reembolso", formatDriverExpenseMoney(summary.pendingReimbursement), "warning"],
+      ["Reembolsado", formatDriverExpenseMoney(summary.reimbursed), "success"],
+      ["Rechazadas", String(summary.rejected), summary.rejected ? "danger" : "neutral"],
+    ];
+  }
 
   container.innerHTML = cards
     .map(
@@ -3200,13 +3566,28 @@ function renderDriverExpenseSummary() {
     )
     .join("");
 }
-
 function renderDriverExpenseList() {
   const container = getElement("driver-expense-list");
   const meta = getElement("driver-expense-meta");
   const pagination = getElement("driver-expense-pagination");
 
   if (!container) {
+    return;
+  }
+
+  if (isDriverExpensesLoading()) {
+    renderDriverExpenseLoadingState();
+    return;
+  }
+
+  if (shouldUseRealDriverExpenses() && driverExpensesLoadState.status === "error") {
+    if (meta) {
+      meta.textContent = "";
+    }
+    if (pagination) {
+      pagination.innerHTML = "";
+    }
+    container.innerHTML = `<p class="driver-empty" role="alert">No se pudieron cargar los gastos. Intentalo nuevamente.</p>`;
     return;
   }
 
@@ -3221,7 +3602,9 @@ function renderDriverExpenseList() {
   }
 
   if (!pageItems.length) {
-    container.innerHTML = `<p class="driver-empty">No hay solicitudes para los filtros seleccionados.</p>`;
+    const hasAnyRealExpenses = shouldUseRealDriverExpenses() && getDriverOwnExpenses().length > 0;
+    const emptyMessage = shouldUseRealDriverExpenses() && !hasAnyRealExpenses ? "No tienes gastos registrados." : "No hay gastos para los filtros seleccionados.";
+    container.innerHTML = `<p class="driver-empty">${escapeHtml(emptyMessage)}</p>`;
     renderDriverExpensePagination(pagination, driverExpensePage, totalPages);
     return;
   }
@@ -3229,8 +3612,34 @@ function renderDriverExpenseList() {
   container.innerHTML = pageItems.map(renderDriverExpenseRow).join("");
   renderDriverExpensePagination(pagination, driverExpensePage, totalPages);
 }
-
 function renderDriverExpenseRow(expense) {
+  if (expense?.isRealDriverExpense) {
+    const relation = [expense.serviceHumanCode ? `Servicio ${expense.serviceHumanCode}` : "", expense.vehicleHumanCode ? `Vehiculo ${expense.vehicleHumanCode}` : ""]
+      .filter(Boolean)
+      .join(" \u00b7 ") || "Sin relacion operativa";
+    const reimbursedAmount = expense.reimbursedAmount === null || expense.reimbursedAmount === undefined ? "-" : formatDriverExpenseMoney(expense.reimbursedAmount, expense.currencyCode);
+    const detailId = expense.expenseUuid || expense.expenseId;
+
+    return `
+      <article class="driver-expense-row">
+        <div class="driver-expense-row__main">
+          <div>
+            <strong>${escapeHtml(expense.expenseId)}</strong>
+            <span>${escapeHtml(formatDriverExpenseDate(expense.expenseDate))} \u00b7 ${escapeHtml(expense.category)}</span>
+          </div>
+          <h3>${escapeHtml(expense.description || expense.expenseId)}</h3>
+          <p>${escapeHtml(relation)} \u00b7 Estado gasto: ${escapeHtml(expense.status)}</p>
+        </div>
+        <div class="driver-expense-row__side">
+          <strong>${escapeHtml(formatDriverExpenseMoney(expense.amount, expense.currencyCode))}</strong>
+          <small>Reembolsado: ${escapeHtml(reimbursedAmount)}</small>
+          ${renderDriverExpenseStatusBadge(expense.reimbursementStatus)}
+          <button class="button button--compact button--muted" type="button" data-driver-action="expense-detail" data-expense-id="${escapeHtml(detailId)}">Detalle</button>
+        </div>
+      </article>
+    `;
+  }
+
   const approvedAmount = expense.amountApproved === null || expense.amountApproved === undefined ? "-" : formatDriverExpenseMoney(expense.amountApproved);
   const relation = [getDriverExpenseServiceLabel(expense.serviceId), getDriverExpenseVehicleLabel(expense.vehicleId)].filter(Boolean).join(" \u00b7 ") || "Sin relacion";
 
@@ -3253,7 +3662,6 @@ function renderDriverExpenseRow(expense) {
     </article>
   `;
 }
-
 function renderDriverExpensePagination(container, currentPage, totalPages) {
   if (!container) {
     return;
@@ -3294,7 +3702,37 @@ function clearDriverExpenseFilters() {
   renderDriverExpenses();
 }
 
-function openDriverExpenseDetail(expenseId) {
+async function openDriverExpenseDetail(expenseId) {
+  const normalizedExpenseId = String(expenseId || "").trim();
+
+  if (shouldUseRealDriverExpenses()) {
+    if (!normalizedExpenseId) {
+      window.ElaraNotifications.showToast("No se encontro el gasto seleccionado.", "warning");
+      return;
+    }
+
+    selectedDriverExpenseId = normalizedExpenseId;
+    renderDriverExpenseDetailLoadingState(normalizedExpenseId);
+    openModal("driver-expense-detail-modal");
+
+    try {
+      const expense = await loadDriverExpenseDetail(normalizedExpenseId);
+
+      if (!expense) {
+        window.ElaraNotifications.showToast("No se encontro el gasto seleccionado.", "warning");
+        closeDriverExpenseModals();
+        return;
+      }
+
+      selectedDriverExpenseId = expense.expenseUuid || expense.expenseId;
+      renderDriverExpenseDetail(expense);
+    } catch (error) {
+      console.error("[ELARA Driver] No se pudo cargar el detalle real del gasto.", { error: error?.message || error });
+      renderDriverExpenseDetailErrorState();
+    }
+    return;
+  }
+
   const expense = getDriverExpenseById(expenseId);
 
   if (!expense) {
@@ -3306,7 +3744,6 @@ function openDriverExpenseDetail(expenseId) {
   renderDriverExpenseDetail(expense);
   openModal("driver-expense-detail-modal");
 }
-
 function renderDriverExpenseDetail(expense) {
   const container = getElement("driver-expense-detail-content");
   const actions = getElement("driver-expense-detail-actions");
@@ -3316,6 +3753,32 @@ function renderDriverExpenseDetail(expense) {
   }
 
   setText("driver-expense-detail-title", `Detalle ${expense.expenseId}`);
+
+  if (expense?.isRealDriverExpense) {
+    container.innerHTML = `
+      ${renderDriverExpenseDetailSection("Gasto", [
+        ["Codigo", expense.expenseId],
+        ["Estado", expense.status],
+        ["Estado de reembolso", expense.reimbursementStatus],
+        ["Estado pago operativo", expense.paymentStatus],
+        ["Categoria", expense.category],
+        ["Fecha del gasto", formatDriverExpenseDate(expense.expenseDate)],
+      ])}
+      ${renderDriverExpenseAmountSummary(expense)}
+      ${renderDriverExpenseDetailSection("Relacion operativa", [
+        ["Servicio", expense.serviceHumanCode || "Sin servicio vinculado"],
+        ["Vehiculo", expense.vehicleHumanCode || "Sin vehiculo vinculado"],
+      ])}
+      ${renderDriverExpenseDetailSection("Descripcion", [
+        ["Detalle", expense.description || "Sin descripcion"],
+      ])}
+      ${renderDriverExpenseReviewSection(expense)}
+      ${renderDriverExpenseReimbursementSection(expense)}
+    `;
+    actions.innerHTML = `<button class="button button--secondary" type="button" data-modal-close>Cerrar</button>`;
+    return;
+  }
+
   container.innerHTML = `
     ${renderDriverExpenseDetailSection("Solicitud", [
       ["Estado", expense.status],
@@ -3350,6 +3813,32 @@ function renderDriverExpenseDetail(expense) {
   `;
 }
 
+function renderDriverExpenseDetailLoadingState(expenseId) {
+  setText("driver-expense-detail-title", `Detalle ${expenseId || "gasto"}`);
+  const container = getElement("driver-expense-detail-content");
+  const actions = getElement("driver-expense-detail-actions");
+
+  if (container) {
+    container.innerHTML = `<p class="driver-empty" role="status" aria-live="polite">Cargando gastos...</p>`;
+  }
+
+  if (actions) {
+    actions.innerHTML = `<button class="button button--secondary" type="button" data-modal-close>Cerrar</button>`;
+  }
+}
+
+function renderDriverExpenseDetailErrorState() {
+  const container = getElement("driver-expense-detail-content");
+  const actions = getElement("driver-expense-detail-actions");
+
+  if (container) {
+    container.innerHTML = `<p class="driver-empty" role="alert">No se pudo cargar el detalle del gasto.</p>`;
+  }
+
+  if (actions) {
+    actions.innerHTML = `<button class="button button--secondary" type="button" data-modal-close>Cerrar</button>`;
+  }
+}
 function renderDriverExpenseDetailSection(title, fields) {
   return `
     <section class="expense-detail-section">
@@ -3362,42 +3851,51 @@ function renderDriverExpenseDetailSection(title, fields) {
 }
 
 function renderDriverExpenseAmountSummary(expense) {
-  const approved = expense.amountApproved === null || expense.amountApproved === undefined ? "-" : formatDriverExpenseMoney(expense.amountApproved);
+  if (expense?.isRealDriverExpense) {
+    return renderDriverExpenseDetailSection("Importes", [
+      ["Importe", formatDriverExpenseMoney(expense.amount, expense.currencyCode)],
+      ["Reembolsado", formatDriverExpenseMoney(expense.reimbursedAmount, expense.currencyCode)],
+      ["Reembolsos", formatDriverExpenseCount(expense.completedReimbursementCount)],
+    ]);
+  }
 
-  return `
-    <section class="expense-detail-amount-grid">
-      <article class="expense-detail-amount">
-        <span>Solicitado</span>
-        <strong>${escapeHtml(formatDriverExpenseMoney(expense.amountRequested))}</strong>
-      </article>
-      <article class="expense-detail-amount">
-        <span>Aprobado</span>
-        <strong>${escapeHtml(approved)}</strong>
-      </article>
-      <article class="expense-detail-amount">
-        <span>Reembolsado</span>
-        <strong>${escapeHtml(expense.reimbursement?.status === "Pagado" ? formatDriverExpenseMoney(expense.reimbursement.amount) : "-")}</strong>
-      </article>
-    </section>
-  `;
+  return renderDriverExpenseDetailSection("Importes", [
+    ["Solicitado", formatDriverExpenseMoney(expense.amountRequested)],
+    ["Aprobado", formatDriverExpenseMoney(expense.amountApproved)],
+    ["Pagado", formatDriverExpenseMoney(expense.amountPaid)],
+  ]);
 }
-
 function renderDriverExpenseReviewSection(expense) {
-  const hasReview = expense.review && (expense.review.reviewedAt || expense.review.reason || expense.review.decision);
+  if (expense?.isRealDriverExpense) {
+    const rows = [];
 
-  if (!hasReview) {
+    if (expense.rejectionReason) {
+      rows.push(["Motivo rechazo", expense.rejectionReason]);
+    }
+
+    return rows.length ? renderDriverExpenseDetailSection("Revision", rows) : "";
+  }
+
+  if (!expense.review) {
     return "";
   }
 
-  return renderDriverExpenseDetailSection("Revision administrativa", [
-    ["Decision", expense.review.decision || expense.status],
-    ["Fecha", expense.review.reviewedAt ? formatDriverExpenseDateTime(expense.review.reviewedAt) : "-"],
-    ["Responsable", expense.review.reviewedByName || "-"],
-    ["Mensaje", expense.review.reason || "Sin mensaje"],
+  return renderDriverExpenseDetailSection("Revision", [
+    ["Responsable", expense.review.responsible || "Pendiente"],
+    ["Fecha", formatDriverExpenseDate(expense.review.reviewedAt)],
+    ["Comentario", expense.review.comment || "Sin comentarios"],
   ]);
 }
-
 function renderDriverExpenseReimbursementSection(expense) {
+  if (expense?.isRealDriverExpense) {
+    return renderDriverExpenseDetailSection("Reembolso", [
+      ["Estado", expense.reimbursementStatus],
+      ["Importe", formatDriverExpenseMoney(expense.reimbursedAmount, expense.currencyCode)],
+      ["Ultimo reembolso", formatDriverExpenseDate(expense.lastReimbursedAt)],
+      ["Reembolsos completados", formatDriverExpenseCount(expense.completedReimbursementCount)],
+    ]);
+  }
+
   if (!expense.reimbursement?.required && expense.reimbursement?.status !== "Pagado") {
     return "";
   }
@@ -3409,8 +3907,12 @@ function renderDriverExpenseReimbursementSection(expense) {
     ["Referencia Caja", expense.reimbursement.cashMovementId || "-"],
   ]);
 }
-
 function openDriverExpenseNewModal() {
+  if (shouldUseRealDriverExpenses()) {
+    window.ElaraNotifications.showToast("Solicitud pendiente de RPC.", "info");
+    return;
+  }
+
   if (!refreshDriverProfile() || !canDriverExpenseAction("expenses:createOwn")) {
     window.ElaraNotifications.showToast("No tienes permiso para crear solicitudes de gastos.", "error");
     return;
@@ -3425,7 +3927,6 @@ function openDriverExpenseNewModal() {
   openModal("driver-expense-new-modal");
   getElement("driver-expense-new-category")?.focus();
 }
-
 function populateDriverExpenseNewFormOptions() {
   const categorySelect = getElement("driver-expense-new-category");
   const vehicleSelect = getElement("driver-expense-new-vehicle");
@@ -3455,6 +3956,11 @@ function populateDriverExpenseNewFormOptions() {
 
 function submitDriverExpenseRequest(event) {
   event.preventDefault();
+
+  if (shouldUseRealDriverExpenses()) {
+    showDriverExpenseFormError("driver-expense-new-error", "Solicitud pendiente de RPC.");
+    return;
+  }
 
   if (isSubmittingDriverExpense) {
     return;
@@ -3517,6 +4023,11 @@ function getDriverExpenseNewPayload() {
 }
 
 function openDriverExpenseResponseModal(expenseId) {
+  if (shouldUseRealDriverExpenses()) {
+    window.ElaraNotifications.showToast("Respuesta pendiente de RPC.", "info");
+    return;
+  }
+
   const expense = getDriverExpenseById(expenseId);
 
   if (!expense || !canDriverRespondExpense(expense)) {
@@ -3541,6 +4052,11 @@ function openDriverExpenseResponseModal(expenseId) {
 
 function submitDriverExpenseResponse(event) {
   event.preventDefault();
+
+  if (shouldUseRealDriverExpenses()) {
+    showDriverExpenseFormError("driver-expense-response-error", "Respuesta pendiente de RPC.");
+    return;
+  }
 
   if (isSubmittingDriverExpenseResponse) {
     return;
@@ -3581,22 +4097,51 @@ function submitDriverExpenseResponse(event) {
 
 function getFilteredDriverExpenses() {
   const filters = {
-    driverId: driverProfile?.id || "",
     status: driverExpenseFilters.status,
     category: driverExpenseFilters.category,
     from: driverExpenseFilters.from,
     to: driverExpenseFilters.to,
-    query: driverExpenseFilters.query,
-    includeCancelled: true,
+    query: normalizeDriverText(driverExpenseFilters.query),
   };
-  const expenses =
-    window.ElaraExpensesCore && typeof window.ElaraExpensesCore.getExpensesForDriver === "function"
-      ? window.ElaraExpensesCore.getExpensesForDriver(driverProfile?.id)
-      : [];
 
-  return expenses
-    .filter((expense) => expense.recordType === "Solicitud" && expense.claimantId === driverProfile?.id)
+  return getDriverOwnExpenses()
     .filter((expense) => {
+      if (shouldUseRealDriverExpenses()) {
+        if (filters.status && expense.rawReimbursementStatus !== filters.status) {
+          return false;
+        }
+
+        if (filters.category && getDriverExpenseCategoryFilterValue(expense) !== filters.category) {
+          return false;
+        }
+
+        if (filters.from && expense.expenseDate < filters.from) {
+          return false;
+        }
+
+        if (filters.to && expense.expenseDate > filters.to) {
+          return false;
+        }
+
+        if (filters.query) {
+          const haystack = [
+            expense.expenseId,
+            expense.humanCode,
+            expense.description,
+            expense.category,
+            expense.categoryKey,
+            expense.serviceHumanCode,
+            expense.vehicleHumanCode,
+          ].join(" ");
+
+          if (!normalizeDriverText(haystack).includes(filters.query)) {
+            return false;
+          }
+        }
+
+        return true;
+      }
+
       if (filters.status && expense.status !== filters.status) {
         return false;
       }
@@ -3613,8 +4158,7 @@ function getFilteredDriverExpenses() {
         return false;
       }
 
-      const query = normalizeDriverText(filters.query);
-      if (query && !normalizeDriverText([expense.expenseId, expense.concept, expense.category, expense.providerName, expense.serviceId, expense.vehicleId].join(" ")).includes(query)) {
+      if (filters.query && !normalizeDriverText([expense.expenseId, expense.concept, expense.category, expense.providerName, expense.serviceId, expense.vehicleId].join(" ")).includes(filters.query)) {
         return false;
       }
 
@@ -3626,10 +4170,25 @@ function getFilteredDriverExpenses() {
 function getDriverExpenseById(expenseId) {
   const normalizedExpenseId = String(expenseId || "").trim();
 
-  return getFilteredDriverExpenses().find((expense) => expense.expenseId === normalizedExpenseId) || getDriverOwnExpenses().find((expense) => expense.expenseId === normalizedExpenseId) || null;
+  return getFilteredDriverExpenses().find((expense) => isDriverExpenseMatchingId(expense, normalizedExpenseId)) || getDriverOwnExpenses().find((expense) => isDriverExpenseMatchingId(expense, normalizedExpenseId)) || null;
+}
+
+function isDriverExpenseMatchingId(expense, expenseId) {
+  const normalizedExpenseId = String(expenseId || "").trim();
+
+  return Boolean(
+    normalizedExpenseId &&
+      [expense?.expenseUuid, expense?.expenseId, expense?.humanCode]
+        .filter(Boolean)
+        .some((candidate) => String(candidate).trim() === normalizedExpenseId)
+  );
 }
 
 function getDriverOwnExpenses() {
+  if (shouldUseRealDriverExpenses()) {
+    return [...driverExpensesLoadState.expenses].sort(compareDriverExpensesByDateDesc);
+  }
+
   if (!driverProfile || !window.ElaraExpensesCore || typeof window.ElaraExpensesCore.getExpensesForDriver !== "function") {
     return [];
   }
@@ -3639,7 +4198,6 @@ function getDriverOwnExpenses() {
     .filter((expense) => expense.recordType === "Solicitud" && expense.claimantId === driverProfile.id)
     .sort(compareDriverExpensesByDateDesc);
 }
-
 function compareDriverExpensesByDateDesc(first, second) {
   const firstTime = getDriverExpenseTimestamp(first);
   const secondTime = getDriverExpenseTimestamp(second);
@@ -3652,7 +4210,8 @@ function compareDriverExpensesByDateDesc(first, second) {
 }
 
 function getDriverExpenseTimestamp(expense) {
-  const date = new Date(expense?.createdAt || `${expense?.expenseDate || ""}T00:00:00`);
+  const dateValue = expense?.expenseDate ? `${expense.expenseDate}T00:00:00` : expense?.createdAt;
+  const date = new Date(dateValue || "");
   return Number.isNaN(date.getTime()) ? 0 : date.getTime();
 }
 
@@ -3695,7 +4254,7 @@ function validateDriverExpenseOwnReferences(payload) {
 }
 
 function canDriverRespondExpense(expense) {
-  return Boolean(expense && expense.status === "Requiere informaci\u00f3n" && canDriverExpenseAction("expenses:respondOwn"));
+  return Boolean(!expense?.isRealDriverExpense && expense && expense.status === "Requiere informaci\u00f3n" && canDriverExpenseAction("expenses:respondOwn"));
 }
 
 function canDriverExpenseAction(action) {
@@ -3707,10 +4266,41 @@ function canDriverExpenseAction(action) {
   return getDriverAuthUserActiveContext(user) === "conductor" && driverAuthUserHasRole(user, "conductor");
 }
 
+function getDriverExpenseStatusFilterOptions() {
+  if (shouldUseRealDriverExpenses()) {
+    return DRIVER_EXPENSE_REAL_REIMBURSEMENT_STATUS_OPTIONS;
+  }
+
+  return [{ value: "", label: "Todos" }, ...DRIVER_EXPENSE_STATUSES.map((status) => ({ value: status, label: status }))];
+}
+
+function getDriverExpenseFilterCategories() {
+  if (shouldUseRealDriverExpenses()) {
+    const categories = new Map();
+
+    driverExpensesLoadState.expenses.forEach((expense) => {
+      const value = getDriverExpenseCategoryFilterValue(expense);
+
+      if (value && !categories.has(value)) {
+        categories.set(value, expense.category || value);
+      }
+    });
+
+    return [...categories.entries()]
+      .map(([value, label]) => ({ value, label }))
+      .sort((first, second) => first.label.localeCompare(second.label, "es"));
+  }
+
+  return getDriverExpenseCategories().map((category) => ({ value: category, label: category }));
+}
+
+function getDriverExpenseCategoryFilterValue(expense) {
+  return String(expense?.categoryKey || expense?.categoryId || expense?.category || "");
+}
+
 function getDriverExpenseCategories() {
   return window.ElaraExpensesCore && typeof window.ElaraExpensesCore.getExpenseCategories === "function" ? window.ElaraExpensesCore.getExpenseCategories() : [];
 }
-
 function getDriverExpenseFilterCount() {
   return Object.values(driverExpenseFilters).filter(Boolean).length;
 }
@@ -3754,19 +4344,28 @@ function showDriverExpenseFormError(errorId, message) {
 
 function renderDriverExpenseStatusBadge(status) {
   const statusClasses = {
+    Borrador: "expense-status-badge--neutral",
+    Enviada: "expense-status-badge--info",
+    Aprobada: "expense-status-badge--success",
+    Rechazada: "expense-status-badge--danger",
+    Cancelada: "expense-status-badge--neutral",
+    Pendiente: "expense-status-badge--warning",
+    Parcial: "expense-status-badge--info",
+    Pagado: "expense-status-badge--success",
+    Cancelado: "expense-status-badge--neutral",
+    "No aplica": "expense-status-badge--neutral",
+    "Pendiente de reembolso": "expense-status-badge--warning",
+    Reembolsado: "expense-status-badge--success",
+    "Reembolso cancelado": "expense-status-badge--neutral",
     "Pendiente de revisi\u00f3n": "expense-status-badge--warning",
     "Requiere informaci\u00f3n": "expense-status-badge--danger",
-    Aprobada: "expense-status-badge--info",
     "Aprobada parcialmente": "expense-status-badge--info",
-    "Pendiente de reembolso": "expense-status-badge--warning",
     Reembolsada: "expense-status-badge--success",
-    Rechazada: "expense-status-badge--danger",
     Anulada: "expense-status-badge--neutral",
   };
 
   return `<span class="expense-status-badge ${statusClasses[status] || "expense-status-badge--neutral"}">${escapeHtml(status || "-")}</span>`;
 }
-
 function getDriverExpenseServiceLabel(serviceId) {
   const service = getCentralDriverServiceById(serviceId);
 
@@ -3828,10 +4427,32 @@ function getDriverExpenseAmount(value) {
   return Number.isFinite(amount) ? Math.round((amount + Number.EPSILON) * 100) / 100 : 0;
 }
 
-function formatDriverExpenseMoney(value) {
-  return formatDriverMoney(getDriverExpenseAmount(value));
+function formatDriverExpenseCount(value) {
+  const count = Number(value);
+  return Number.isFinite(count) ? String(count) : "0";
 }
 
+function formatDriverExpenseMoney(value, currencyCode = "") {
+  if (value === null || value === undefined || value === "") {
+    return "-";
+  }
+
+  const amount = getDriverExpenseAmount(value);
+  const currency = String(currencyCode || "").trim().toUpperCase();
+
+  if (currency) {
+    try {
+      return new Intl.NumberFormat("es-ES", {
+        style: "currency",
+        currency,
+      }).format(amount);
+    } catch (error) {
+      return `${formatDriverNumber(amount)} ${currency}`;
+    }
+  }
+
+  return formatDriverMoney(amount);
+}
 function formatDriverExpenseDate(value) {
   const normalizedDate = formatCentralServiceDateForDriver(value);
 

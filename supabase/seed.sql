@@ -442,6 +442,20 @@ from public.expense_categories category
 where category.key = 'parking'
 on conflict (id) do nothing;
 
+insert into public.expenses (
+  id, human_code, category_id, supplier_id, service_id, vehicle_id, driver_id, expense_date, description, currency_code, subtotal_amount, tax_rate, tax_amount, total_amount, paid_amount, pending_amount, status, payment_status, payment_responsibility, advanced_by_driver_id, reimbursable, reimbursement_status, approved_at, approved_by, notes, internal_notes, created_at, created_by
+)
+select
+  '80000000-0000-4000-8000-000000000003'::uuid, 'EXP-000003', category.id, null::uuid, null::uuid, null::uuid, null::uuid, '2026-01-18'::date, 'QA Driver A adelanto pendiente de reembolso', 'EUR', 60, 0, 0, 60, 0, 60, 'draft', 'unpaid', 'driver_advance', '40000000-0000-4000-8000-000000000001'::uuid, true, 'pending', null::timestamptz, null::uuid, 'QA driver expense advance pending reimbursement.', 'QA internal note for admin only.', '2026-01-18 09:00:00+00'::timestamptz, '20000000-0000-4000-8000-000000000002'::uuid
+from public.expense_categories category
+where category.key = 'driver_allowance'
+union all
+select
+  '80000000-0000-4000-8000-000000000004'::uuid, 'EXP-000004', category.id, null::uuid, null::uuid, null::uuid, null::uuid, '2026-01-18'::date, 'QA Driver B adelanto reembolsado', 'EUR', 80, 0, 0, 80, 0, 80, 'draft', 'unpaid', 'driver_advance', '40000000-0000-4000-8000-000000000002'::uuid, true, 'pending', null::timestamptz, null::uuid, 'QA driver expense advance reimbursed.', 'QA internal note for admin only.', '2026-01-18 09:10:00+00'::timestamptz, '20000000-0000-4000-8000-000000000002'::uuid
+from public.expense_categories category
+where category.key = 'fuel'
+on conflict (id) do nothing;
+
 insert into public.expense_allocations (
   id, expense_id, allocation_type, service_id, vehicle_id, driver_id, allocated_amount, percentage, description, created_at, created_by
 )
@@ -452,20 +466,39 @@ on conflict (id) do nothing;
 update public.expenses
 set status = 'submitted',
     updated_by = '20000000-0000-4000-8000-000000000002'
-where id in ('80000000-0000-4000-8000-000000000001', '80000000-0000-4000-8000-000000000002')
+where id in (
+    '80000000-0000-4000-8000-000000000001',
+    '80000000-0000-4000-8000-000000000002',
+    '80000000-0000-4000-8000-000000000003',
+    '80000000-0000-4000-8000-000000000004'
+  )
   and status = 'draft';
 
 update public.expenses
 set status = 'approved',
     approved_at = case
       when id = '80000000-0000-4000-8000-000000000001' then '2026-01-14 12:00:00+00'::timestamptz
-      else '2026-01-11 12:00:00+00'::timestamptz
+      when id = '80000000-0000-4000-8000-000000000002' then '2026-01-11 12:00:00+00'::timestamptz
+      when id = '80000000-0000-4000-8000-000000000003' then '2026-01-18 09:30:00+00'::timestamptz
+      else '2026-01-18 09:40:00+00'::timestamptz
     end,
     approved_by = '20000000-0000-4000-8000-000000000002',
     updated_by = '20000000-0000-4000-8000-000000000002'
-where id in ('80000000-0000-4000-8000-000000000001', '80000000-0000-4000-8000-000000000002')
+where id in (
+    '80000000-0000-4000-8000-000000000001',
+    '80000000-0000-4000-8000-000000000002',
+    '80000000-0000-4000-8000-000000000003',
+    '80000000-0000-4000-8000-000000000004'
+  )
   and status = 'submitted';
 
+
+insert into public.expense_reimbursements (
+  id, human_code, expense_id, reimbursed_user_id, reimbursed_driver_id, payment_method, status, amount, currency_code, cash_account_id, reimbursed_at, external_reference, notes, created_at, created_by
+)
+values
+  ('83000000-0000-4000-8000-000000000001', 'EXPRMB-000001', '80000000-0000-4000-8000-000000000004', null, '40000000-0000-4000-8000-000000000002', 'bank_transfer', 'completed', 80, 'EUR', null, '2026-01-18 10:00:00+00', 'QA-EXP-RMB-001', 'QA Driver B expense reimbursement completed.', '2026-01-18 10:00:00+00', '20000000-0000-4000-8000-000000000002')
+on conflict (id) do nothing;
 
 insert into public.expense_payments (
   id, human_code, expense_id, payment_method, payment_status, amount, currency_code, cash_account_id, paid_at, registered_at, external_reference, notes, created_at, created_by
@@ -586,8 +619,9 @@ from (
     ('REM', 1, 6),
     ('REC', 2, 6),
     ('RCP', 1, 6),
-    ('EXP', 2, 6),
+    ('EXP', 4, 6),
     ('EXPPAY', 1, 6),
+    ('EXPRMB', 1, 6),
     ('SET', 2, 6),
     ('SETPAY', 1, 6),
     ('INC', 2, 6)
