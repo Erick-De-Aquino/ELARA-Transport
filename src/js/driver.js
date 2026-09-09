@@ -13,6 +13,24 @@ const DRIVER_MISSING_LINK_MESSAGE = "Tu usuario no tiene un conductor vinculado.
 const DRIVER_LINK_NOT_FOUND_MESSAGE = "No se encontr\u00f3 el perfil de conductor vinculado a tu usuario.";
 const DRIVER_IDENTITY_LOADING_MESSAGE = "Resolviendo conductor vinculado...";
 const DRIVER_INACTIVE_PROFILE_MESSAGE = "Tu perfil no est\u00e1 activo para operar. Contacta con administraci\u00f3n.";
+const DRIVER_PROFILE_LOADING_MESSAGE = "Cargando perfil...";
+const DRIVER_PROFILE_ERROR_MESSAGE = "No se pudo cargar tu perfil.";
+const DRIVER_PROFILE_PHONE_RPC_PENDING_MESSAGE = "Edicion pendiente de RPC.";
+const DRIVER_PROFILE_AVAILABILITY_RPC_PENDING_MESSAGE = "Cambio de disponibilidad pendiente de RPC.";
+const DRIVER_PROFILE_DRIVER_TYPE_LABELS = {
+  internal_driver: "Conductor interno",
+  external_collaborator: "Colaborador externo",
+};
+const DRIVER_PROFILE_ADMINISTRATIVE_STATUS_LABELS = {
+  active: "Activo",
+  inactive: "Inactivo",
+  suspended: "Suspendido",
+  pending_documents: "Pendiente documentacion",
+};
+const DRIVER_PROFILE_AVAILABILITY_LABELS = {
+  available: "Disponible",
+  unavailable: "No disponible",
+};
 const DRIVER_CLOSED_CENTRAL_SERVICE_STATUSES = ["Cancelado", "Finalizado", "No show", "No-show", "No realizado"];
 const DRIVER_CENTRAL_STAGE_SEQUENCE = ["en_camino", "esperando_pasajero", "pasajero_a_bordo"];
 const DRIVER_FINANCE_HISTORY_PAGE_SIZE = 10;
@@ -266,6 +284,13 @@ let driverServicesLoadState = {
   services: [],
   error: "",
 };
+let driverProfileLoadState = {
+  userKey: "",
+  status: "idle",
+  promise: null,
+  profile: null,
+  error: "",
+};
 let driverFinanceLoadState = {
   driverId: "",
   status: "idle",
@@ -314,6 +339,8 @@ let isDriverServicesUpdatedListenerRegistered = false;
 let isDriverFinanceUpdatedListenerRegistered = false;
 let isDriverExpensesUpdatedListenerRegistered = false;
 let isDriverSettlementsUpdatedListenerRegistered = false;
+let isDriverProfileUpdatedListenerRegistered = false;
+let driverProfileRenderRequestId = 0;
 let driverAccessMessage = DRIVER_UNASSOCIATED_MESSAGE;
 let selectedDriverFinanceRemittanceId = "";
 let returnToFinanceDetailAfterDiscrepancy = false;
@@ -348,6 +375,7 @@ function initDriver() {
   initDriverFinanceUpdatedListener();
   initDriverExpensesUpdatedListener();
   initDriverSettlementsUpdatedListener();
+  initDriverProfileUpdatedListener();
   bindDriverEvents();
 }
 
@@ -392,6 +420,30 @@ function initDriverSettlementsUpdatedListener() {
   isDriverSettlementsUpdatedListenerRegistered = true;
 }
 
+function initDriverProfileUpdatedListener() {
+  if (isDriverProfileUpdatedListenerRegistered) {
+    return;
+  }
+
+  window.addEventListener("elara:auth-session-updated", handleDriverProfileAuthSessionUpdated);
+  isDriverProfileUpdatedListenerRegistered = true;
+}
+
+function handleDriverProfileAuthSessionUpdated(event) {
+  if (event?.detail?.reason === "token_refreshed" && ["loading", "loaded"].includes(driverProfileLoadState.status)) {
+    return;
+  }
+
+  resetDriverProfileLoadState();
+  driverProfile = null;
+  isDriverProfilePhoneEditing = false;
+  pendingDriverAvailabilityPreference = "";
+
+  if (isDriverProfileViewVisible()) {
+    void showDriverProfile();
+  }
+}
+
 function refreshDriverVisibleViewFromServicesUpdate() {
   const servicesPanel = getElement("mis-servicios");
   const profilePanel = getElement("mi-perfil");
@@ -404,7 +456,7 @@ function refreshDriverVisibleViewFromServicesUpdate() {
   }
 
   if (profilePanel && !profilePanel.hidden) {
-    showDriverProfile();
+    void showDriverProfile();
     return;
   }
 
@@ -521,23 +573,11 @@ async function showDriverServices() {
   renderDriverServices();
 }
 
-function showDriverProfile() {
+async function showDriverProfile() {
   setDriverActiveMode(false);
   const profilePanel = getElement("driver-profile-panel");
   const placeholderPanel = getElement("generic-profile-placeholder");
-
-  if (!refreshDriverProfile()) {
-    if (profilePanel) {
-      profilePanel.hidden = false;
-    }
-
-    if (placeholderPanel) {
-      placeholderPanel.hidden = true;
-    }
-
-    renderDriverAccessState("mi-perfil");
-    return;
-  }
+  const currentUser = getDriverAuthenticatedUser();
 
   if (profilePanel) {
     profilePanel.hidden = false;
@@ -547,8 +587,69 @@ function showDriverProfile() {
     placeholderPanel.hidden = true;
   }
 
+  if (shouldUseRealDriverProfile(currentUser)) {
+    setDriverHeader("Cuenta", "Mi perfil", "Datos reales del conductor autenticado.");
+    await showDriverRealProfile();
+    return;
+  }
+
+  if (!refreshDriverProfile()) {
+    renderDriverAccessState("mi-perfil");
+    return;
+  }
+
   setDriverHeader("Cuenta", "Mi perfil", "Datos operativos del colaborador. Solo el tel\u00e9fono es editable en este MVP.");
   renderDriverProfile();
+}
+
+async function showDriverRealProfile() {
+  const requestId = ++driverProfileRenderRequestId;
+  renderDriverProfileLoadingState();
+
+  try {
+    const profile = await loadDriverRealProfile();
+
+    if (requestId !== driverProfileRenderRequestId || !isDriverProfileViewVisible()) {
+      return;
+    }
+
+    driverProfile = profile;
+    isDriverProfilePhoneEditing = false;
+    pendingDriverAvailabilityPreference = "";
+    renderDriverProfile();
+  } catch (error) {
+    if (requestId !== driverProfileRenderRequestId || !isDriverProfileViewVisible()) {
+      return;
+    }
+
+    driverProfile = null;
+    driverProfileLoadState.status = "error";
+    driverProfileLoadState.error = DRIVER_PROFILE_ERROR_MESSAGE;
+    console.error("[ELARA Driver] No se pudo cargar el perfil real del conductor.", getDriverProfileErrorDetails(error));
+    renderDriverProfileErrorState();
+  }
+}
+
+function renderDriverProfileLoadingState() {
+  const container = getElement("driver-profile-card-content");
+
+  if (container) {
+    container.innerHTML = `<p class="driver-empty" role="status" aria-live="polite">${escapeHtml(DRIVER_PROFILE_LOADING_MESSAGE)}</p>`;
+  }
+}
+
+function renderDriverProfileErrorState() {
+  const container = getElement("driver-profile-card-content");
+
+  if (container) {
+    container.innerHTML = `<p class="driver-empty" role="alert">${escapeHtml(DRIVER_PROFILE_ERROR_MESSAGE)}</p>`;
+  }
+}
+
+function isDriverProfileViewVisible() {
+  const profileView = getElement("mi-perfil");
+
+  return Boolean(profileView && !profileView.hidden);
 }
 
 async function showDriverHistory() {
@@ -1157,6 +1258,16 @@ function handleDriverSettlementKeydown(event) {
     closeModal(modal);
     selectedDriverSettlementId = "";
   }
+}
+
+function shouldUseRealDriverProfile(user = getDriverAuthenticatedUser()) {
+  return Boolean(
+    window.ElaraSupabase?.client &&
+      window.ElaraAuth &&
+      typeof window.ElaraAuth.getCurrentDriverIdentity === "function" &&
+      isRealDriverAuthUser(user) &&
+      !getDriverUserAccessMessage(user)
+  );
 }
 
 function shouldUseRealDriverServices() {
@@ -5343,6 +5454,8 @@ function renderDriverProfile() {
     return;
   }
 
+  const details = isDriverRealProfileMode() ? renderDriverRealProfileLines() : renderDriverMockProfileLines();
+
   container.innerHTML = `
     <article class="driver-profile-card">
       <header class="driver-profile-card__header">
@@ -5354,32 +5467,56 @@ function renderDriverProfile() {
       </header>
 
       <dl class="driver-profile-lines">
-        ${renderDriverAvailabilityControl()}
-        ${renderDriverProfileLine("Email", driverProfile.email)}
-        ${renderDriverProfilePhoneLine()}
-        ${renderDriverProfileLine("Vehiculo", driverProfile.assignedVehicle)}
-        ${renderDriverProfileLine("Color", driverProfile.vehicleColor)}
-        ${renderDriverProfileLine("Matricula", driverProfile.plate)}
+        ${details}
       </dl>
       <p class="driver-profile-message" id="driver-profile-phone-message" hidden></p>
     </article>
   `;
 }
 
+function renderDriverRealProfileLines() {
+  return `
+    ${renderDriverAvailabilityControl()}
+    ${renderDriverProfileLine("Email de cuenta", driverProfile.email)}
+    ${renderDriverProfilePhoneLine()}
+    ${renderDriverProfileLine("Codigo conductor", driverProfile.humanCode)}
+    ${renderDriverProfileLine("Tipo", driverProfile.driverType)}
+    ${renderDriverProfileLine("Estado", driverProfile.administrativeStatus)}
+    ${renderDriverProfileLine("Vehiculo", driverProfile.assignedVehicle)}
+  `;
+}
+
+function renderDriverMockProfileLines() {
+  return `
+    ${renderDriverAvailabilityControl()}
+    ${renderDriverProfileLine("Email", driverProfile.email)}
+    ${renderDriverProfilePhoneLine()}
+    ${renderDriverProfileLine("Vehiculo", driverProfile.assignedVehicle)}
+    ${renderDriverProfileLine("Color", driverProfile.vehicleColor)}
+    ${renderDriverProfileLine("Matricula", driverProfile.plate)}
+  `;
+}
+
 function renderDriverAvailabilityControl() {
   const preference = getDriverAvailabilityPreference();
+  const isReadOnly = isDriverRealProfileMode();
   const descriptionByPreference = {
     Disponible: "Puedes recibir nuevas asignaciones.",
     "No disponible": "No est\u00e1s disponible ahora, pero puedes recibir servicios futuros.",
   };
+  const description = isReadOnly ? DRIVER_PROFILE_AVAILABILITY_RPC_PENDING_MESSAGE : descriptionByPreference[preference] || descriptionByPreference["No disponible"];
   const options = ["Disponible", "No disponible"]
-    .map(
-      (option) => `
-        <button class="driver-availability-option${preference === option ? " is-active" : ""}" type="button" data-driver-availability-preference="${escapeHtml(option)}" aria-pressed="${preference === option ? "true" : "false"}">
+    .map((option) => {
+      const actionAttributes = isReadOnly
+        ? `disabled aria-disabled="true" title="${escapeHtml(DRIVER_PROFILE_AVAILABILITY_RPC_PENDING_MESSAGE)}"`
+        : `data-driver-availability-preference="${escapeHtml(option)}"`;
+
+      return `
+        <button class="driver-availability-option${preference === option ? " is-active" : ""}" type="button" ${actionAttributes} aria-pressed="${preference === option ? "true" : "false"}">
           ${escapeHtml(option)}
         </button>
-      `,
-    )
+      `;
+    })
     .join("");
 
   return `
@@ -5389,8 +5526,8 @@ function renderDriverAvailabilityControl() {
         <div class="driver-availability-control" role="group" aria-label="Disponibilidad">
           ${options}
         </div>
-        <span class="driver-availability-help">${escapeHtml(descriptionByPreference[preference] || descriptionByPreference["No disponible"])}</span>
-        ${renderDriverAvailabilityConfirmation()}
+        <span class="driver-availability-help">${escapeHtml(description)}</span>
+        ${isReadOnly ? "" : renderDriverAvailabilityConfirmation()}
       </dd>
     </div>
   `;
@@ -5421,6 +5558,13 @@ function requestDriverAvailabilityPreferenceChange(nextPreference) {
     return;
   }
 
+  if (isDriverRealProfileMode()) {
+    pendingDriverAvailabilityPreference = "";
+    window.ElaraNotifications.showToast(DRIVER_PROFILE_AVAILABILITY_RPC_PENDING_MESSAGE, "info");
+    renderDriverProfile();
+    return;
+  }
+
   if (preference === getDriverAvailabilityPreference()) {
     pendingDriverAvailabilityPreference = "";
     renderDriverProfile();
@@ -5437,6 +5581,13 @@ function requestDriverAvailabilityPreferenceChange(nextPreference) {
 
 function confirmDriverAvailabilityPreferenceChange() {
   const preference = normalizeDriverAvailabilityPreference(pendingDriverAvailabilityPreference);
+
+  if (isDriverRealProfileMode()) {
+    pendingDriverAvailabilityPreference = "";
+    window.ElaraNotifications.showToast(DRIVER_PROFILE_AVAILABILITY_RPC_PENDING_MESSAGE, "info");
+    renderDriverProfile();
+    return;
+  }
 
   if (!preference || !canDriverChangeAvailabilityPreference(true)) {
     pendingDriverAvailabilityPreference = "";
@@ -5519,7 +5670,15 @@ function hasDriverCentralServiceInProgress() {
   );
 }
 
+function isDriverRealProfileMode() {
+  return Boolean(driverProfile?.isRealDriverProfile);
+}
+
 function getDriverAvailabilityPreference() {
+  if (isDriverRealProfileMode()) {
+    return normalizeDriverAvailabilityPreference(driverProfile?.availabilityPreference) || getDriverIdentityAvailabilityLabel(driverProfile?.rawAvailabilityPreference);
+  }
+
   const collaborator = driverProfile ? getDriverCollaboratorById(driverProfile.id) : null;
 
   return normalizeDriverAvailabilityPreference(collaborator?.availabilityPreference) || normalizeDriverAvailabilityPreference(driverProfile?.availabilityPreference) || "Disponible";
@@ -5554,6 +5713,21 @@ function renderDriverProfileLine(label, value) {
 }
 
 function renderDriverProfilePhoneLine() {
+  if (isDriverRealProfileMode()) {
+    return `
+      <div class="driver-profile-line driver-profile-line--phone">
+        <dt>Telefono</dt>
+        <dd>
+          <span>${escapeHtml(driverProfile.phone || "-")}</span>
+          <button class="driver-profile-phone-action" type="button" disabled aria-disabled="true" aria-label="${escapeHtml(DRIVER_PROFILE_PHONE_RPC_PENDING_MESSAGE)}" title="${escapeHtml(DRIVER_PROFILE_PHONE_RPC_PENDING_MESSAGE)}">
+            ${renderDriverProfileActionIcon("edit")}
+          </button>
+          <span class="driver-availability-help">${escapeHtml(DRIVER_PROFILE_PHONE_RPC_PENDING_MESSAGE)}</span>
+        </dd>
+      </div>
+    `;
+  }
+
   if (isDriverProfilePhoneEditing) {
     return `
       <div class="driver-profile-line driver-profile-line--phone">
@@ -5607,6 +5781,13 @@ function editDriverProfilePhone() {
     return;
   }
 
+  if (isDriverRealProfileMode()) {
+    isDriverProfilePhoneEditing = false;
+    window.ElaraNotifications.showToast(DRIVER_PROFILE_PHONE_RPC_PENDING_MESSAGE, "info");
+    renderDriverProfile();
+    return;
+  }
+
   isDriverProfilePhoneEditing = true;
   renderDriverProfile();
 
@@ -5620,6 +5801,13 @@ function editDriverProfilePhone() {
 
 function saveDriverProfilePhone() {
   if (!driverProfile) {
+    return;
+  }
+
+  if (isDriverRealProfileMode()) {
+    isDriverProfilePhoneEditing = false;
+    window.ElaraNotifications.showToast(DRIVER_PROFILE_PHONE_RPC_PENDING_MESSAGE, "info");
+    renderDriverProfile();
     return;
   }
 
@@ -8186,6 +8374,150 @@ function getDriverAuthenticatedUser() {
   return window.ElaraAuth && typeof window.ElaraAuth.getCurrentUser === "function" ? window.ElaraAuth.getCurrentUser() : null;
 }
 
+function resetDriverProfileLoadState() {
+  driverProfileLoadState = {
+    userKey: "",
+    status: "idle",
+    promise: null,
+    profile: null,
+    error: "",
+  };
+  driverProfileRenderRequestId += 1;
+}
+
+function getDriverProfileCacheKey(user) {
+  return [user?.supabaseUserId, user?.appSessionId, user?.id, user?.driverId].map((value) => String(value || "").trim()).filter(Boolean).join("|");
+}
+
+async function loadDriverRealProfile() {
+  const user = getDriverAuthenticatedUser();
+  const userKey = getDriverProfileCacheKey(user);
+
+  if (!userKey) {
+    throw new Error("Missing authenticated user for driver profile.");
+  }
+
+  if (driverProfileLoadState.userKey && driverProfileLoadState.userKey !== userKey) {
+    resetDriverProfileLoadState();
+  }
+
+  if (driverProfileLoadState.userKey === userKey && driverProfileLoadState.status === "loaded" && driverProfileLoadState.profile) {
+    return driverProfileLoadState.profile;
+  }
+
+  if (driverProfileLoadState.userKey === userKey && driverProfileLoadState.promise) {
+    return driverProfileLoadState.promise;
+  }
+
+  driverProfileLoadState.userKey = userKey;
+  driverProfileLoadState.status = "loading";
+  driverProfileLoadState.error = "";
+  driverProfileLoadState.promise = fetchDriverRealProfile(user)
+    .then((profile) => {
+      if (driverProfileLoadState.userKey === userKey) {
+        driverProfileLoadState.status = "loaded";
+        driverProfileLoadState.profile = profile;
+        driverProfileLoadState.error = "";
+      }
+
+      return profile;
+    })
+    .catch((error) => {
+      if (driverProfileLoadState.userKey === userKey) {
+        driverProfileLoadState.status = "error";
+        driverProfileLoadState.profile = null;
+        driverProfileLoadState.error = DRIVER_PROFILE_ERROR_MESSAGE;
+      }
+
+      throw error;
+    })
+    .finally(() => {
+      if (driverProfileLoadState.userKey === userKey) {
+        driverProfileLoadState.promise = null;
+      }
+    });
+
+  return driverProfileLoadState.promise;
+}
+
+async function fetchDriverRealProfile(user) {
+  const identity = await resolveDriverProfileIdentity(user);
+
+  if (!identity?.driverId) {
+    throw new Error("Missing driver identity.");
+  }
+
+  const accountEmail = await fetchDriverProfileAccountEmail();
+
+  return buildDriverProfileFromIdentity(identity, accountEmail, user);
+}
+
+async function resolveDriverProfileIdentity(user) {
+  if (user?.driverIdentityStatus === "resolved" && user?.driverIdentity?.driverId) {
+    return user.driverIdentity;
+  }
+
+  return window.ElaraAuth.getCurrentDriverIdentity();
+}
+
+async function fetchDriverProfileAccountEmail() {
+  const client = window.ElaraSupabase?.client;
+
+  if (!client?.auth || typeof client.auth.getUser !== "function") {
+    throw new Error("Supabase Auth client is not available.");
+  }
+
+  const { data, error } = await client.auth.getUser();
+
+  if (error) {
+    throw error;
+  }
+
+  const email = String(data?.user?.email || "").trim();
+
+  if (!email) {
+    throw new Error("Authenticated user email is not available.");
+  }
+
+  return email;
+}
+
+function buildDriverProfileFromIdentity(identity, accountEmail, user) {
+  const administrativeStatus = getDriverIdentityAdministrativeStatusLabel(identity?.administrativeStatus);
+  const availabilityPreference = getDriverIdentityAvailabilityLabel(identity?.availabilityPreference);
+  const driverType = getDriverIdentityTypeLabel(identity?.driverType);
+
+  return {
+    isRealDriverProfile: true,
+    id: identity?.driverId || user?.driverId || "",
+    driverId: identity?.driverId || user?.driverId || "",
+    humanCode: identity?.humanCode || "",
+    name: identity?.name || user?.name || "Conductor ELARA",
+    email: accountEmail,
+    phone: identity?.phone || "",
+    rawDriverType: identity?.driverType || "",
+    driverType,
+    role: driverType,
+    rawAdministrativeStatus: identity?.administrativeStatus || "",
+    administrativeStatus,
+    rawAvailabilityPreference: identity?.availabilityPreference || "",
+    availability: availabilityPreference,
+    availabilityPreference,
+    collaboratorStatus: administrativeStatus,
+    vehicleId: "",
+    assignedVehicle: "-",
+    vehicleColor: "-",
+    plate: "-",
+  };
+}
+
+function getDriverProfileErrorDetails(error) {
+  return {
+    message: error?.message || String(error || DRIVER_PROFILE_ERROR_MESSAGE),
+    name: error?.name || "Error",
+  };
+}
+
 function getDriverCollaboratorForUser(user) {
   const accessMessage = getDriverUserAccessMessage(user);
 
@@ -8297,39 +8629,15 @@ function buildDriverCollaboratorFromIdentity(identity, user) {
 }
 
 function getDriverIdentityTypeLabel(driverType) {
-  if (driverType === "internal_driver") {
-    return "Chofer";
-  }
-
-  if (driverType === "external_collaborator") {
-    return "Colaborador";
-  }
-
-  return "Conductor";
+  return DRIVER_PROFILE_DRIVER_TYPE_LABELS[driverType] || "Conductor";
 }
 
 function getDriverIdentityAdministrativeStatusLabel(status) {
-  if (status === "active") {
-    return "Activo";
-  }
-
-  if (status === "suspended") {
-    return "Suspendido";
-  }
-
-  if (status === "inactive") {
-    return "Inactivo";
-  }
-
-  if (status === "pending_documents") {
-    return "Pendiente documentacion";
-  }
-
-  return status || "No disponible";
+  return DRIVER_PROFILE_ADMINISTRATIVE_STATUS_LABELS[status] || status || "No disponible";
 }
 
 function getDriverIdentityAvailabilityLabel(availabilityPreference) {
-  return availabilityPreference === "available" ? "Disponible" : "No disponible";
+  return DRIVER_PROFILE_AVAILABILITY_LABELS[availabilityPreference] || "No disponible";
 }
 
 function getDriverCollaboratorById(collaboratorId) {
@@ -8398,7 +8706,7 @@ function resetDriverDemo() {
   }
 
   if (getElement("mi-perfil") && !getElement("mi-perfil").hidden) {
-    showDriverProfile();
+    void showDriverProfile();
   }
 
   if (getElement("historial") && !getElement("historial").hidden) {
