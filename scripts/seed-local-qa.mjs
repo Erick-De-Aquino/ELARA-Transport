@@ -19,7 +19,7 @@ import { createReadStream, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const QA_PASSWORD = 'ElaraLocalQA2026!';
+const QA_PASSWORD_ENV_NAME = 'ELARA_QA_PASSWORD';
 const QA_USERS = [
   {
     email: 'qa-superadmin@example.invalid',
@@ -56,6 +56,7 @@ main().catch((error) => {
 async function main() {
   console.log('ELARA local QA bootstrap - LOCAL ONLY');
 
+  const qaPassword = getRequiredQaPassword();
   const config = readSupabaseConfig(CONFIG_PATH);
   console.log('[1/4] Reading local Supabase status...');
   const status = await getSupabaseStatusEnv();
@@ -73,15 +74,25 @@ async function main() {
 
   console.log('[3/4] Creating/reusing QA Auth users...');
   const existingUsers = await listAuthUsers(apiUrl, serviceRoleKey);
-  await upsertQaAuthUsers(apiUrl, serviceRoleKey, existingUsers);
+  await upsertQaAuthUsers(apiUrl, serviceRoleKey, existingUsers, qaPassword);
 
   console.log('[4/4] Loading business seed...');
   const dbContainer = await resolveLocalDbContainer(config.projectId);
   await runSeedSql(dbContainer);
 
   console.log('\nDone. QA users are ready for signInWithPassword().');
-  console.log('QA users use the local-only password configured in this script.');
+  console.log(`QA users use the local-only password provided by ${QA_PASSWORD_ENV_NAME}.`);
   console.log('Reminder: public.app_sessions are still runtime state and are not created by this seed.');
+}
+
+function getRequiredQaPassword() {
+  const password = process.env[QA_PASSWORD_ENV_NAME];
+
+  if (!password || !password.trim()) {
+    throw new Error(`${QA_PASSWORD_ENV_NAME} is required for local QA bootstrap.`);
+  }
+
+  return password;
 }
 
 function readSupabaseConfig(configPath) {
@@ -209,7 +220,7 @@ async function listAuthUsers(apiUrl, serviceRoleKey) {
   throw new Error('Unexpected Auth Admin list users response shape. Expected a users array.');
 }
 
-async function upsertQaAuthUsers(apiUrl, serviceRoleKey, existingUsers) {
+async function upsertQaAuthUsers(apiUrl, serviceRoleKey, existingUsers, qaPassword) {
   const byEmail = new Map();
   for (const user of existingUsers) {
     const email = String(user.email || '').toLowerCase();
@@ -225,19 +236,19 @@ async function upsertQaAuthUsers(apiUrl, serviceRoleKey, existingUsers) {
   for (const qaUser of QA_USERS) {
     const existingUser = byEmail.get(qaUser.email);
     if (existingUser) {
-      await updateQaAuthUser(apiUrl, serviceRoleKey, existingUser.id, qaUser);
+      await updateQaAuthUser(apiUrl, serviceRoleKey, existingUser.id, qaUser, qaPassword);
       console.log(`Reused and normalized Auth user: ${qaUser.email}`);
     } else {
-      await createQaAuthUser(apiUrl, serviceRoleKey, qaUser);
+      await createQaAuthUser(apiUrl, serviceRoleKey, qaUser, qaPassword);
       console.log(`Created Auth user: ${qaUser.email}`);
     }
   }
 }
 
-async function createQaAuthUser(apiUrl, serviceRoleKey, qaUser) {
+async function createQaAuthUser(apiUrl, serviceRoleKey, qaUser, qaPassword) {
   const response = await authFetch(apiUrl, serviceRoleKey, '/admin/users', {
     method: 'POST',
-    body: JSON.stringify(authUserPayload(qaUser)),
+    body: JSON.stringify(authUserPayload(qaUser, qaPassword)),
   });
   const body = await readJsonBody(response);
 
@@ -246,14 +257,14 @@ async function createQaAuthUser(apiUrl, serviceRoleKey, qaUser) {
   }
 }
 
-async function updateQaAuthUser(apiUrl, serviceRoleKey, userId, qaUser) {
+async function updateQaAuthUser(apiUrl, serviceRoleKey, userId, qaUser, qaPassword) {
   if (!userId) {
     throw new Error(`Existing Auth user for ${qaUser.email} has no id.`);
   }
 
   const response = await authFetch(apiUrl, serviceRoleKey, `/admin/users/${encodeURIComponent(userId)}`, {
     method: 'PUT',
-    body: JSON.stringify(authUserPayload(qaUser)),
+    body: JSON.stringify(authUserPayload(qaUser, qaPassword)),
   });
   const body = await readJsonBody(response);
 
@@ -262,10 +273,10 @@ async function updateQaAuthUser(apiUrl, serviceRoleKey, userId, qaUser) {
   }
 }
 
-function authUserPayload(qaUser) {
+function authUserPayload(qaUser, qaPassword) {
   return {
     email: qaUser.email,
-    password: QA_PASSWORD,
+    password: qaPassword,
     email_confirm: true,
     user_metadata: {
       name: qaUser.name,
