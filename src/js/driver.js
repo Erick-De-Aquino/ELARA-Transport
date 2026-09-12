@@ -8042,8 +8042,8 @@ function adaptDriverServiceOverviewRow(row) {
   const status = getDriverStatusFromServiceOverview(row);
   const displayStatus = getDriverDisplayStatusFromServiceOverview(row, status);
   const vehicleLabel = [row?.brand, row?.model].map((value) => String(value || "").trim()).filter(Boolean).join(" ");
-  const customerName = String(row?.customer_display_name || "").trim() || "Cliente sin identificar";
-  const passengerName = String(row?.primary_passenger_name || "").trim() || customerName;
+  const customerName = getDriverServiceCustomerName(row);
+  const passengerName = getDriverServicePassengerName(row, customerName);
 
   return {
     id: row?.human_code || row?.service_id || "",
@@ -8077,6 +8077,31 @@ function adaptDriverServiceOverviewRow(row) {
     scheduledStartAt: row?.scheduled_start_at || "",
     driverStage: row?.driver_stage || "",
   };
+}
+
+function getDriverServiceCustomerName(row) {
+  const customerName = [
+    row?.customer_display_name,
+    row?.customerDisplayName,
+    row?.customer_name,
+    row?.customerName,
+    row?.client_name,
+    row?.clientName,
+  ]
+    .map((value) => String(value || "").trim())
+    .find(Boolean);
+
+  return customerName || "Cliente sin identificar";
+}
+
+function getDriverServicePassengerName(row, customerName) {
+  const passengerName = String(row?.primary_passenger_name || row?.primaryPassengerName || "").trim();
+
+  if (passengerName && passengerName !== "Cliente sin identificar") {
+    return passengerName;
+  }
+
+  return customerName;
 }
 
 function getDriverStatusFromServiceOverview(row) {
@@ -8448,8 +8473,9 @@ async function fetchDriverRealProfile(user) {
   }
 
   const accountEmail = await fetchDriverProfileAccountEmail();
+  const activeVehicle = await fetchDriverActiveVehicle(identity.driverId);
 
-  return buildDriverProfileFromIdentity(identity, accountEmail, user);
+  return buildDriverProfileFromIdentity(identity, accountEmail, user, activeVehicle);
 }
 
 async function resolveDriverProfileIdentity(user) {
@@ -8482,10 +8508,69 @@ async function fetchDriverProfileAccountEmail() {
   return email;
 }
 
-function buildDriverProfileFromIdentity(identity, accountEmail, user) {
+async function fetchDriverActiveVehicle(driverId) {
+  const client = window.ElaraSupabase?.client;
+
+  if (!client) {
+    throw new Error("Supabase client is not available.");
+  }
+
+  // Active assignments are unique by constraint; the order keeps inconsistent data deterministic.
+  const { data: assignments, error } = await client
+    .from("driver_vehicle_assignments")
+    .select("vehicle_id, started_at")
+    .eq("driver_id", driverId)
+    .eq("status", "active")
+    .order("started_at", { ascending: false })
+    .limit(1);
+
+  if (error) {
+    throw error;
+  }
+
+  const assignment = Array.isArray(assignments) ? assignments[0] : assignments;
+
+  if (!assignment?.vehicle_id) {
+    return null;
+  }
+
+  const { data: vehicle, error: vehicleError } = await client
+    .from("vehicles")
+    .select("id, human_code, plate_normalized, brand, model")
+    .eq("id", assignment.vehicle_id)
+    .maybeSingle();
+
+  if (vehicleError) {
+    throw vehicleError;
+  }
+
+  return vehicle?.id ? normalizeDriverActiveVehicle(vehicle) : null;
+}
+
+function normalizeDriverActiveVehicle(vehicle) {
+  return {
+    vehicleId: vehicle?.id || "",
+    vehicleHumanCode: vehicle?.human_code || "",
+    plateNormalized: vehicle?.plate_normalized || "",
+    brand: vehicle?.brand || "",
+    model: vehicle?.model || "",
+  };
+}
+
+function getDriverProfileVehicleLabel(vehicle) {
+  if (!vehicle) {
+    return "";
+  }
+
+  const vehicleModel = [vehicle.brand, vehicle.model].map((value) => String(value || "").trim()).filter(Boolean).join(" ");
+  return [vehicle.vehicleHumanCode, vehicleModel, vehicle.plateNormalized].filter(Boolean).join(" - ");
+}
+
+function buildDriverProfileFromIdentity(identity, accountEmail, user, activeVehicle) {
   const administrativeStatus = getDriverIdentityAdministrativeStatusLabel(identity?.administrativeStatus);
   const availabilityPreference = getDriverIdentityAvailabilityLabel(identity?.availabilityPreference);
   const driverType = getDriverIdentityTypeLabel(identity?.driverType);
+  const assignedVehicle = getDriverProfileVehicleLabel(activeVehicle);
 
   return {
     isRealDriverProfile: true,
@@ -8504,10 +8589,14 @@ function buildDriverProfileFromIdentity(identity, accountEmail, user) {
     availability: availabilityPreference,
     availabilityPreference,
     collaboratorStatus: administrativeStatus,
-    vehicleId: "",
-    assignedVehicle: "-",
+    vehicleId: activeVehicle?.vehicleId || "",
+    vehicleHumanCode: activeVehicle?.vehicleHumanCode || "",
+    plateNormalized: activeVehicle?.plateNormalized || "",
+    vehicleBrand: activeVehicle?.brand || "",
+    vehicleModel: activeVehicle?.model || "",
+    assignedVehicle: assignedVehicle || "-",
     vehicleColor: "-",
-    plate: "-",
+    plate: activeVehicle?.plateNormalized || "-",
   };
 }
 
