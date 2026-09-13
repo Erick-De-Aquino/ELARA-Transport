@@ -335,6 +335,7 @@ let isDriverProfilePhoneEditing = false;
 let pendingDriverAvailabilityPreference = "";
 let isDriverUsingCentralServices = false;
 let pendingDriverRejectionServiceId = null;
+let acceptingRealDriverServiceIds = new Set();
 let isDriverServicesUpdatedListenerRegistered = false;
 let isDriverFinanceUpdatedListenerRegistered = false;
 let isDriverExpensesUpdatedListenerRegistered = false;
@@ -888,7 +889,7 @@ function bindDriverEvents() {
     const serviceId = action.dataset.serviceId;
 
     if (action.dataset.driverAction === "accept") {
-      acceptDriverAssignment(serviceId);
+      void acceptDriverAssignment(serviceId);
       return;
     }
 
@@ -5062,8 +5063,18 @@ function getPrimaryAction(service) {
 }
 
 function getRealDriverServicePrimaryAction(service) {
+  if (service?.status === "asignado") {
+    if (!isDriverProfileAdministrativelyActive()) {
+      return `<button class="button button--secondary driver-button" type="button" disabled>Perfil no habilitado</button>`;
+    }
+
+    const isAccepting = acceptingRealDriverServiceIds.has(service.id);
+    const label = isAccepting ? "Aceptando..." : "Aceptar servicio";
+
+    return `<button class="button button--primary driver-button" type="button" data-driver-action="accept" data-service-id="${escapeHtml(service.id)}" ${isAccepting ? 'disabled aria-disabled="true" aria-busy="true"' : ""}>${escapeHtml(label)}</button>`;
+  }
+
   const labelByStatus = {
-    asignado: "Aceptar pendiente de RPC",
     aceptado: "Inicio pendiente de RPC",
     en_camino: "Servicio en curso",
     esperando_pasajero: "Servicio en curso",
@@ -7816,7 +7827,14 @@ function canAdvanceCentralDriverStage(currentStage, nextStage) {
   return currentIndex >= 0 && nextIndex === currentIndex + 1;
 }
 
-function acceptDriverAssignment(serviceId) {
+async function acceptDriverAssignment(serviceId) {
+  const driverService = getServiceById(serviceId);
+
+  if (driverService?.isRealDriverService) {
+    await acceptRealDriverService(driverService);
+    return;
+  }
+
   if (!isDriverUsingCentralServices) {
     updateServiceStatus(serviceId, "aceptado");
     window.ElaraNotifications.showToast("Servicio aceptado en mock.", "success");
@@ -7841,10 +7859,93 @@ function acceptDriverAssignment(serviceId) {
     description: `${driverProfile.name} acept\u00f3 el servicio ${service.serviceId}.`,
   });
   emitDriverServicesUpdatedEvent("accepted", service);
-  window.ElaraNotifications.showToast("Asignación aceptada correctamente.", "success");
+  window.ElaraNotifications.showToast("Asignaci\u00f3n aceptada correctamente.", "success");
   renderDriverServices();
 }
 
+async function acceptRealDriverService(service) {
+  if (!ensureDriverCanOperate() || !service) {
+    return;
+  }
+
+  if (service.status !== "asignado" || normalizeDriverCode(service.assignmentStatus) !== "pending_acceptance") {
+    window.ElaraNotifications.showToast("Este servicio ya no esta pendiente de aceptacion.", "warning");
+    return;
+  }
+
+  const serviceUuid = service.centralServiceId || "";
+
+  if (!serviceUuid) {
+    window.ElaraNotifications.showToast("No se pudo identificar el servicio real.", "error");
+    return;
+  }
+
+  if (acceptingRealDriverServiceIds.has(service.id)) {
+    return;
+  }
+
+  acceptingRealDriverServiceIds.add(service.id);
+  renderDriverServices();
+
+  try {
+    const { error } = await window.ElaraSupabase.client.rpc("accept_driver_service", {
+      p_service_id: serviceUuid,
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    pendingDriverRejectionServiceId = null;
+    driverServices = await loadDriverServices({ force: true });
+    window.ElaraNotifications.showToast("Servicio aceptado correctamente.", "success");
+    renderDriverServices();
+  } catch (error) {
+    console.error("[ELARA Driver] No se pudo aceptar el servicio real.", {
+      message: error?.message || "",
+      code: error?.code || "",
+      details: error?.details || "",
+      serviceId: service.id,
+      serviceUuid,
+    });
+    window.ElaraNotifications.showToast(getAcceptDriverServiceErrorMessage(error), "error");
+    renderDriverServices();
+  } finally {
+    acceptingRealDriverServiceIds.delete(service.id);
+    renderDriverServices();
+  }
+}
+
+function getAcceptDriverServiceErrorMessage(error) {
+  const code = String(error?.code || "");
+  const message = String(error?.message || "").toLowerCase();
+
+  if (message.includes("active context")) {
+    return "Tu sesion de conductor no esta activa. Vuelve a iniciar sesion.";
+  }
+
+  if (message.includes("already been accepted")) {
+    return "Este servicio ya fue aceptado.";
+  }
+
+  if (message.includes("not assigned")) {
+    return "Este servicio no esta asignado a tu conductor.";
+  }
+
+  if (code === "42501") {
+    return "No tienes permiso para aceptar este servicio.";
+  }
+
+  if (message.includes("not pending") || message.includes("does not allow acceptance")) {
+    return "El estado actual del servicio no permite aceptarlo.";
+  }
+
+  if (message.includes("not found")) {
+    return "No se encontro el servicio seleccionado.";
+  }
+
+  return "No se pudo aceptar el servicio. Intentalo de nuevo.";
+}
 function requestDriverAssignmentRejection(serviceId) {
   if (!isDriverUsingCentralServices) {
     pendingDriverRejectionServiceId = serviceId;
