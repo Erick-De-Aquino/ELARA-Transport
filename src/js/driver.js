@@ -336,6 +336,7 @@ let pendingDriverAvailabilityPreference = "";
 let isDriverUsingCentralServices = false;
 let pendingDriverRejectionServiceId = null;
 let acceptingRealDriverServiceIds = new Set();
+let startingRealDriverServiceIds = new Set();
 let isDriverServicesUpdatedListenerRegistered = false;
 let isDriverFinanceUpdatedListenerRegistered = false;
 let isDriverExpensesUpdatedListenerRegistered = false;
@@ -910,7 +911,7 @@ function bindDriverEvents() {
     }
 
     if (action.dataset.driverAction === "start") {
-      startService(serviceId);
+      void startService(serviceId);
       return;
     }
 
@@ -5074,18 +5075,42 @@ function getRealDriverServicePrimaryAction(service) {
     return `<button class="button button--primary driver-button" type="button" data-driver-action="accept" data-service-id="${escapeHtml(service.id)}" ${isAccepting ? 'disabled aria-disabled="true" aria-busy="true"' : ""}>${escapeHtml(label)}</button>`;
   }
 
+  if (canRealDriverServiceStart(service)) {
+    const isStarting = startingRealDriverServiceIds.has(service.id);
+    const label = isStarting ? "Iniciando..." : "Iniciar servicio";
+
+    return `<button class="button button--primary driver-button" type="button" data-driver-action="start" data-service-id="${escapeHtml(service.id)}" ${isStarting ? 'disabled aria-disabled="true" aria-busy="true"' : ""}>${escapeHtml(label)}</button>`;
+  }
+
   const labelByStatus = {
-    aceptado: "Inicio pendiente de RPC",
-    en_camino: "Servicio en curso",
-    esperando_pasajero: "Servicio en curso",
-    pasajero_a_bordo: "Servicio en curso",
-    en_servicio: "Servicio en curso",
+    aceptado: "Inicio no disponible",
+    en_camino: "Progreso pendiente de RPC",
+    esperando_pasajero: "Progreso pendiente de RPC",
+    pasajero_a_bordo: "Progreso pendiente de RPC",
+    en_servicio: "Progreso pendiente de RPC",
   };
   const label = labelByStatus[service?.status] || DRIVER_REAL_SERVICE_ACTION_PENDING_LABEL;
 
   return `<button class="button button--secondary driver-button" type="button" disabled aria-disabled="true">${escapeHtml(label)}</button>`;
 }
-function startService(serviceId) {
+
+function canRealDriverServiceStart(service) {
+  return Boolean(
+    service?.isRealDriverService &&
+      service.status === "aceptado" &&
+      normalizeDriverCode(service.assignmentStatus) === "accepted" &&
+      normalizeDriverCode(service.operationalStatus) === "confirmed" &&
+      canStartService(service)
+  );
+}
+async function startService(serviceId) {
+  const driverService = getServiceById(serviceId);
+
+  if (driverService?.isRealDriverService) {
+    await startRealDriverService(driverService);
+    return;
+  }
+
   if (isDriverUsingCentralServices) {
     startCentralDriverService(serviceId);
     return;
@@ -5096,6 +5121,135 @@ function startService(serviceId) {
   // TODO: conectar aqui una notificacion real al cliente cuando exista infraestructura de notificaciones.
   window.ElaraNotifications.showToast("Servicio iniciado. Notificaci\u00f3n al cliente pendiente de integraci\u00f3n real.", "info");
   renderDriverServices();
+}
+
+async function startRealDriverService(service) {
+  if (!ensureDriverCanOperate() || !service) {
+    return;
+  }
+
+  if (!canRealDriverServiceStart(service)) {
+    window.ElaraNotifications.showToast("Este servicio no esta listo para iniciarse.", "warning");
+    return;
+  }
+
+  const serviceUuid = service.centralServiceId || "";
+
+  if (!serviceUuid) {
+    window.ElaraNotifications.showToast("No se pudo identificar el servicio real.", "error");
+    return;
+  }
+
+  if (startingRealDriverServiceIds.has(service.id)) {
+    return;
+  }
+
+  startingRealDriverServiceIds.add(service.id);
+  renderDriverServices();
+
+  try {
+    let startResult = null;
+
+    try {
+      const { data, error } = await window.ElaraSupabase.client.rpc("start_driver_service", {
+        p_service_id: serviceUuid,
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      startResult = Array.isArray(data) ? data[0] : data;
+    } catch (error) {
+      console.error("[ELARA Driver] No se pudo iniciar el servicio real.", {
+        message: error?.message || "",
+        code: error?.code || "",
+        details: error?.details || "",
+        serviceId: service.id,
+        serviceUuid,
+      });
+      window.ElaraNotifications.showToast(getStartDriverServiceErrorMessage(error), "error");
+      return;
+    }
+
+    applyStartedDriverServiceResult(service, startResult);
+
+    try {
+      driverServices = await loadDriverServices({ force: true });
+      window.ElaraNotifications.showToast("Servicio iniciado correctamente.", "success");
+    } catch (refreshError) {
+      console.error("[ELARA Driver] Servicio iniciado, pero no se pudo refrescar la vista.", {
+        message: refreshError?.message || "",
+        code: refreshError?.code || "",
+        details: refreshError?.details || "",
+        serviceId: service.id,
+        serviceUuid,
+      });
+      window.ElaraNotifications.showToast("Servicio iniciado. No se pudo actualizar la vista automaticamente.", "warning");
+    }
+  } finally {
+    startingRealDriverServiceIds.delete(service.id);
+    renderDriverServices();
+  }
+}
+
+function applyStartedDriverServiceResult(service, result) {
+  const target = getServiceById(service?.id) || service;
+
+  if (!target) {
+    return;
+  }
+
+  target.operationalStatus = result?.operational_status || "in_progress";
+  target.assignmentStatus = target.assignmentStatus || "accepted";
+  target.driverStage = result?.driver_stage || "on_way";
+  target.status = "en_camino";
+  target.displayStatus = driverStatusLabels.en_camino;
+  target.isNewAssignment = false;
+
+  if (result?.started_at) {
+    target.startedAt = result.started_at;
+    target.driverStageUpdatedAt = result.started_at;
+  }
+}
+
+function getStartDriverServiceErrorMessage(error) {
+  const code = String(error?.code || "");
+  const message = String(error?.message || "").toLowerCase();
+
+  if (message.includes("active context")) {
+    return "Tu sesion de conductor no esta activa. Vuelve a iniciar sesion.";
+  }
+
+  if (message.includes("not assigned")) {
+    return "Este servicio no esta asignado a tu conductor.";
+  }
+
+  if (message.includes("must be accepted") || message.includes("not valid for starting")) {
+    return "Debes aceptar el servicio antes de iniciarlo.";
+  }
+
+  if (message.includes("already been started") || message.includes("progress has already started")) {
+    return "Este servicio ya fue iniciado.";
+  }
+
+  if (message.includes("final service status")) {
+    return "El servicio esta en un estado final y no puede iniciarse.";
+  }
+
+  if (message.includes("must be confirmed") || message.includes("does not allow") || message.includes("invalid")) {
+    return "El estado actual del servicio no permite iniciarlo.";
+  }
+
+  if (code === "42501") {
+    return "No tienes permiso para iniciar este servicio.";
+  }
+
+  if (message.includes("not found")) {
+    return "No se encontro el servicio seleccionado.";
+  }
+
+  return "No se pudo iniciar el servicio. Intentalo de nuevo.";
 }
 
 function startCentralDriverService(serviceId) {
@@ -8127,9 +8281,7 @@ async function loadDriverServices(options = {}) {
 
 async function fetchDriverServiceOverview() {
   const { data, error } = await window.ElaraSupabase.client
-    .from("v_driver_service_overview")
-    .select(DRIVER_SERVICE_OVERVIEW_SELECT)
-    .order("scheduled_start_at", { ascending: true });
+    .rpc("get_driver_service_overview");
 
   if (error) {
     throw error;
