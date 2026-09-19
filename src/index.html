@@ -1949,6 +1949,37 @@
       </section>
     </div>
 
+    <!-- Modal incidencia servicio conductor -->
+    <div class="modal-backdrop" id="driver-service-incident-modal" role="dialog" aria-modal="true" aria-labelledby="driver-service-incident-title" hidden>
+      <section class="modal modal--summary driver-modal">
+        <header class="modal__header">
+          <div>
+            <p class="panel__eyebrow">Servicio activo</p>
+            <h2 id="driver-service-incident-title">Reportar incidencia</h2>
+            <p id="driver-service-incident-summary">-</p>
+          </div>
+          <button class="button button--compact button--muted" type="button" data-modal-close>Cerrar</button>
+        </header>
+
+        <form class="modal__body modal__body--summary service-summary" id="driver-service-incident-form" novalidate>
+          <input id="driver-service-incident-service-id" type="hidden" />
+          <label class="field">
+            <span>Tipo de incidencia</span>
+            <select id="driver-service-incident-type" required></select>
+          </label>
+          <label class="field field--compact-textarea">
+            <span>Descripci&oacute;n</span>
+            <textarea id="driver-service-incident-description" rows="4" maxlength="2000" placeholder="Describe lo ocurrido durante el servicio..." required></textarea>
+          </label>
+          <p class="form-error" id="driver-service-incident-error" role="alert" hidden></p>
+          <div class="driver-modal-actions">
+            <button class="button button--secondary driver-button" type="button" data-modal-close>Cancelar</button>
+            <button class="button button--primary driver-button" type="submit">Registrar incidencia</button>
+          </div>
+        </form>
+      </section>
+    </div>
+
     <!-- Modal cambio de ruta colaborador -->
     <div class="modal-backdrop" id="driver-route-change-modal" role="dialog" aria-modal="true" aria-labelledby="driver-route-change-title" hidden>
       <section class="modal modal--summary driver-modal">

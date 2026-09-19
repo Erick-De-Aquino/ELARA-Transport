@@ -372,6 +372,14 @@ let driverCashCollectionState = {
   attemptId: "",
   processing: false,
 };
+let selectedDriverServiceIncidentServiceId = "";
+let isSubmittingDriverServiceIncident = false;
+let driverServiceIncidentCategoriesLoadState = {
+  status: "idle",
+  promise: null,
+  categories: [],
+  error: "",
+};
 
 function renderDriverIcon(name) {
   return window.ElaraIcons && typeof window.ElaraIcons.get === "function" ? window.ElaraIcons.get(name) : "";
@@ -887,6 +895,13 @@ function bindDriverEvents() {
       return;
     }
 
+    const driverServiceIncidentModal = event.target.closest("#driver-service-incident-modal");
+
+    if (driverServiceIncidentModal && (modalClose || event.target === driverServiceIncidentModal)) {
+      closeDriverServiceIncidentModal();
+      return;
+    }
+
     const serviceRouteLink = event.target.closest('[data-route="mis-servicios"]');
 
     if (serviceRouteLink && isDriverServicesViewVisible() && isDriverActiveServiceVisible) {
@@ -1072,6 +1087,11 @@ function bindDriverEvents() {
       return;
     }
 
+    if (action.dataset.driverAction === "service-incident") {
+      void openDriverServiceIncidentModal(serviceId || activeServiceId);
+      return;
+    }
+
     if (action.dataset.driverAction === "cancel-finish-rating") {
       resetFinishRatingFlow();
       return;
@@ -1158,6 +1178,8 @@ function bindDriverEvents() {
   const routeDestinationInput = document.getElementById("driver-new-destination");
   const finishForm = document.getElementById("driver-finish-form");
   const cashIncidentForm = document.getElementById("driver-cash-incident-form");
+  const serviceIncidentForm = document.getElementById("driver-service-incident-form");
+  const serviceIncidentDescription = document.getElementById("driver-service-incident-description");
   const profileForm = document.getElementById("driver-profile-form");
   const financeDiscrepancyForm = document.getElementById("driver-finance-discrepancy-form");
   const expenseNewForm = document.getElementById("driver-expense-new-form");
@@ -1200,6 +1222,14 @@ function bindDriverEvents() {
   if (cashIncidentForm) {
     cashIncidentForm.addEventListener("submit", submitDriverCashIncident);
     cashIncidentForm.addEventListener("change", handleDriverCashIncidentChange);
+  }
+
+  if (serviceIncidentForm) {
+    serviceIncidentForm.addEventListener("submit", submitDriverServiceIncident);
+  }
+
+  if (serviceIncidentDescription) {
+    serviceIncidentDescription.addEventListener("input", clearDriverServiceIncidentError);
   }
 
   if (profileForm) {
@@ -1336,6 +1366,10 @@ function shouldUseRealDriverExpenses() {
       user?.driverIdentityStatus === "resolved" &&
       String(user?.driverId || "").trim() === driverProfile.id
   );
+}
+
+function shouldUseRealDriverServiceIncidents() {
+  return shouldUseRealDriverServices();
 }
 
 async function showDriverRealExpenses() {
@@ -5813,6 +5847,8 @@ function renderActiveService(service) {
 
           ${renderActiveContextAction(service, activeState)}
 
+          ${renderActiveIncidentAction(service)}
+
           <div class="driver-active-map-actions">
             <a class="driver-active-map driver-active-map--waze" href="https://waze.com/ul" target="_blank" rel="noopener" aria-label="Abrir en Waze">
               ${renderDriverIcon("waze")}
@@ -5886,6 +5922,25 @@ function renderActiveContextAction(service, activeState) {
   }
 
   return "";
+}
+
+function renderActiveIncidentAction(service) {
+  if (!canReportDriverServiceIncident(service)) {
+    return "";
+  }
+
+  return `<button class="button button--secondary driver-button driver-active-route-change" type="button" data-driver-action="service-incident" data-service-id="${escapeHtml(service.id)}">Reportar incidencia</button>`;
+}
+
+function canReportDriverServiceIncident(service) {
+  const operationalStatus = normalizeDriverCode(service?.operationalStatus);
+
+  return Boolean(
+    service?.isRealDriverService &&
+      shouldUseRealDriverServiceIncidents() &&
+      service?.centralServiceId &&
+      ["confirmed", "in_progress", "completed"].includes(operationalStatus)
+  );
 }
 
 function renderDriverProfile() {
@@ -6397,6 +6452,280 @@ function openHistoryDetail(serviceId) {
     </article>
   `;
   openModal("driver-service-detail-modal");
+}
+
+function openDriverServiceIncidentModal(serviceId) {
+  const service = getServiceById(serviceId);
+  const form = document.getElementById("driver-service-incident-form");
+  const serviceInput = document.getElementById("driver-service-incident-service-id");
+  const summary = document.getElementById("driver-service-incident-summary");
+  const description = document.getElementById("driver-service-incident-description");
+
+  if (!service || !form || !serviceInput) {
+    return;
+  }
+
+  if (!canReportDriverServiceIncident(service)) {
+    window.ElaraNotifications.showToast("No se puede reportar una incidencia para este servicio.", "info");
+    return;
+  }
+
+  selectedDriverServiceIncidentServiceId = service.id;
+  form.reset();
+  serviceInput.value = service.id;
+  if (summary) {
+    summary.textContent = service.code || service.humanCode || service.id || "Servicio";
+  }
+  if (description) {
+    description.value = "";
+  }
+  clearDriverServiceIncidentError();
+  setDriverServiceIncidentSubmitDisabled(false);
+  renderDriverServiceIncidentCategoryOptions([], { loading: true });
+  openModal("driver-service-incident-modal");
+
+  void loadDriverServiceIncidentCategories()
+    .then((categories) => {
+      if (selectedDriverServiceIncidentServiceId !== service.id) {
+        return;
+      }
+      renderDriverServiceIncidentCategoryOptions(categories);
+    })
+    .catch((error) => {
+      console.error("[ELARA Driver] No se pudieron cargar las categorias de incidencia del servicio.", { error: error?.message || error });
+      renderDriverServiceIncidentCategoryOptions([]);
+      showDriverServiceIncidentError("No se pudieron cargar las categorias de incidencia.");
+    });
+}
+
+function closeDriverServiceIncidentModal() {
+  closeModal("driver-service-incident-modal");
+  selectedDriverServiceIncidentServiceId = "";
+  isSubmittingDriverServiceIncident = false;
+  setDriverServiceIncidentSubmitDisabled(false);
+  clearDriverServiceIncidentError();
+}
+
+async function loadDriverServiceIncidentCategories(options = {}) {
+  if (!shouldUseRealDriverServiceIncidents()) {
+    return [];
+  }
+
+  if (!options.force && driverServiceIncidentCategoriesLoadState.status === "loaded") {
+    return driverServiceIncidentCategoriesLoadState.categories;
+  }
+
+  if (!options.force && driverServiceIncidentCategoriesLoadState.status === "loading" && driverServiceIncidentCategoriesLoadState.promise) {
+    return driverServiceIncidentCategoriesLoadState.promise;
+  }
+
+  const promise = fetchDriverServiceIncidentCategories();
+  driverServiceIncidentCategoriesLoadState = {
+    ...driverServiceIncidentCategoriesLoadState,
+    status: "loading",
+    promise,
+    error: "",
+  };
+
+  try {
+    const categories = await promise;
+    driverServiceIncidentCategoriesLoadState = {
+      status: "loaded",
+      promise: null,
+      categories,
+      error: "",
+    };
+    return categories;
+  } catch (error) {
+    driverServiceIncidentCategoriesLoadState = {
+      status: "error",
+      promise: null,
+      categories: [],
+      error: error?.message || "No se pudieron cargar las categorias de incidencia.",
+    };
+    throw error;
+  }
+}
+
+async function fetchDriverServiceIncidentCategories() {
+  if (!window.ElaraSupabase?.client) {
+    return [];
+  }
+
+  const { data, error } = await window.ElaraSupabase.client
+    .from("incident_categories")
+    .select("key,name_es,default_severity,applies_to,sort_order")
+    .eq("is_active", true)
+    .order("sort_order", { ascending: true })
+    .order("key", { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return (Array.isArray(data) ? data : [])
+    .filter((category) => Array.isArray(category.applies_to) && category.applies_to.includes("service"))
+    .map((category) => ({
+      key: String(category.key || "").trim(),
+      label: String(category.name_es || category.key || "").trim(),
+      severity: String(category.default_severity || "").trim(),
+    }))
+    .filter((category) => category.key && category.label);
+}
+
+function renderDriverServiceIncidentCategoryOptions(categories, options = {}) {
+  const select = document.getElementById("driver-service-incident-type");
+
+  if (!select) {
+    return;
+  }
+
+  if (options.loading) {
+    select.innerHTML = '<option value="">Cargando categorias...</option>';
+    select.disabled = true;
+    return;
+  }
+
+  select.disabled = false;
+
+  if (!categories.length) {
+    select.innerHTML = '<option value="">Sin categorias disponibles</option>';
+    return;
+  }
+
+  select.innerHTML = [
+    '<option value="">Selecciona una categoria</option>',
+    ...categories.map((category) => `<option value="${escapeHtml(category.key)}">${escapeHtml(category.label)}</option>`),
+  ].join("");
+}
+
+async function submitDriverServiceIncident(event) {
+  event.preventDefault();
+
+  if (isSubmittingDriverServiceIncident) {
+    return;
+  }
+
+  const service = getServiceById(selectedDriverServiceIncidentServiceId);
+  const typeInput = document.getElementById("driver-service-incident-type");
+  const descriptionInput = document.getElementById("driver-service-incident-description");
+  const categoryKey = String(typeInput?.value || "").trim();
+  const description = String(descriptionInput?.value || "").trim();
+
+  if (!service || !canReportDriverServiceIncident(service)) {
+    showDriverServiceIncidentError("No se puede reportar una incidencia para este servicio.");
+    return;
+  }
+
+  if (!categoryKey) {
+    showDriverServiceIncidentError("Selecciona una categoria de incidencia.");
+    return;
+  }
+
+  if (!description) {
+    showDriverServiceIncidentError("Describe brevemente la incidencia.");
+    return;
+  }
+
+  if (description.length > 2000) {
+    showDriverServiceIncidentError("La descripcion no puede superar 2000 caracteres.");
+    return;
+  }
+
+  if (!window.ElaraSupabase?.client) {
+    showDriverServiceIncidentError("No hay conexion disponible para registrar la incidencia.");
+    return;
+  }
+
+  isSubmittingDriverServiceIncident = true;
+  setDriverServiceIncidentSubmitDisabled(true, "Registrando...");
+  clearDriverServiceIncidentError();
+
+  try {
+    const { data, error } = await window.ElaraSupabase.client.rpc("create_driver_service_incident", {
+      p_service_id: service.centralServiceId,
+      p_incident_type: categoryKey,
+      p_description: description,
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    const incident = Array.isArray(data) ? data[0] : data;
+    closeDriverServiceIncidentModal();
+    window.ElaraNotifications.showToast(`Incidencia registrada correctamente.${incident?.human_code ? ` ${incident.human_code}` : ""}`, "success");
+  } catch (error) {
+    console.error("[ELARA Driver] No se pudo registrar la incidencia real del servicio.", { error: error?.message || error });
+    showDriverServiceIncidentError(getDriverServiceIncidentErrorMessage(error));
+  } finally {
+    isSubmittingDriverServiceIncident = false;
+    setDriverServiceIncidentSubmitDisabled(false);
+  }
+}
+
+function getDriverServiceIncidentErrorMessage(error) {
+  const message = String(error?.message || "").trim();
+  const normalizedMessage = message.toLowerCase();
+
+  if (!message) {
+    return "No se pudo registrar la incidencia.";
+  }
+
+  if (normalizedMessage.includes("valid conductor active context")) {
+    return "Tu sesion de conductor no esta disponible. Vuelve a iniciar sesion.";
+  }
+
+  if (normalizedMessage.includes("category") && normalizedMessage.includes("not valid")) {
+    return "Selecciona una categoria valida para el servicio.";
+  }
+
+  if (normalizedMessage.includes("description cannot be empty")) {
+    return "Describe brevemente la incidencia.";
+  }
+
+  if (normalizedMessage.includes("description cannot exceed")) {
+    return "La descripcion no puede superar 2000 caracteres.";
+  }
+
+  if (normalizedMessage.includes("selected service cannot receive")) {
+    return "Este servicio no admite reporte de incidencias desde el portal.";
+  }
+
+  return message;
+}
+
+function showDriverServiceIncidentError(message) {
+  const error = document.getElementById("driver-service-incident-error");
+
+  if (!error) {
+    return;
+  }
+
+  error.textContent = message || "No se pudo registrar la incidencia.";
+  error.hidden = false;
+}
+
+function clearDriverServiceIncidentError() {
+  const error = document.getElementById("driver-service-incident-error");
+
+  if (!error) {
+    return;
+  }
+
+  error.textContent = "";
+  error.hidden = true;
+}
+
+function setDriverServiceIncidentSubmitDisabled(disabled, label = "Registrar incidencia") {
+  const submit = document.querySelector('#driver-service-incident-form button[type="submit"]');
+
+  if (!submit) {
+    return;
+  }
+
+  submit.disabled = Boolean(disabled);
+  submit.textContent = label;
 }
 
 function openRouteChange(serviceId) {
