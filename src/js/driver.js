@@ -1,4 +1,4 @@
-/*
+﻿/*
   Proyecto Atlas / ELARA Transport
   Archivo: driver.js
   Responsabilidad: portal mock mobile-first del colaborador/chofer.
@@ -374,6 +374,12 @@ let driverCashCollectionState = {
 };
 let selectedDriverServiceIncidentServiceId = "";
 let isSubmittingDriverServiceIncident = false;
+let driverExpenseCategoriesLoadState = {
+  status: "idle",
+  promise: null,
+  categories: [],
+  error: "",
+};
 let driverServiceIncidentCategoriesLoadState = {
   status: "idle",
   promise: null,
@@ -1469,6 +1475,67 @@ async function fetchDriverExpenseRows() {
   return Array.isArray(data) ? data : [];
 }
 
+async function loadDriverExpenseCategories(options = {}) {
+  if (!shouldUseRealDriverExpenses()) {
+    return [];
+  }
+
+  if (!options.force && driverExpenseCategoriesLoadState.status === "loaded") {
+    return driverExpenseCategoriesLoadState.categories.slice();
+  }
+
+  if (!options.force && driverExpenseCategoriesLoadState.status === "loading" && driverExpenseCategoriesLoadState.promise) {
+    return driverExpenseCategoriesLoadState.promise;
+  }
+
+  driverExpenseCategoriesLoadState = {
+    status: "loading",
+    promise: fetchDriverExpenseCategoryRows().then((rows) => rows.map(adaptDriverExpenseCategoryRow)),
+    categories: [],
+    error: "",
+  };
+
+  try {
+    const categories = await driverExpenseCategoriesLoadState.promise;
+    driverExpenseCategoriesLoadState = {
+      status: "loaded",
+      promise: null,
+      categories: categories.slice(),
+      error: "",
+    };
+    return categories;
+  } catch (error) {
+    driverExpenseCategoriesLoadState = {
+      status: "error",
+      promise: null,
+      categories: [],
+      error: error?.message || "driver-expense-categories-error",
+    };
+    throw error;
+  }
+}
+
+async function fetchDriverExpenseCategoryRows() {
+  const { data, error } = await window.ElaraSupabase.client
+    .from("expense_categories")
+    .select("key,name_es,sort_order")
+    .eq("is_active", true)
+    .order("sort_order", { ascending: true })
+    .order("name_es", { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return Array.isArray(data) ? data : [];
+}
+
+function adaptDriverExpenseCategoryRow(row) {
+  return {
+    value: String(row?.key || "").trim(),
+    label: String(row?.name_es || row?.key || "").trim(),
+  };
+}
 async function loadDriverExpenseDetail(expenseId) {
   const id = String(expenseId || "").trim();
 
@@ -1520,7 +1587,6 @@ async function fetchDriverExpenseDetailRow(expenseId) {
 
   return Array.isArray(data) ? data[0] || null : data || null;
 }
-
 function adaptDriverExpenseRow(row, options = {}) {
   const rawStatus = String(row?.status || "").trim();
   const rawPaymentStatus = String(row?.payment_status || "").trim();
@@ -2030,7 +2096,7 @@ function renderDriverInactiveServicesState() {
   const container = getElement("driver-services-list");
   const driverName = driverProfile?.name || "Conductor";
 
-  setDriverHeader("", `Hola, ${driverName}`, `No disponible \u00b7 Perfil no habilitado`);
+  setDriverHeader("", `Hola, ${driverName}`, `No disponible - Perfil no habilitado`);
 
   if (container) {
     container.innerHTML = `<p class="driver-empty">${DRIVER_INACTIVE_PROFILE_MESSAGE}</p>`;
@@ -2044,7 +2110,7 @@ function renderDriverOverview() {
   setDriverHeader(
     "",
     `Hola, ${driverProfile.name}`,
-    `${getDriverOperationalStatus()} \u00b7 ${pendingServices.length} servicios asignados \u00b7 ${pendingAcceptanceCount} por aceptar`,
+    `${getDriverOperationalStatus()} - ${pendingServices.length} servicios asignados - ${pendingAcceptanceCount} por aceptar`,
   );
 }
 
@@ -2289,7 +2355,7 @@ function renderDriverFinanceSummary() {
     ["Total rendido", formatDriverFinanceMoney(position.totalRendered, position.currencyCode), "success"],
     ["Pendiente de rendir", formatDriverFinanceMoney(position.pendingAmount, position.currencyCode), "warning"],
     ["Rendiciones del periodo", String(periodRemittances.length), "neutral"],
-    ["Diferencias abiertas", `${openDifferenceCount} · ${formatDriverFinanceMoney(openDifferenceAmount, position.currencyCode)}`, openDifferenceCount ? "danger" : "neutral"],
+    ["Diferencias abiertas", `${openDifferenceCount} Â· ${formatDriverFinanceMoney(openDifferenceAmount, position.currencyCode)}`, openDifferenceCount ? "danger" : "neutral"],
   ];
 
   if (showRealFinance || position.excessAmount > 0 || getDriverFinanceOpenDifferences().some((incident) => normalizeDriverText(incident.type) === "excedente en rendicion")) {
@@ -2338,7 +2404,7 @@ function renderDriverFinanceHistory() {
   const pageItems = remittances.slice(pageStart, pageStart + DRIVER_FINANCE_HISTORY_PAGE_SIZE);
 
   if (meta) {
-    meta.textContent = `${remittances.length} resultado${remittances.length === 1 ? "" : "s"} · Pagina ${driverFinanceHistoryPage} de ${totalPages}`;
+    meta.textContent = `${remittances.length} resultado${remittances.length === 1 ? "" : "s"} Â· Pagina ${driverFinanceHistoryPage} de ${totalPages}`;
   }
 
   if (!pageItems.length) {
@@ -2354,7 +2420,7 @@ function renderDriverFinanceHistory() {
         <article class="driver-finance-row">
           <div>
             <strong>${escapeHtml(getDriverFinanceRemittanceId(remittance))}</strong>
-            <span>${escapeHtml(formatDriverFinanceDateTime(getDriverFinanceRemittanceDateValue(remittance)))} · ${escapeHtml(remittance.registeredByName || "Administracion")}</span>
+            <span>${escapeHtml(formatDriverFinanceDateTime(getDriverFinanceRemittanceDateValue(remittance)))} Â· ${escapeHtml(remittance.registeredByName || "Administracion")}</span>
             ${remittance.observations ? `<small>${escapeHtml(remittance.observations)}</small>` : ""}
           </div>
           <strong>${escapeHtml(formatDriverFinanceMoney(remittance.amount, remittance.currencyCode))}</strong>
@@ -2583,7 +2649,7 @@ function renderDriverSettlementFilters() {
 
   if (filterButton) {
     const count = getDriverSettlementFilterCount();
-    filterButton.textContent = count ? `Filtro \u00b7 ${count}` : "Filtro";
+    filterButton.textContent = count ? `Filtro - ${count}` : "Filtro";
     filterButton.setAttribute("aria-expanded", areDriverSettlementFiltersVisible ? "true" : "false");
   }
 }
@@ -2655,12 +2721,12 @@ function renderDriverSettlementSummary() {
         ["Liquidaciones", String(summary.settlementCount), "neutral"],
       ]
     : [
-        ["Pendiente aprobaciÃ³n", formatDriverSettlementMoney(summary.pendingApprovalAmount), "warning"],
+        ["Pendiente aprobaciÃƒÂ³n", formatDriverSettlementMoney(summary.pendingApprovalAmount), "warning"],
         ["Aprobado pendiente pago", formatDriverSettlementMoney(summary.approvedPendingPaymentAmount), "info"],
         ["Total pagado", formatDriverSettlementMoney(summary.paidAmount), "success"],
         ["Liquidaciones pagadas", String(summary.paidCount), "success"],
         ["Servicios liquidados", String(summary.settledServices), "neutral"],
-        ["PrÃ³xima liquidaciÃ³n", summary.nextSettlement || "Sin calcular", "neutral"],
+        ["PrÃƒÂ³xima liquidaciÃƒÂ³n", summary.nextSettlement || "Sin calcular", "neutral"],
       ];
 
   container.innerHTML = cards
@@ -2705,7 +2771,7 @@ function renderDriverSettlementList() {
   const hasOwnSettlements = getDriverOwnSettlements().length > 0;
 
   if (meta) {
-    meta.textContent = `${settlements.length} resultado${settlements.length === 1 ? "" : "s"} \u00b7 Pagina ${driverSettlementPage} de ${totalPages}`;
+    meta.textContent = `${settlements.length} resultado${settlements.length === 1 ? "" : "s"} - Pagina ${driverSettlementPage} de ${totalPages}`;
   }
 
   if (!pageItems.length) {
@@ -2732,9 +2798,9 @@ function renderDriverSettlementRow(settlement) {
       <div class="driver-settlement-row__main">
         <div>
           <strong>${escapeHtml(settlement.settlementId)}</strong>
-          <span>${escapeHtml(formatDriverSettlementDate(settlement.periodStart))} - ${escapeHtml(formatDriverSettlementDate(settlement.periodEnd))} \u00b7 ${escapeHtml(settlement.periodType)}</span>
+          <span>${escapeHtml(formatDriverSettlementDate(settlement.periodStart))} - ${escapeHtml(formatDriverSettlementDate(settlement.periodEnd))} - ${escapeHtml(settlement.periodType)}</span>
         </div>
-        <p>${escapeHtml(settlement.totals.servicesCount)} servicios \u00b7 Margen ${escapeHtml(formatDriverSettlementMoney(settlement.totals.liquidableMargin))}</p>
+        <p>${escapeHtml(settlement.totals.servicesCount)} servicios - Margen ${escapeHtml(formatDriverSettlementMoney(settlement.totals.liquidableMargin))}</p>
         <p>${escapeHtml(getDriverSettlementPercentageLabel(settlement))}</p>
         ${pendingCollection}
       </div>
@@ -2754,11 +2820,11 @@ function renderDriverRealSettlementRow(settlement) {
       <div class="driver-settlement-row__main">
         <div>
           <strong>${escapeHtml(settlement.settlementId)}</strong>
-          <span>${escapeHtml(formatDriverSettlementDate(settlement.periodStart))} - ${escapeHtml(formatDriverSettlementDate(settlement.periodEnd))} \u00b7 ${escapeHtml(settlement.periodType)}</span>
+          <span>${escapeHtml(formatDriverSettlementDate(settlement.periodStart))} - ${escapeHtml(formatDriverSettlementDate(settlement.periodEnd))} - ${escapeHtml(settlement.periodType)}</span>
         </div>
-        <p>${escapeHtml(settlement.driverType)} \u00b7 Bruto ${escapeHtml(formatDriverSettlementMoney(settlement.grossEligibleAmount, settlement.currencyCode))}</p>
+        <p>${escapeHtml(settlement.driverType)} - Bruto ${escapeHtml(formatDriverSettlementMoney(settlement.grossEligibleAmount, settlement.currencyCode))}</p>
         <p>Porcentaje conductor ${escapeHtml(formatDriverSettlementPercentage(settlement.driverPercentage))}</p>
-        <small>Pagado ${escapeHtml(formatDriverSettlementMoney(settlement.paidAmount, settlement.currencyCode))} \u00b7 Pendiente ${escapeHtml(formatDriverSettlementMoney(settlement.pendingAmount, settlement.currencyCode))}</small>
+        <small>Pagado ${escapeHtml(formatDriverSettlementMoney(settlement.paidAmount, settlement.currencyCode))} - Pendiente ${escapeHtml(formatDriverSettlementMoney(settlement.pendingAmount, settlement.currencyCode))}</small>
       </div>
       <div class="driver-settlement-row__side">
         <strong>${escapeHtml(formatDriverSettlementMoney(settlement.driverAmount, settlement.currencyCode))}</strong>
@@ -2815,7 +2881,7 @@ function openDriverSettlementDetail(settlementId) {
   if (!settlement) {
     selectedDriverSettlementId = "";
     closeModal("driver-settlement-detail-modal");
-    window.ElaraNotifications.showToast("No se encontró la liquidación seleccionada.", "warning");
+    window.ElaraNotifications.showToast("No se encontrÃ³ la liquidaciÃ³n seleccionada.", "warning");
     return;
   }
 
@@ -2931,7 +2997,7 @@ function renderDriverSettlementPendingCollectionNotice(settlement) {
     return "";
   }
 
-  return `<p class="settlement-pending-note">Esta liquidación incluye ${escapeHtml(pendingItems.length)} servicios pendientes de cobro por un total de ${escapeHtml(formatDriverSettlementMoney(settlement.totals.pendingCollectionAmount))}. Esto no afecta el importe de tu liquidación.</p>`;
+  return `<p class="settlement-pending-note">Esta liquidaciÃ³n incluye ${escapeHtml(pendingItems.length)} servicios pendientes de cobro por un total de ${escapeHtml(formatDriverSettlementMoney(settlement.totals.pendingCollectionAmount))}. Esto no afecta el importe de tu liquidaciÃ³n.</p>`;
 }
 
 function renderDriverSettlementServicesSection(settlement) {
@@ -2950,7 +3016,7 @@ function renderDriverSettlementServiceItem(item) {
     <article class="driver-settlement-service-item">
       <div>
         <strong>${escapeHtml(item.serviceId)}</strong>
-        <small>${escapeHtml(formatDriverSettlementDate(item.serviceDate))} \u00b7 Cobro: ${escapeHtml(item.paymentStatusSnapshot || "-")}</small>
+        <small>${escapeHtml(formatDriverSettlementDate(item.serviceDate))} - Cobro: ${escapeHtml(item.paymentStatusSnapshot || "-")}</small>
       </div>
       <span>Precio ${escapeHtml(formatDriverSettlementMoney(item.basePrice))}</span>
       <span>Gastos ${escapeHtml(formatDriverSettlementMoney(item.approvedComputableExpenses))}</span>
@@ -2966,12 +3032,12 @@ function renderDriverSettlementIncidentsSection(settlement) {
 
   settlement.serviceItems.forEach((item) => {
     if (item.liquidableMargin < 0) incidents.push(`${item.serviceId}: margen negativo.`);
-    if (item.calculationStatus === "Para revisión") incidents.push(`${item.serviceId}: cálculo en revisión.`);
+    if (item.calculationStatus === "Para revisiÃ³n") incidents.push(`${item.serviceId}: cÃ¡lculo en revisiÃ³n.`);
     item.reviewReasons.forEach((reason) => incidents.push(`${item.serviceId}: ${reason}`));
   });
 
   (settlement.returnHistory || []).forEach((entry) => {
-    if (entry.reason) incidents.push(`Devolución administrativa: ${entry.reason}`);
+    if (entry.reason) incidents.push(`DevoluciÃ³n administrativa: ${entry.reason}`);
   });
 
   if (!incidents.length) {
@@ -2995,7 +3061,7 @@ function renderDriverSettlementPaymentSection(settlement) {
     return renderDriverSettlementDetailSection("Pago", [
       ["Estado", payment.status],
       ["Importe", formatDriverSettlementMoney(payment.amount)],
-      ["Método", payment.method],
+      ["MÃ©todo", payment.method],
       ["Fecha", formatDriverSettlementDateTime(payment.paidAt)],
       ["Registrado por", payment.paidByUserName || payment.paidByName],
       ["Referencia Caja", payment.cashMovementId],
@@ -3003,7 +3069,7 @@ function renderDriverSettlementPaymentSection(settlement) {
   }
 
   if (payment.status === "Anulado") {
-    return `<p class="settlement-pending-note">Un pago anterior fue anulado y la liquidación volvió a quedar pendiente de pago.</p>`;
+    return `<p class="settlement-pending-note">Un pago anterior fue anulado y la liquidaciÃ³n volviÃ³ a quedar pendiente de pago.</p>`;
   }
 
   return "";
@@ -3183,8 +3249,8 @@ function getDriverSettlementStatusTone(status) {
     Enviada: "info",
     Rechazada: "danger",
     Cancelada: "danger",
-    "Para revisiÃ³n": "warning",
-    "Pendiente de aprobaciÃ³n": "warning",
+    "Para revisiÃƒÂ³n": "warning",
+    "Pendiente de aprobaciÃƒÂ³n": "warning",
     Aprobada: "success",
     Pagada: "success",
     Anulada: "danger",
@@ -3571,13 +3637,11 @@ function renderDriverExpenses() {
 }
 
 function setDriverExpenseCreateButtonVisibility(isVisible) {
-  const isRealMode = shouldUseRealDriverExpenses();
-
   document.querySelectorAll('[data-driver-action="expense-new"]').forEach((button) => {
     button.hidden = !isVisible;
-    button.disabled = Boolean(isVisible && isRealMode);
-    button.textContent = isRealMode ? "Solicitud pendiente de RPC" : "Nueva solicitud";
-    button.title = isRealMode ? "Solicitud pendiente de RPC" : "";
+    button.disabled = false;
+    button.textContent = "Nueva solicitud";
+    button.title = "";
   });
 }
 
@@ -3632,7 +3696,7 @@ function renderDriverExpenseFilters() {
 
   if (filterButton) {
     const count = getDriverExpenseFilterCount();
-    filterButton.textContent = count ? `Filtro \u00b7 ${count}` : "Filtro";
+    filterButton.textContent = count ? `Filtro - ${count}` : "Filtro";
     filterButton.setAttribute("aria-expanded", areDriverExpenseFiltersVisible ? "true" : "false");
   }
 }
@@ -3774,7 +3838,7 @@ function renderDriverExpenseList() {
   const pageItems = expenses.slice(pageStart, pageStart + DRIVER_EXPENSE_PAGE_SIZE);
 
   if (meta) {
-    meta.textContent = `${expenses.length} resultado${expenses.length === 1 ? "" : "s"} \u00b7 Pagina ${driverExpensePage} de ${totalPages}`;
+    meta.textContent = `${expenses.length} resultado${expenses.length === 1 ? "" : "s"} - Pagina ${driverExpensePage} de ${totalPages}`;
   }
 
   if (!pageItems.length) {
@@ -3792,7 +3856,7 @@ function renderDriverExpenseRow(expense) {
   if (expense?.isRealDriverExpense) {
     const relation = [expense.serviceHumanCode ? `Servicio ${expense.serviceHumanCode}` : "", expense.vehicleHumanCode ? `Vehiculo ${expense.vehicleHumanCode}` : ""]
       .filter(Boolean)
-      .join(" \u00b7 ") || "Sin relacion operativa";
+      .join(" - ") || "Sin relacion operativa";
     const reimbursedAmount = expense.reimbursedAmount === null || expense.reimbursedAmount === undefined ? "-" : formatDriverExpenseMoney(expense.reimbursedAmount, expense.currencyCode);
     const detailId = expense.expenseUuid || expense.expenseId;
 
@@ -3801,10 +3865,10 @@ function renderDriverExpenseRow(expense) {
         <div class="driver-expense-row__main">
           <div>
             <strong>${escapeHtml(expense.expenseId)}</strong>
-            <span>${escapeHtml(formatDriverExpenseDate(expense.expenseDate))} \u00b7 ${escapeHtml(expense.category)}</span>
+            <span>${escapeHtml(formatDriverExpenseDate(expense.expenseDate))} - ${escapeHtml(expense.category)}</span>
           </div>
           <h3>${escapeHtml(expense.description || expense.expenseId)}</h3>
-          <p>${escapeHtml(relation)} \u00b7 Estado gasto: ${escapeHtml(expense.status)}</p>
+          <p>${escapeHtml(relation)} - Estado gasto: ${escapeHtml(expense.status)}</p>
         </div>
         <div class="driver-expense-row__side">
           <strong>${escapeHtml(formatDriverExpenseMoney(expense.amount, expense.currencyCode))}</strong>
@@ -3817,14 +3881,14 @@ function renderDriverExpenseRow(expense) {
   }
 
   const approvedAmount = expense.amountApproved === null || expense.amountApproved === undefined ? "-" : formatDriverExpenseMoney(expense.amountApproved);
-  const relation = [getDriverExpenseServiceLabel(expense.serviceId), getDriverExpenseVehicleLabel(expense.vehicleId)].filter(Boolean).join(" \u00b7 ") || "Sin relacion";
+  const relation = [getDriverExpenseServiceLabel(expense.serviceId), getDriverExpenseVehicleLabel(expense.vehicleId)].filter(Boolean).join(" - ") || "Sin relacion";
 
   return `
     <article class="driver-expense-row">
       <div class="driver-expense-row__main">
         <div>
           <strong>${escapeHtml(expense.expenseId)}</strong>
-          <span>${escapeHtml(formatDriverExpenseDate(expense.expenseDate))} \u00b7 ${escapeHtml(expense.category)}</span>
+          <span>${escapeHtml(formatDriverExpenseDate(expense.expenseDate))} - ${escapeHtml(expense.category)}</span>
         </div>
         <h3>${escapeHtml(expense.concept)}</h3>
         <p>${escapeHtml(relation)}</p>
@@ -4084,18 +4148,13 @@ function renderDriverExpenseReimbursementSection(expense) {
   ]);
 }
 function openDriverExpenseNewModal() {
-  if (shouldUseRealDriverExpenses()) {
-    window.ElaraNotifications.showToast("Solicitud pendiente de RPC.", "info");
-    return;
-  }
-
   if (!refreshDriverProfile() || !canDriverExpenseAction("expenses:createOwn")) {
     window.ElaraNotifications.showToast("No tienes permiso para crear solicitudes de gastos.", "error");
     return;
   }
 
-  populateDriverExpenseNewFormOptions();
   getElement("driver-expense-new-form")?.reset();
+  populateDriverExpenseNewFormOptions();
   setInputValue("driver-expense-new-date", formatDriverDateInputValue(new Date()));
   setInputValue("driver-expense-new-method", "Efectivo");
   setInputValue("driver-expense-new-receipt-status", "Adjunto");
@@ -4107,37 +4166,120 @@ function populateDriverExpenseNewFormOptions() {
   const categorySelect = getElement("driver-expense-new-category");
   const vehicleSelect = getElement("driver-expense-new-vehicle");
   const serviceSelect = getElement("driver-expense-new-service");
+  const realMode = shouldUseRealDriverExpenses();
 
   if (categorySelect) {
-    categorySelect.innerHTML = `<option value="">Selecciona categoria</option>${getDriverExpenseCategories()
-      .map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`)
-      .join("")}`;
+    if (realMode) {
+      const selectedCategory = categorySelect.value;
+      categorySelect.innerHTML = '<option value="">Cargando categorias...</option>';
+      categorySelect.disabled = true;
+      loadDriverExpenseCategories()
+        .then((categories) => {
+          renderDriverExpenseNewCategoryOptions(categories, selectedCategory);
+        })
+        .catch((error) => {
+          console.error("[ELARA Driver] No se pudieron cargar las categorias reales de gastos.", { error: error?.message || error });
+          categorySelect.innerHTML = '<option value="">No se pudieron cargar categorias</option>';
+          showDriverExpenseFormError("driver-expense-new-error", "No se pudieron cargar las categorias de gastos.");
+        });
+    } else {
+      categorySelect.disabled = false;
+      categorySelect.innerHTML = `<option value="">Selecciona categoria</option>${getDriverExpenseCategories()
+        .map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`)
+        .join("")}`;
+    }
   }
 
   if (vehicleSelect) {
-    const assignedVehicle = driverProfile?.vehicleId ? getDriverVehicleById(driverProfile.vehicleId) : null;
-    vehicleSelect.innerHTML = `<option value="">Sin vehiculo</option>${
-      assignedVehicle
-        ? `<option value="${escapeHtml(assignedVehicle.id)}">${escapeHtml(getDriverExpenseVehicleLabel(assignedVehicle.id))}</option>`
-        : ""
-    }`;
+    if (realMode) {
+      vehicleSelect.disabled = true;
+      vehicleSelect.innerHTML = '<option value="">Se deriva automaticamente</option>';
+    } else {
+      vehicleSelect.disabled = false;
+      const assignedVehicle = driverProfile?.vehicleId ? getDriverVehicleById(driverProfile.vehicleId) : null;
+      vehicleSelect.innerHTML = `<option value="">Sin vehiculo</option>${
+        assignedVehicle
+          ? `<option value="${escapeHtml(assignedVehicle.id)}">${escapeHtml(getDriverExpenseVehicleLabel(assignedVehicle.id))}</option>`
+          : ""
+      }`;
+    }
   }
 
   if (serviceSelect) {
-    serviceSelect.innerHTML = `<option value="">Sin servicio</option>${getDriverExpenseOwnServices()
-      .map((service) => `<option value="${escapeHtml(service.serviceId)}">${escapeHtml(getDriverExpenseServiceLabel(service.serviceId))}</option>`)
-      .join("")}`;
+    if (realMode) {
+      const selectedService = serviceSelect.value;
+      renderDriverExpenseNewServiceLoadingOptions();
+      loadDriverServices()
+        .then((services) => {
+          driverServices = services;
+          renderDriverExpenseNewServiceOptions(selectedService);
+          syncDriverExpenseVehicleFromService();
+        })
+        .catch((error) => {
+          console.error("[ELARA Driver] No se pudieron cargar servicios reales para la solicitud de gasto.", { error: error?.message || error });
+          renderDriverExpenseNewServiceOptions(selectedService);
+          showDriverExpenseFormError("driver-expense-new-error", "No se pudieron cargar los servicios asociables.");
+        });
+    } else {
+      renderDriverExpenseNewServiceOptions(serviceSelect.value);
+    }
   }
 }
 
-function submitDriverExpenseRequest(event) {
-  event.preventDefault();
+function renderDriverExpenseNewServiceLoadingOptions() {
+  const serviceSelect = getElement("driver-expense-new-service");
 
-  if (shouldUseRealDriverExpenses()) {
-    showDriverExpenseFormError("driver-expense-new-error", "Solicitud pendiente de RPC.");
+  if (!serviceSelect) {
     return;
   }
 
+  serviceSelect.innerHTML = '<option value="">Cargando servicios...</option>';
+}
+
+function renderDriverExpenseNewCategoryOptions(categories, selectedValue = "") {
+  const categorySelect = getElement("driver-expense-new-category");
+
+  if (!categorySelect) {
+    return;
+  }
+
+  categorySelect.disabled = false;
+  categorySelect.innerHTML = `<option value="">Selecciona categoria</option>${categories
+    .filter((category) => category.value)
+    .map((category) => `<option value="${escapeHtml(category.value)}">${escapeHtml(category.label || category.value)}</option>`)
+    .join("")}`;
+
+  if (selectedValue) {
+    categorySelect.value = selectedValue;
+  }
+}
+
+function renderDriverExpenseNewServiceOptions(selectedValue = "") {
+  const serviceSelect = getElement("driver-expense-new-service");
+
+  if (!serviceSelect) {
+    return;
+  }
+
+  serviceSelect.innerHTML = `<option value="">Sin servicio</option>${getDriverExpenseOwnServices()
+    .map((service) => {
+      const serviceValue = shouldUseRealDriverExpenses() ? service.centralServiceId || service.id : service.serviceId;
+      return `<option value="${escapeHtml(serviceValue)}">${escapeHtml(getDriverExpenseServiceLabel(serviceValue))}</option>`;
+    })
+    .join("")}`;
+
+  if (selectedValue) {
+    serviceSelect.value = selectedValue;
+  }
+}
+
+async function submitDriverExpenseRequest(event) {
+  event.preventDefault();
+
+  if (shouldUseRealDriverExpenses()) {
+    await submitRealDriverExpenseRequest();
+    return;
+  }
   if (isSubmittingDriverExpense) {
     return;
   }
@@ -4198,6 +4340,136 @@ function getDriverExpenseNewPayload() {
   };
 }
 
+
+async function submitRealDriverExpenseRequest() {
+  if (isSubmittingDriverExpense) {
+    return;
+  }
+
+  if (!window.ElaraSupabase?.client) {
+    showDriverExpenseFormError("driver-expense-new-error", "No hay conexion disponible para registrar la solicitud.");
+    return;
+  }
+
+  const payload = getDriverExpenseNewPayload();
+  const rpcPayload = getDriverExpenseRealRpcPayload(payload);
+  const validationError = validateDriverRealExpensePayload(rpcPayload);
+
+  if (validationError) {
+    showDriverExpenseFormError("driver-expense-new-error", validationError);
+    return;
+  }
+
+  isSubmittingDriverExpense = true;
+  setDriverExpenseSubmitDisabled(true, "Registrando...");
+  showDriverExpenseFormError("driver-expense-new-error", "");
+
+  try {
+    const { data, error } = await window.ElaraSupabase.client.rpc("create_driver_expense", rpcPayload);
+
+    if (error) {
+      throw error;
+    }
+
+    const expense = Array.isArray(data) ? data[0] : data;
+    closeModal("driver-expense-new-modal");
+    window.ElaraNotifications.showToast(`Solicitud de gasto registrada correctamente.${expense?.human_code ? ` ${expense.human_code}` : ""}`, "success");
+    resetDriverExpensesLoadState();
+    await loadDriverExpenses({ force: true }).catch((error) => {
+      console.error("[ELARA Driver] No se pudo refrescar Mis gastos tras crear la solicitud.", { error: error?.message || error });
+    });
+    renderDriverExpenses();
+  } catch (error) {
+    console.error("[ELARA Driver] No se pudo registrar la solicitud real de gasto.", { error: error?.message || error });
+    showDriverExpenseFormError("driver-expense-new-error", getDriverExpenseCreateErrorMessage(error));
+  } finally {
+    isSubmittingDriverExpense = false;
+    setDriverExpenseSubmitDisabled(false);
+  }
+}
+
+function getDriverExpenseRealRpcPayload(payload) {
+  return {
+    p_category_key: String(payload.category || "").trim(),
+    p_amount: parseDriverExpenseAmountInput(payload.amountRequested),
+    p_expense_date: String(payload.expenseDate || "").trim() || null,
+    p_description: getDriverExpenseRealDescription(payload),
+    p_service_id: String(payload.serviceId || "").trim() || null,
+  };
+}
+
+function getDriverExpenseRealDescription(payload) {
+  return [payload.concept, payload.description, payload.observations]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function validateDriverRealExpensePayload(payload) {
+  if (!payload.p_category_key) {
+    return "Selecciona una categoria.";
+  }
+
+  if (!Number.isFinite(payload.p_amount) || payload.p_amount <= 0) {
+    return "Indica un importe mayor que cero.";
+  }
+
+  if (!payload.p_expense_date) {
+    return "Selecciona la fecha del gasto.";
+  }
+
+  if (!payload.p_description) {
+    return "Describe el gasto.";
+  }
+
+  if (payload.p_description.length > 2000) {
+    return "La descripcion no puede superar 2000 caracteres.";
+  }
+
+  return "";
+}
+
+function getDriverExpenseCreateErrorMessage(error) {
+  const message = String(error?.message || "").trim();
+  const normalizedMessage = message.toLowerCase();
+
+  if (!message) {
+    return "No se pudo registrar la solicitud de gasto.";
+  }
+
+  if (normalizedMessage.includes("valid conductor active context")) {
+    return "Tu sesion de conductor no esta disponible. Vuelve a iniciar sesion.";
+  }
+
+  if (normalizedMessage.includes("category")) {
+    return "Selecciona una categoria de gasto valida.";
+  }
+
+  if (normalizedMessage.includes("service")) {
+    return "El servicio seleccionado no esta disponible para este conductor.";
+  }
+
+  if (normalizedMessage.includes("amount")) {
+    return "Indica un importe valido mayor que cero.";
+  }
+
+  if (normalizedMessage.includes("description")) {
+    return "Describe el gasto antes de registrarlo.";
+  }
+
+  return message;
+}
+
+function setDriverExpenseSubmitDisabled(disabled, label = "Enviar solicitud") {
+  const submit = document.querySelector('#driver-expense-new-form button[type="submit"]');
+
+  if (!submit) {
+    return;
+  }
+
+  submit.disabled = Boolean(disabled);
+  submit.textContent = label;
+}
 function openDriverExpenseResponseModal(expenseId) {
   if (shouldUseRealDriverExpenses()) {
     window.ElaraNotifications.showToast("Respuesta pendiente de RPC.", "info");
@@ -4392,6 +4664,16 @@ function getDriverExpenseTimestamp(expense) {
 }
 
 function getDriverExpenseOwnServices() {
+  if (shouldUseRealDriverExpenses()) {
+    return driverServices
+      .filter((service) => isDriverExpenseAssociableRealService(service))
+      .sort((first, second) => {
+        const firstDate = getServiceDateTime(first).getTime();
+        const secondDate = getServiceDateTime(second).getTime();
+        return secondDate - firstDate || String(second.id || "").localeCompare(String(first.id || ""));
+      });
+  }
+
   return (window.ElaraServicesMock?.services || [])
     .filter((service) => getCentralServiceDriverId(service) === driverProfile?.id)
     .sort((first, second) => {
@@ -4401,6 +4683,13 @@ function getDriverExpenseOwnServices() {
     });
 }
 
+function isDriverExpenseAssociableRealService(service) {
+  if (!service?.isRealDriverService || !service.centralServiceId) {
+    return false;
+  }
+
+  return service.assignmentStatus === "accepted" || service.assignmentStatus === "ended";
+}
 function validateDriverExpenseOwnReferences(payload) {
   if (!payload.category) {
     return "Selecciona una categoria.";
@@ -4493,13 +4782,25 @@ function getDefaultDriverExpenseFilters() {
 
 function syncDriverExpenseVehicleFromService() {
   const serviceId = getInputValue("driver-expense-new-service");
+
+  if (shouldUseRealDriverExpenses()) {
+    const vehicleSelect = getElement("driver-expense-new-vehicle");
+    const service = getDriverRealServiceById(serviceId);
+
+    if (vehicleSelect) {
+      const label = service ? [service.assignedVehicle, service.plate].filter(Boolean).join(" · ") : "Se deriva automaticamente";
+      vehicleSelect.innerHTML = `<option value="">${escapeHtml(label)}</option>`;
+    }
+
+    return;
+  }
+
   const service = getCentralDriverServiceById(serviceId);
 
   if (service?.vehicleId && service.vehicleId === driverProfile?.vehicleId) {
     setInputValue("driver-expense-new-vehicle", service.vehicleId);
   }
 }
-
 function closeDriverExpenseModals() {
   closeModal("driver-expense-response-modal");
   closeModal("driver-expense-new-modal");
@@ -4543,15 +4844,28 @@ function renderDriverExpenseStatusBadge(status) {
   return `<span class="expense-status-badge ${statusClasses[status] || "expense-status-badge--neutral"}">${escapeHtml(status || "-")}</span>`;
 }
 function getDriverExpenseServiceLabel(serviceId) {
+  if (shouldUseRealDriverExpenses()) {
+    const service = getDriverRealServiceById(serviceId);
+
+    if (!service) {
+      return "";
+    }
+
+    return [service.id, formatDriverExpenseDate(service.date), service.customerName].filter(Boolean).join(" · ");
+  }
+
   const service = getCentralDriverServiceById(serviceId);
 
   if (!service) {
     return "";
   }
 
-  return `${service.serviceId} \u00b7 ${service.type || "Servicio"} \u00b7 ${formatDriverExpenseDate(service.date)}`;
+  return `${service.serviceId} · ${service.type || "Servicio"} · ${formatDriverExpenseDate(service.date)}`;
 }
 
+function getDriverRealServiceById(serviceId) {
+  return driverServices.find((service) => service?.centralServiceId === serviceId || service?.id === serviceId) || null;
+}
 function getDriverExpenseVehicleLabel(vehicleId) {
   const vehicle = getDriverVehicleById(vehicleId);
 
@@ -4567,7 +4881,7 @@ function getDriverExpenseReceiptLabel(receipt) {
     return "Sin comprobante";
   }
 
-  return [receipt.status || "Sin comprobante", receipt.fileName || ""].filter(Boolean).join(" \u00b7 ");
+  return [receipt.status || "Sin comprobante", receipt.fileName || ""].filter(Boolean).join(" - ");
 }
 
 function mapDriverExpenseReceiptStatusToCore(status) {
@@ -4603,6 +4917,11 @@ function getDriverExpenseAmount(value) {
   return Number.isFinite(amount) ? Math.round((amount + Number.EPSILON) * 100) / 100 : 0;
 }
 
+function parseDriverExpenseAmountInput(value) {
+  const normalizedValue = String(value || "").trim().replace(",", ".");
+  const amount = Number(normalizedValue);
+  return Number.isFinite(amount) ? Math.round((amount + Number.EPSILON) * 100) / 100 : NaN;
+}
 function formatDriverExpenseCount(value) {
   const count = Number(value);
   return Number.isFinite(count) ? String(count) : "0";
@@ -4690,7 +5009,7 @@ function renderHistoryExpandedDetail(service) {
     <div class="driver-history-card__detail" aria-label="Detalle del servicio cerrado">
       <dl class="driver-history-detail-grid">
         ${renderHistoryDetailField("Pasajero / cliente", getPassengerCustomerLabel(service))}
-        ${renderHistoryDetailField("Pasajeros", `${service.passengers || "-"} \u00b7 Maletas: ${service.luggage || "0"}`)}
+        ${renderHistoryDetailField("Pasajeros", `${service.passengers || "-"} - Maletas: ${service.luggage || "0"}`)}
         ${reasonsLabel !== "-" && !cashIncidentFields.length ? renderHistoryDetailField("Motivos", reasonsLabel) : ""}
         ${cashIncidentFields.map((field) => renderHistoryDetailField(field.label, field.value)).join("")}
       </dl>
@@ -5084,7 +5403,7 @@ function renderDriverAssignmentRejectionConfirmation(service) {
   }
 
   return `
-    <p class="driver-policy-note">¿Quieres rechazar esta asignación? El servicio quedará sin conductor asignado.</p>
+    <p class="driver-policy-note">Â¿Quieres rechazar esta asignaciÃ³n? El servicio quedarÃ¡ sin conductor asignado.</p>
     <button class="button button--secondary driver-button" type="button" data-driver-action="cancel-reject-assignment" data-service-id="${service.id}">Volver</button>
     <button class="button button--primary driver-button" type="button" data-driver-action="confirm-reject-assignment" data-service-id="${service.id}">Confirmar rechazo</button>
   `;
@@ -8743,7 +9062,7 @@ function confirmDriverAssignmentRejection(serviceId) {
   if (!isDriverUsingCentralServices) {
     updateServiceStatus(serviceId, "cancelado");
     pendingDriverRejectionServiceId = null;
-    window.ElaraNotifications.showToast("Asignación rechazada en mock.", "warning");
+    window.ElaraNotifications.showToast("AsignaciÃ³n rechazada en mock.", "warning");
     renderDriverServices();
     return;
   }
@@ -8772,7 +9091,7 @@ function confirmDriverAssignmentRejection(serviceId) {
     },
   });
   emitDriverServicesUpdatedEvent("rejected", service);
-  window.ElaraNotifications.showToast("Asignación rechazada correctamente.", "success");
+  window.ElaraNotifications.showToast("AsignaciÃ³n rechazada correctamente.", "success");
   renderDriverServices();
 }
 
@@ -8922,6 +9241,7 @@ function adaptDriverServiceOverviewRow(row) {
 
   return {
     id: row?.human_code || row?.service_id || "",
+    humanCode: row?.human_code || "",
     centralServiceId: row?.service_id || "",
     assignmentId: row?.assignment_id || "",
     date: schedule.date,
@@ -8949,6 +9269,9 @@ function adaptDriverServiceOverviewRow(row) {
     isRealDriverService: true,
     operationalStatus: row?.operational_status || "",
     assignmentStatus: row?.assignment_status || "",
+    acceptedAt: row?.accepted_at || "",
+    endedAt: row?.ended_at || "",
+    scheduledAt: row?.scheduled_start_at || "",
     scheduledStartAt: row?.scheduled_start_at || "",
     driverStage: row?.driver_stage || "",
     driverStageUpdatedAt: row?.driver_stage_updated_at || "",
@@ -9141,7 +9464,7 @@ function adaptCentralServiceForDriver(service) {
     passengers: service.passengers || service.passengerCount || "1",
     luggage: service.luggage || service.baggage || "0",
     notes: service.notes || service.observations || "",
-    assignedVehicle: vehicle ? `${vehicle.brand} ${vehicle.model}` : service.vehicle || "Vehículo pendiente",
+    assignedVehicle: vehicle ? `${vehicle.brand} ${vehicle.model}` : service.vehicle || "VehÃ­culo pendiente",
     plate: vehicle?.plate || service.plate || "",
     status,
     displayStatus,
@@ -9634,7 +9957,7 @@ function buildDriverProfileFromCollaborator(collaborator) {
     availabilityPreference: collaborator.availabilityPreference,
     collaboratorStatus: collaborator.operationalStatus || collaborator.availability || "No disponible",
     vehicleId: collaborator.vehicleId || "",
-    assignedVehicle: vehicle ? `${vehicle.brand} ${vehicle.model}` : "Sin vehículo asignado",
+    assignedVehicle: vehicle ? `${vehicle.brand} ${vehicle.model}` : "Sin vehÃ­culo asignado",
     vehicleColor: vehicle ? vehicle.color : "-",
     plate: vehicle ? vehicle.plate : "-",
   };
