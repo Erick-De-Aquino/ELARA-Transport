@@ -15,8 +15,6 @@ const DRIVER_IDENTITY_LOADING_MESSAGE = "Resolviendo conductor vinculado...";
 const DRIVER_INACTIVE_PROFILE_MESSAGE = "Tu perfil no est\u00e1 activo para operar. Contacta con administraci\u00f3n.";
 const DRIVER_PROFILE_LOADING_MESSAGE = "Cargando perfil...";
 const DRIVER_PROFILE_ERROR_MESSAGE = "No se pudo cargar tu perfil.";
-const DRIVER_PROFILE_PHONE_RPC_PENDING_MESSAGE = "Edicion pendiente de RPC.";
-const DRIVER_PROFILE_AVAILABILITY_RPC_PENDING_MESSAGE = "Cambio de disponibilidad pendiente de RPC.";
 const DRIVER_PROFILE_DRIVER_TYPE_LABELS = {
   internal_driver: "Conductor interno",
   external_collaborator: "Colaborador externo",
@@ -341,6 +339,8 @@ let expandedHistoryServiceId = null;
 let reportingHistoryServiceId = null;
 let isDriverProfilePhoneEditing = false;
 let pendingDriverAvailabilityPreference = "";
+let isDriverProfilePhoneSaving = false;
+let isDriverAvailabilityPreferenceSaving = false;
 let isDriverUsingCentralServices = false;
 let pendingDriverRejectionServiceId = null;
 let acceptingRealDriverServiceIds = new Set();
@@ -1147,6 +1147,11 @@ function bindDriverEvents() {
 
     if (action.dataset.driverAction === "profile-phone-save") {
       saveDriverProfilePhone();
+      return;
+    }
+
+    if (action.dataset.driverAction === "profile-phone-cancel") {
+      cancelDriverProfilePhoneEdit();
       return;
     }
 
@@ -6319,16 +6324,16 @@ function renderDriverMockProfileLines() {
 
 function renderDriverAvailabilityControl() {
   const preference = getDriverAvailabilityPreference();
-  const isReadOnly = isDriverRealProfileMode();
+  const isSaving = isDriverAvailabilityPreferenceSaving;
   const descriptionByPreference = {
     Disponible: "Puedes recibir nuevas asignaciones.",
     "No disponible": "No est\u00e1s disponible ahora, pero puedes recibir servicios futuros.",
   };
-  const description = isReadOnly ? DRIVER_PROFILE_AVAILABILITY_RPC_PENDING_MESSAGE : descriptionByPreference[preference] || descriptionByPreference["No disponible"];
+  const description = isSaving ? "Guardando..." : descriptionByPreference[preference] || descriptionByPreference["No disponible"];
   const options = ["Disponible", "No disponible"]
     .map((option) => {
-      const actionAttributes = isReadOnly
-        ? `disabled aria-disabled="true" title="${escapeHtml(DRIVER_PROFILE_AVAILABILITY_RPC_PENDING_MESSAGE)}"`
+      const actionAttributes = isSaving
+        ? 'disabled aria-disabled="true" title="Guardando..."'
         : `data-driver-availability-preference="${escapeHtml(option)}"`;
 
       return `
@@ -6347,12 +6352,11 @@ function renderDriverAvailabilityControl() {
           ${options}
         </div>
         <span class="driver-availability-help">${escapeHtml(description)}</span>
-        ${isReadOnly ? "" : renderDriverAvailabilityConfirmation()}
+        ${isDriverRealProfileMode() ? "" : renderDriverAvailabilityConfirmation()}
       </dd>
     </div>
   `;
 }
-
 function renderDriverAvailabilityConfirmation() {
   if (!pendingDriverAvailabilityPreference) {
     return "";
@@ -6378,13 +6382,6 @@ function requestDriverAvailabilityPreferenceChange(nextPreference) {
     return;
   }
 
-  if (isDriverRealProfileMode()) {
-    pendingDriverAvailabilityPreference = "";
-    window.ElaraNotifications.showToast(DRIVER_PROFILE_AVAILABILITY_RPC_PENDING_MESSAGE, "info");
-    renderDriverProfile();
-    return;
-  }
-
   if (preference === getDriverAvailabilityPreference()) {
     pendingDriverAvailabilityPreference = "";
     renderDriverProfile();
@@ -6395,17 +6392,24 @@ function requestDriverAvailabilityPreferenceChange(nextPreference) {
     return;
   }
 
+  if (isDriverRealProfileMode()) {
+    updateCurrentDriverAvailabilityPreference(preference);
+    return;
+  }
+
   pendingDriverAvailabilityPreference = preference;
   renderDriverProfile();
 }
-
 function confirmDriverAvailabilityPreferenceChange() {
   const preference = normalizeDriverAvailabilityPreference(pendingDriverAvailabilityPreference);
 
   if (isDriverRealProfileMode()) {
-    pendingDriverAvailabilityPreference = "";
-    window.ElaraNotifications.showToast(DRIVER_PROFILE_AVAILABILITY_RPC_PENDING_MESSAGE, "info");
-    renderDriverProfile();
+    if (preference) {
+      updateCurrentDriverAvailabilityPreference(preference);
+    } else {
+      pendingDriverAvailabilityPreference = "";
+      renderDriverProfile();
+    }
     return;
   }
 
@@ -6433,6 +6437,56 @@ function confirmDriverAvailabilityPreferenceChange() {
   renderDriverServices();
 }
 
+async function updateCurrentDriverAvailabilityPreference(preference) {
+  if (isDriverAvailabilityPreferenceSaving) {
+    return;
+  }
+
+  if (!window.ElaraSupabase?.client) {
+    window.ElaraNotifications.showToast("No hay conexion disponible para actualizar la disponibilidad.", "error");
+    return;
+  }
+
+  const availability = getDriverAvailabilityRpcValue(preference);
+
+  if (!availability) {
+    window.ElaraNotifications.showToast("Disponibilidad invalida.", "error");
+    return;
+  }
+
+  isDriverAvailabilityPreferenceSaving = true;
+  pendingDriverAvailabilityPreference = "";
+  renderDriverProfile();
+
+  try {
+    const { data, error } = await window.ElaraSupabase.client.rpc("update_current_driver_availability", {
+      p_availability: availability,
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    const result = Array.isArray(data) ? data[0] : data;
+    const nextAvailability = result?.availability_preference || availability;
+    applyDriverProfilePatch({
+      rawAvailabilityPreference: nextAvailability,
+      availability: getDriverIdentityAvailabilityLabel(nextAvailability),
+      availabilityPreference: getDriverIdentityAvailabilityLabel(nextAvailability),
+    });
+    window.ElaraNotifications.showToast("Disponibilidad actualizada.", "success");
+  } catch (error) {
+    console.error("[ELARA Driver] No se pudo actualizar la disponibilidad real del conductor.", {
+      message: error?.message || "",
+      code: error?.code || "",
+      details: error?.details || "",
+    });
+    window.ElaraNotifications.showToast(getDriverProfileUpdateErrorMessage(error), "error");
+  } finally {
+    isDriverAvailabilityPreferenceSaving = false;
+    renderDriverProfile();
+  }
+}
 function cancelDriverAvailabilityPreferenceChange() {
   pendingDriverAvailabilityPreference = "";
   renderDriverProfile();
@@ -6508,6 +6562,47 @@ function normalizeDriverAvailabilityPreference(value) {
   return ["Disponible", "No disponible"].includes(String(value || "").trim()) ? String(value || "").trim() : "";
 }
 
+function getDriverAvailabilityRpcValue(preference) {
+  const normalizedPreference = normalizeDriverAvailabilityPreference(preference);
+
+  if (normalizedPreference === "Disponible") {
+    return "available";
+  }
+
+  if (normalizedPreference === "No disponible") {
+    return "unavailable";
+  }
+
+  const rawPreference = String(preference || "").trim().toLowerCase();
+  return Object.prototype.hasOwnProperty.call(DRIVER_PROFILE_AVAILABILITY_LABELS, rawPreference) ? rawPreference : "";
+}
+
+function applyDriverProfilePatch(patch) {
+  if (!driverProfile || !patch) {
+    return;
+  }
+
+  driverProfile = { ...driverProfile, ...patch };
+
+  if (driverProfileLoadState.profile && driverProfileLoadState.profile.id === driverProfile.id) {
+    driverProfileLoadState.profile = { ...driverProfileLoadState.profile, ...patch };
+  }
+}
+
+function getDriverProfileUpdateErrorMessage(error) {
+  const code = String(error?.code || "");
+  const message = String(error?.message || "").toLowerCase();
+
+  if (code === "42501" || message.includes("valid conductor active context")) {
+    return DRIVER_NO_PORTAL_ACCESS_MESSAGE;
+  }
+
+  if (code === "23514" || message.includes("invalid") || message.includes("cannot exceed")) {
+    return "Revisa el dato introducido.";
+  }
+
+  return "No se pudo actualizar el perfil.";
+}
 function saveDriverProfile(event) {
   event.preventDefault();
   saveDriverProfilePhone();
@@ -6533,40 +6628,32 @@ function renderDriverProfileLine(label, value) {
 }
 
 function renderDriverProfilePhoneLine() {
-  if (isDriverRealProfileMode()) {
+  if (isDriverProfilePhoneEditing) {
+    const disabledAttribute = isDriverProfilePhoneSaving ? 'disabled aria-disabled="true"' : "";
+
     return `
       <div class="driver-profile-line driver-profile-line--phone">
         <dt>Telefono</dt>
         <dd>
-          <span>${escapeHtml(driverProfile.phone || "-")}</span>
-          <button class="driver-profile-phone-action" type="button" disabled aria-disabled="true" aria-label="${escapeHtml(DRIVER_PROFILE_PHONE_RPC_PENDING_MESSAGE)}" title="${escapeHtml(DRIVER_PROFILE_PHONE_RPC_PENDING_MESSAGE)}">
-            ${renderDriverProfileActionIcon("edit")}
+          <input id="driver-profile-phone" type="tel" autocomplete="tel" value="${escapeHtml(driverProfile.phone || "")}" aria-label="Telefono del chofer" ${disabledAttribute} />
+          <button class="driver-profile-phone-action" type="button" data-driver-action="profile-phone-save" aria-label="Guardar telefono" ${disabledAttribute}>
+            ${isDriverProfilePhoneSaving ? "Guardando..." : renderDriverProfileActionIcon("save")}
           </button>
-          <span class="driver-availability-help">${escapeHtml(DRIVER_PROFILE_PHONE_RPC_PENDING_MESSAGE)}</span>
+          <button class="driver-profile-phone-action" type="button" data-driver-action="profile-phone-cancel" aria-label="Cancelar edicion de telefono" ${disabledAttribute}>
+            ${renderDriverProfileActionIcon("cancel")}
+          </button>
         </dd>
       </div>
     `;
   }
 
-  if (isDriverProfilePhoneEditing) {
-    return `
-      <div class="driver-profile-line driver-profile-line--phone">
-        <dt>Telefono</dt>
-        <dd>
-          <input id="driver-profile-phone" type="tel" autocomplete="tel" value="${escapeHtml(driverProfile.phone || "")}" aria-label="Telefono del chofer" />
-          <button class="driver-profile-phone-action" type="button" data-driver-action="profile-phone-save" aria-label="Guardar telefono">
-            ${renderDriverProfileActionIcon("save")}
-          </button>
-        </dd>
-      </div>
-    `;
-  }
+  const phoneDisplay = formatDriverPhoneForDisplay(driverProfile.phone) || "-";
 
   return `
     <div class="driver-profile-line driver-profile-line--phone">
       <dt>Telefono</dt>
       <dd>
-        <span>${escapeHtml(driverProfile.phone || "-")}</span>
+        <span>${escapeHtml(phoneDisplay)}</span>
         <button class="driver-profile-phone-action" type="button" data-driver-action="profile-phone-edit" aria-label="Editar telefono">
           ${renderDriverProfileActionIcon("edit")}
         </button>
@@ -6574,11 +6661,11 @@ function renderDriverProfilePhoneLine() {
     </div>
   `;
 }
-
 function renderDriverProfileActionIcon(name) {
   const fallbackIcons = {
     edit: '<i class="fa-regular fa-pen-to-square" aria-hidden="true"></i>',
     save: '<i class="fa-regular fa-floppy-disk" aria-hidden="true"></i>',
+    cancel: '<i class="fa-solid fa-xmark" aria-hidden="true"></i>',
   };
 
   return renderDriverIcon(name) || fallbackIcons[name] || "";
@@ -6597,14 +6684,7 @@ function getDriverProfileInitials(name) {
 }
 
 function editDriverProfilePhone() {
-  if (!driverProfile) {
-    return;
-  }
-
-  if (isDriverRealProfileMode()) {
-    isDriverProfilePhoneEditing = false;
-    window.ElaraNotifications.showToast(DRIVER_PROFILE_PHONE_RPC_PENDING_MESSAGE, "info");
-    renderDriverProfile();
+  if (!driverProfile || isDriverProfilePhoneSaving) {
     return;
   }
 
@@ -6619,20 +6699,27 @@ function editDriverProfilePhone() {
   }
 }
 
-function saveDriverProfilePhone() {
-  if (!driverProfile) {
+function cancelDriverProfilePhoneEdit() {
+  if (isDriverProfilePhoneSaving) {
     return;
   }
 
-  if (isDriverRealProfileMode()) {
-    isDriverProfilePhoneEditing = false;
-    window.ElaraNotifications.showToast(DRIVER_PROFILE_PHONE_RPC_PENDING_MESSAGE, "info");
-    renderDriverProfile();
+  isDriverProfilePhoneEditing = false;
+  renderDriverProfile();
+}
+
+function saveDriverProfilePhone() {
+  if (!driverProfile || isDriverProfilePhoneSaving) {
     return;
   }
 
   const phoneInput = getElement("driver-profile-phone");
   const phone = phoneInput ? phoneInput.value.trim() : "";
+
+  if (isDriverRealProfileMode()) {
+    updateCurrentDriverPhone(phone);
+    return;
+  }
 
   if (!phone) {
     showDriverProfileMessage("Introduce un tel\u00e9fono.");
@@ -6650,6 +6737,40 @@ function saveDriverProfilePhone() {
   window.ElaraNotifications.showToast("Tel\u00e9fono guardado correctamente.", "success");
 }
 
+async function updateCurrentDriverPhone(phone) {
+  if (!window.ElaraSupabase?.client) {
+    showDriverProfileMessage("No hay conexion disponible para actualizar el telefono.");
+    return;
+  }
+
+  isDriverProfilePhoneSaving = true;
+  renderDriverProfile();
+
+  try {
+    const { data, error } = await window.ElaraSupabase.client.rpc("update_current_driver_phone", {
+      p_phone: phone,
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    const result = Array.isArray(data) ? data[0] : data;
+    applyDriverProfilePatch({ phone: result?.phone || "" });
+    isDriverProfilePhoneEditing = false;
+    window.ElaraNotifications.showToast("Tel\u00e9fono actualizado.", "success");
+  } catch (error) {
+    console.error("[ELARA Driver] No se pudo actualizar el telefono real del conductor.", {
+      message: error?.message || "",
+      code: error?.code || "",
+      details: error?.details || "",
+    });
+    showDriverProfileMessage(getDriverProfileUpdateErrorMessage(error));
+  } finally {
+    isDriverProfilePhoneSaving = false;
+    renderDriverProfile();
+  }
+}
 function showDriverProfileMessage(message) {
   const messageElement = getElement("driver-profile-phone-message");
 
@@ -10037,6 +10158,27 @@ function setDriverHeader(eyebrow, title, summary) {
 
 function setDriverActiveMode(isActive) {
   document.body.classList.toggle("driver-active-mode", Boolean(isActive));
+}
+
+function formatDriverPhoneForDisplay(phone) {
+  const value = String(phone || "").trim().replace(/\s+/g, " ");
+
+  if (!value) {
+    return "";
+  }
+
+  const digits = value.replace(/\D/g, "");
+  const hasLeadingPlus = value.startsWith("+");
+
+  if (digits.length === 11 && digits.startsWith("34")) {
+    return `+34 ${digits.slice(2, 5)} ${digits.slice(5, 8)} ${digits.slice(8, 11)}`;
+  }
+
+  if (!hasLeadingPlus && digits.length === 9) {
+    return `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6, 9)}`;
+  }
+
+  return value;
 }
 
 function formatPhoneHref(phone) {
