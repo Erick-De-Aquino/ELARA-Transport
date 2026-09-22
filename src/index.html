@@ -2575,7 +2575,7 @@
     </div>
 
     <div class="modal-backdrop" id="driver-finance-detail-modal" role="dialog" aria-modal="true" aria-labelledby="driver-finance-detail-title" hidden>
-      <section class="modal modal--summary">
+      <section class="modal modal--summary driver-finance-detail-modal">
         <header class="modal__header">
           <div>
             <p class="panel__eyebrow">Mis finanzas</p>
@@ -2583,7 +2583,7 @@
           </div>
           <button class="button button--compact button--muted" type="button" data-modal-close>Cerrar</button>
         </header>
-        <div class="modal__body modal__body--summary service-summary">
+        <div class="modal__body modal__body--summary service-summary driver-finance-detail-modal__body">
           <dl class="modal__fields-grid">
             <div class="modal__field"><dt class="modal__field-label">ID</dt><dd class="modal__field-value" id="driver-finance-detail-id">-</dd></div>
             <div class="modal__field"><dt class="modal__field-label">Fecha y hora</dt><dd class="modal__field-value" id="driver-finance-detail-date">-</dd></div>
@@ -2597,7 +2597,7 @@
             <div class="modal__field modal__field--wide"><dt class="modal__field-label">Motivo de anulaci&oacute;n</dt><dd class="modal__field-value" id="driver-finance-detail-annulment-reason">-</dd></div>
           </dl>
         </div>
-        <div class="modal__actions">
+        <div class="modal__actions driver-modal-actions driver-finance-detail-modal__footer">
           <button class="button button--compact button--muted" type="button" id="driver-finance-discrepancy-action" data-driver-action="finance-report-discrepancy">Reportar discrepancia</button>
         </div>
       </section>
@@ -2614,7 +2614,13 @@
         </header>
         <form class="modal__body modal__body--summary service-summary" id="driver-finance-discrepancy-form" novalidate>
           <input id="driver-finance-discrepancy-remittance-id" type="hidden" />
-          <label class="field">
+          <dl class="modal__fields-grid" id="driver-finance-discrepancy-summary">
+            <div class="modal__field"><dt class="modal__field-label">ID rendici&oacute;n</dt><dd class="modal__field-value" id="driver-finance-discrepancy-summary-id">-</dd></div>
+            <div class="modal__field"><dt class="modal__field-label">Importe declarado</dt><dd class="modal__field-value" id="driver-finance-discrepancy-summary-declared">-</dd></div>
+            <div class="modal__field"><dt class="modal__field-label">Importe verificado</dt><dd class="modal__field-value" id="driver-finance-discrepancy-summary-verified">-</dd></div>
+            <div class="modal__field"><dt class="modal__field-label">Estado</dt><dd class="modal__field-value" id="driver-finance-discrepancy-summary-status">-</dd></div>
+          </dl>
+          <label class="field" id="driver-finance-discrepancy-reason-field">
             <span>Motivo *</span>
             <select id="driver-finance-discrepancy-reason" required>
               <option value="">Selecciona motivo</option>
@@ -2625,7 +2631,7 @@
               <option value="Otro">Otro</option>
             </select>
           </label>
-          <label class="field field--optional field--compact-textarea">
+          <label class="field field--optional field--compact-textarea" id="driver-finance-discrepancy-description-field">
             <span>Observaciones</span>
             <textarea id="driver-finance-discrepancy-notes" rows="3"></textarea>
           </label>

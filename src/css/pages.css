@@ -1843,6 +1843,29 @@
   color: var(--color-muted);
 }
 
+.driver-finance-detail-modal {
+  display: flex;
+  flex-direction: column;
+}
+
+.driver-finance-detail-modal__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+}
+
+.driver-finance-detail-modal__footer {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  padding: 12px 18px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.driver-finance-detail-modal__footer:has(#driver-finance-discrepancy-action[hidden]) {
+  display: none;
+}
+
 .driver-expenses {
   display: grid;
   gap: 16px;

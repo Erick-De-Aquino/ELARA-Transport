@@ -355,6 +355,7 @@ let driverProfileRenderRequestId = 0;
 let driverAccessMessage = DRIVER_UNASSOCIATED_MESSAGE;
 let selectedDriverFinanceRemittanceId = "";
 let returnToFinanceDetailAfterDiscrepancy = false;
+let isSubmittingDriverFinanceDiscrepancy = false;
 let driverFinanceHistoryPage = 1;
 let driverFinanceFilters = getDefaultDriverFinanceFilters();
 let selectedDriverExpenseId = "";
@@ -3358,20 +3359,16 @@ function openDriverFinanceRemittanceDetail(remittanceId) {
   const discrepancyButton = getElement("driver-finance-discrepancy-action");
 
   if (discrepancyButton) {
-    const disableRealAction = shouldUseRealDriverFinances();
-    discrepancyButton.hidden = disableRealAction;
-    discrepancyButton.disabled = disableRealAction;
+    const isRealFinance = shouldUseRealDriverFinances();
+    const canReportRealDiscrepancy = !isRealFinance || canDriverReportRealFinanceDiscrepancy(remittance);
+    discrepancyButton.hidden = !canReportRealDiscrepancy;
+    discrepancyButton.disabled = !canReportRealDiscrepancy;
   }
 
   openModal("driver-finance-detail-modal");
 }
 
 function openDriverFinanceDiscrepancyModal(remittanceId) {
-  if (shouldUseRealDriverFinances()) {
-    window.ElaraNotifications.showToast("El reporte de discrepancias reales se integrara en una fase posterior.", "info");
-    return;
-  }
-
   const remittance = getDriverFinanceRemittanceById(remittanceId);
 
   if (!remittance) {
@@ -3379,14 +3376,23 @@ function openDriverFinanceDiscrepancyModal(remittanceId) {
     return;
   }
 
+  const isRealFinance = shouldUseRealDriverFinances();
+
+  if (isRealFinance && !canDriverReportRealFinanceDiscrepancy(remittance)) {
+    window.ElaraNotifications.showToast("Esta rendicion no permite reportar discrepancias.", "warning");
+    return;
+  }
+
   selectedDriverFinanceRemittanceId = getDriverFinanceRemittanceId(remittance);
-  setInputValue("driver-finance-discrepancy-remittance-id", selectedDriverFinanceRemittanceId);
+  setInputValue("driver-finance-discrepancy-remittance-id", getDriverFinanceDiscrepancyRemittanceRpcId(remittance));
   setInputValue("driver-finance-discrepancy-reason", "");
   setInputValue("driver-finance-discrepancy-notes", "");
+  setDriverFinanceDiscrepancyMode(isRealFinance);
+  renderDriverFinanceDiscrepancySummary(remittance);
   clearDriverFinanceDiscrepancyError();
   setDriverFinanceDiscrepancySubmitDisabled(false);
 
-  if (hasOpenDriverFinanceDiscrepancy(selectedDriverFinanceRemittanceId)) {
+  if (!isRealFinance && hasOpenDriverFinanceDiscrepancy(selectedDriverFinanceRemittanceId)) {
     showDriverFinanceDiscrepancyError("Ya existe una discrepancia abierta para esta rendicion.");
     setDriverFinanceDiscrepancySubmitDisabled(true);
   }
@@ -3400,7 +3406,7 @@ function submitDriverFinanceDiscrepancy(event) {
   event.preventDefault();
 
   if (shouldUseRealDriverFinances()) {
-    showDriverFinanceDiscrepancyError("El reporte de discrepancias reales se integrara en una fase posterior.");
+    void submitRealDriverFinanceDiscrepancy();
     return;
   }
 
@@ -3468,6 +3474,168 @@ function submitDriverFinanceDiscrepancy(event) {
   renderDriverFinances();
 }
 
+async function submitRealDriverFinanceDiscrepancy() {
+  if (isSubmittingDriverFinanceDiscrepancy) {
+    return;
+  }
+
+  if (!refreshDriverProfile()) {
+    window.ElaraNotifications.showToast(driverAccessMessage || DRIVER_NO_PORTAL_ACCESS_MESSAGE, "error");
+    return;
+  }
+
+  if (!window.ElaraSupabase?.client) {
+    showDriverFinanceDiscrepancyError("No hay conexion disponible para reportar la discrepancia.");
+    return;
+  }
+
+  const remittanceId = getInputValue("driver-finance-discrepancy-remittance-id");
+  const description = getDriverFinanceDiscrepancyDescription();
+  const remittance = getDriverFinanceRemittanceById(remittanceId);
+
+  if (!remittance || !remittanceId) {
+    showDriverFinanceDiscrepancyError("No se pudo identificar la rendicion real.");
+    return;
+  }
+
+  if (!canDriverReportRealFinanceDiscrepancy(remittance)) {
+    showDriverFinanceDiscrepancyError("Esta rendicion no permite reportar discrepancias.");
+    return;
+  }
+
+  if (!description) {
+    showDriverFinanceDiscrepancyError("Describe la discrepancia.");
+    return;
+  }
+
+  isSubmittingDriverFinanceDiscrepancy = true;
+  setDriverFinanceDiscrepancySubmitDisabled(true, "Registrando...");
+  clearDriverFinanceDiscrepancyError();
+
+  try {
+    const { data, error } = await window.ElaraSupabase.client.rpc("create_driver_cash_discrepancy", {
+      p_remittance_id: remittanceId,
+      p_description: description,
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    const discrepancy = Array.isArray(data) ? data[0] : data;
+    returnToFinanceDetailAfterDiscrepancy = false;
+    closeModal("driver-finance-discrepancy-modal");
+    closeModal("driver-finance-detail-modal");
+    window.ElaraNotifications.showToast("Discrepancia reportada correctamente.", "success");
+
+    try {
+      await loadDriverCashFinances({ force: true });
+    } catch (refreshError) {
+      console.error("[ELARA Driver] Discrepancia creada, pero no se pudo refrescar Mis finanzas.", {
+        message: refreshError?.message || "",
+        code: refreshError?.code || "",
+        discrepancyId: discrepancy?.discrepancy_id || "",
+      });
+    }
+
+    renderDriverFinances();
+  } catch (error) {
+    console.error("[ELARA Driver] No se pudo reportar la discrepancia real de rendicion.", {
+      message: error?.message || "",
+      code: error?.code || "",
+      details: error?.details || "",
+      remittanceId,
+    });
+    showDriverFinanceDiscrepancyError(getDriverFinanceDiscrepancyErrorMessage(error));
+  } finally {
+    isSubmittingDriverFinanceDiscrepancy = false;
+    setDriverFinanceDiscrepancySubmitDisabled(false);
+  }
+}
+
+function canDriverReportRealFinanceDiscrepancy(remittance) {
+  if (!shouldUseRealDriverFinances()) {
+    return true;
+  }
+
+  return ["submitted", "received", "verified"].includes(String(remittance?.rawStatus || "").trim());
+}
+
+function getDriverFinanceDiscrepancyRemittanceRpcId(remittance) {
+  return shouldUseRealDriverFinances() ? remittance?.remittanceUuid || "" : getDriverFinanceRemittanceId(remittance);
+}
+
+function getDriverFinanceDiscrepancyDescription() {
+  return getInputValue("driver-finance-discrepancy-notes").trim();
+}
+
+function setDriverFinanceDiscrepancyMode(isRealFinance) {
+  const summary = getElement("driver-finance-discrepancy-summary");
+  const reasonField = getElement("driver-finance-discrepancy-reason-field");
+  const reasonInput = getElement("driver-finance-discrepancy-reason");
+  const descriptionField = getElement("driver-finance-discrepancy-description-field");
+  const descriptionLabel = descriptionField?.querySelector("span");
+  const descriptionInput = getElement("driver-finance-discrepancy-notes");
+
+  if (summary) {
+    summary.hidden = !isRealFinance;
+  }
+
+  if (reasonField) {
+    reasonField.hidden = isRealFinance;
+  }
+
+  if (reasonInput) {
+    reasonInput.required = !isRealFinance;
+    reasonInput.disabled = isRealFinance;
+  }
+
+  if (descriptionField) {
+    descriptionField.classList.toggle("field--optional", !isRealFinance);
+  }
+
+  if (descriptionLabel) {
+    descriptionLabel.textContent = isRealFinance ? "Descripcion de la discrepancia *" : "Observaciones";
+  }
+
+  if (descriptionInput) {
+    descriptionInput.required = isRealFinance;
+    descriptionInput.disabled = false;
+  }
+}
+
+function renderDriverFinanceDiscrepancySummary(remittance) {
+  setText("driver-finance-discrepancy-summary-id", getDriverFinanceRemittanceId(remittance) || "-");
+  setText("driver-finance-discrepancy-summary-declared", formatDriverFinanceMoney(remittance?.declaredAmount ?? remittance?.amount, remittance?.currencyCode));
+  setText(
+    "driver-finance-discrepancy-summary-verified",
+    remittance?.verifiedAmount === null || remittance?.verifiedAmount === undefined ? "-" : formatDriverFinanceMoney(remittance.verifiedAmount, remittance.currencyCode),
+  );
+  setText("driver-finance-discrepancy-summary-status", getDriverFinanceRemittanceStatus(remittance));
+}
+
+function getDriverFinanceDiscrepancyErrorMessage(error) {
+  const code = String(error?.code || "");
+  const message = String(error?.message || "").toLowerCase();
+
+  if (code === "42501" || message.includes("valid conductor active context")) {
+    return "No tienes permiso para reportar esta discrepancia.";
+  }
+
+  if (message.includes("open discrepancy already exists") || code === "23505") {
+    return "Ya existe una discrepancia abierta para esta rendicion.";
+  }
+
+  if (message.includes("status does not allow")) {
+    return "Esta rendicion no permite reportar discrepancias.";
+  }
+
+  if (message.includes("description")) {
+    return "Describe la discrepancia sin HTML.";
+  }
+
+  return "No se pudo reportar la discrepancia. Intentalo nuevamente.";
+}
 function closeDriverFinanceDiscrepancyModal({ returnToDetail = false } = {}) {
   closeModal("driver-finance-discrepancy-modal");
   setDriverFinanceDiscrepancySubmitDisabled(false);
@@ -3600,12 +3768,19 @@ function clearDriverFinanceDiscrepancyError() {
   }
 }
 
-function setDriverFinanceDiscrepancySubmitDisabled(disabled) {
+function setDriverFinanceDiscrepancySubmitDisabled(disabled, label = "") {
   const submitButton = document.querySelector('#driver-finance-discrepancy-form button[type="submit"]');
 
-  if (submitButton) {
-    submitButton.disabled = Boolean(disabled);
+  if (!submitButton) {
+    return;
   }
+
+  if (!submitButton.dataset.defaultLabel) {
+    submitButton.dataset.defaultLabel = submitButton.textContent || "Enviar discrepancia";
+  }
+
+  submitButton.disabled = Boolean(disabled);
+  submitButton.textContent = disabled ? label || "Registrando..." : submitButton.dataset.defaultLabel;
 }
 
 function renderDriverExpenseLoadingState() {
