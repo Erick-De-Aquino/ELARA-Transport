@@ -1,4 +1,4 @@
-﻿/*
+/*
   Proyecto Atlas / ELARA Transport
   Archivo: driver.js
   Responsabilidad: portal mock mobile-first del colaborador/chofer.
@@ -1961,7 +1961,7 @@ function adaptDriverCashRemittanceRow(row) {
     annulledAt: row?.cancelled_at || "",
     annulledByName: "",
     annulmentReason: row?.cancellation_reason || "",
-    registeredByName: "Administracion",
+    registeredByName: "Administración",
     observations: row?.notes || "",
     notes: row?.notes || "",
   };
@@ -2361,7 +2361,7 @@ function renderDriverFinanceSummary() {
     ["Total rendido", formatDriverFinanceMoney(position.totalRendered, position.currencyCode), "success"],
     ["Pendiente de rendir", formatDriverFinanceMoney(position.pendingAmount, position.currencyCode), "warning"],
     ["Rendiciones del periodo", String(periodRemittances.length), "neutral"],
-    ["Diferencias abiertas", `${openDifferenceCount} Â· ${formatDriverFinanceMoney(openDifferenceAmount, position.currencyCode)}`, openDifferenceCount ? "danger" : "neutral"],
+    ["Diferencias abiertas", `${openDifferenceCount} - ${formatDriverFinanceMoney(openDifferenceAmount, position.currencyCode)}`, openDifferenceCount ? "danger" : "neutral"],
   ];
 
   if (showRealFinance || position.excessAmount > 0 || getDriverFinanceOpenDifferences().some((incident) => normalizeDriverText(incident.type) === "excedente en rendicion")) {
@@ -2410,7 +2410,7 @@ function renderDriverFinanceHistory() {
   const pageItems = remittances.slice(pageStart, pageStart + DRIVER_FINANCE_HISTORY_PAGE_SIZE);
 
   if (meta) {
-    meta.textContent = `${remittances.length} resultado${remittances.length === 1 ? "" : "s"} Â· Pagina ${driverFinanceHistoryPage} de ${totalPages}`;
+    meta.textContent = `${remittances.length} resultado${remittances.length === 1 ? "" : "s"} - Página ${driverFinanceHistoryPage} de ${totalPages}`;
   }
 
   if (!pageItems.length) {
@@ -2426,7 +2426,7 @@ function renderDriverFinanceHistory() {
         <article class="driver-finance-row">
           <div>
             <strong>${escapeHtml(getDriverFinanceRemittanceId(remittance))}</strong>
-            <span>${escapeHtml(formatDriverFinanceDateTime(getDriverFinanceRemittanceDateValue(remittance)))} Â· ${escapeHtml(remittance.registeredByName || "Administracion")}</span>
+            <span>${escapeHtml(formatDriverFinanceDateTime(getDriverFinanceRemittanceDateValue(remittance)))} - ${escapeHtml(remittance.registeredByName || "Administración")}</span>
             ${remittance.observations ? `<small>${escapeHtml(remittance.observations)}</small>` : ""}
           </div>
           <strong>${escapeHtml(formatDriverFinanceMoney(remittance.amount, remittance.currencyCode))}</strong>
@@ -2452,7 +2452,7 @@ function renderDriverFinancePagination(container, currentPage, totalPages) {
 
   container.innerHTML = `
     <button class="button button--compact button--muted" type="button" data-driver-action="finance-page" data-finance-page="${currentPage - 1}" ${currentPage <= 1 ? "disabled" : ""}>Anterior</button>
-    <span>Pagina ${escapeHtml(currentPage)} de ${escapeHtml(totalPages)}</span>
+    <span>Página ${escapeHtml(currentPage)} de ${escapeHtml(totalPages)}</span>
     <button class="button button--compact button--muted" type="button" data-driver-action="finance-page" data-finance-page="${currentPage + 1}" ${currentPage >= totalPages ? "disabled" : ""}>Siguiente</button>
   `;
 }
@@ -2727,12 +2727,12 @@ function renderDriverSettlementSummary() {
         ["Liquidaciones", String(summary.settlementCount), "neutral"],
       ]
     : [
-        ["Pendiente aprobaciÃƒÂ³n", formatDriverSettlementMoney(summary.pendingApprovalAmount), "warning"],
+        ["Pendiente aprobacion", formatDriverSettlementMoney(summary.pendingApprovalAmount), "warning"],
         ["Aprobado pendiente pago", formatDriverSettlementMoney(summary.approvedPendingPaymentAmount), "info"],
         ["Total pagado", formatDriverSettlementMoney(summary.paidAmount), "success"],
         ["Liquidaciones pagadas", String(summary.paidCount), "success"],
         ["Servicios liquidados", String(summary.settledServices), "neutral"],
-        ["PrÃƒÂ³xima liquidaciÃƒÂ³n", summary.nextSettlement || "Sin calcular", "neutral"],
+        ["Proxima liquidacion", summary.nextSettlement || "Sin calcular", "neutral"],
       ];
 
   container.innerHTML = cards
@@ -2777,7 +2777,7 @@ function renderDriverSettlementList() {
   const hasOwnSettlements = getDriverOwnSettlements().length > 0;
 
   if (meta) {
-    meta.textContent = `${settlements.length} resultado${settlements.length === 1 ? "" : "s"} - Pagina ${driverSettlementPage} de ${totalPages}`;
+    meta.textContent = `${settlements.length} resultado${settlements.length === 1 ? "" : "s"} - Página ${driverSettlementPage} de ${totalPages}`;
   }
 
   if (!pageItems.length) {
@@ -2853,7 +2853,7 @@ function renderDriverSettlementPagination(container, currentPage, totalPages) {
 
   container.innerHTML = `
     <button class="button button--compact button--muted" type="button" data-driver-action="settlement-page" data-settlement-page="${currentPage - 1}" ${currentPage <= 1 ? "disabled" : ""}>Anterior</button>
-    <span>Pagina ${escapeHtml(currentPage)} de ${escapeHtml(totalPages)}</span>
+    <span>Página ${escapeHtml(currentPage)} de ${escapeHtml(totalPages)}</span>
     <button class="button button--compact button--muted" type="button" data-driver-action="settlement-page" data-settlement-page="${currentPage + 1}" ${currentPage >= totalPages ? "disabled" : ""}>Siguiente</button>
   `;
 }
@@ -2887,7 +2887,7 @@ function openDriverSettlementDetail(settlementId) {
   if (!settlement) {
     selectedDriverSettlementId = "";
     closeModal("driver-settlement-detail-modal");
-    window.ElaraNotifications.showToast("No se encontrÃ³ la liquidaciÃ³n seleccionada.", "warning");
+    window.ElaraNotifications.showToast("No se encontro la liquidacion seleccionada.", "warning");
     return;
   }
 
@@ -3003,7 +3003,7 @@ function renderDriverSettlementPendingCollectionNotice(settlement) {
     return "";
   }
 
-  return `<p class="settlement-pending-note">Esta liquidaciÃ³n incluye ${escapeHtml(pendingItems.length)} servicios pendientes de cobro por un total de ${escapeHtml(formatDriverSettlementMoney(settlement.totals.pendingCollectionAmount))}. Esto no afecta el importe de tu liquidaciÃ³n.</p>`;
+  return `<p class="settlement-pending-note">Esta liquidacion incluye ${escapeHtml(pendingItems.length)} servicios pendientes de cobro por un total de ${escapeHtml(formatDriverSettlementMoney(settlement.totals.pendingCollectionAmount))}. Esto no afecta el importe de tu liquidacion.</p>`;
 }
 
 function renderDriverSettlementServicesSection(settlement) {
@@ -3038,12 +3038,12 @@ function renderDriverSettlementIncidentsSection(settlement) {
 
   settlement.serviceItems.forEach((item) => {
     if (item.liquidableMargin < 0) incidents.push(`${item.serviceId}: margen negativo.`);
-    if (item.calculationStatus === "Para revisiÃ³n") incidents.push(`${item.serviceId}: cÃ¡lculo en revisiÃ³n.`);
+    if (item.calculationStatus === "Para revision") incidents.push(`${item.serviceId}: calculo en revision.`);
     item.reviewReasons.forEach((reason) => incidents.push(`${item.serviceId}: ${reason}`));
   });
 
   (settlement.returnHistory || []).forEach((entry) => {
-    if (entry.reason) incidents.push(`DevoluciÃ³n administrativa: ${entry.reason}`);
+    if (entry.reason) incidents.push(`Devolucion administrativa: ${entry.reason}`);
   });
 
   if (!incidents.length) {
@@ -3067,7 +3067,7 @@ function renderDriverSettlementPaymentSection(settlement) {
     return renderDriverSettlementDetailSection("Pago", [
       ["Estado", payment.status],
       ["Importe", formatDriverSettlementMoney(payment.amount)],
-      ["MÃ©todo", payment.method],
+      ["Metodo", payment.method],
       ["Fecha", formatDriverSettlementDateTime(payment.paidAt)],
       ["Registrado por", payment.paidByUserName || payment.paidByName],
       ["Referencia Caja", payment.cashMovementId],
@@ -3075,7 +3075,7 @@ function renderDriverSettlementPaymentSection(settlement) {
   }
 
   if (payment.status === "Anulado") {
-    return `<p class="settlement-pending-note">Un pago anterior fue anulado y la liquidaciÃ³n volviÃ³ a quedar pendiente de pago.</p>`;
+    return `<p class="settlement-pending-note">Un pago anterior fue anulado y la liquidacion volvio a quedar pendiente de pago.</p>`;
   }
 
   return "";
@@ -3255,8 +3255,8 @@ function getDriverSettlementStatusTone(status) {
     Enviada: "info",
     Rechazada: "danger",
     Cancelada: "danger",
-    "Para revisiÃƒÂ³n": "warning",
-    "Pendiente de aprobaciÃƒÂ³n": "warning",
+    "Para revision": "warning",
+    "Pendiente de aprobacion": "warning",
     Aprobada: "success",
     Pagada: "success",
     Anulada: "danger",
@@ -3349,7 +3349,7 @@ function openDriverFinanceRemittanceDetail(remittanceId) {
   setText("driver-finance-detail-date", formatDriverFinanceDateTime(getDriverFinanceRemittanceDateValue(remittance)));
   setText("driver-finance-detail-amount", formatDriverFinanceMoney(remittance.amount, remittance.currencyCode));
   setText("driver-finance-detail-status", getDriverFinanceRemittanceStatus(remittance));
-  setText("driver-finance-detail-registered-by", remittance.registeredByName || "Administracion");
+  setText("driver-finance-detail-registered-by", remittance.registeredByName || "Administración");
   setText("driver-finance-detail-difference", getDriverFinanceRemittanceDifferenceLabel(remittance));
   setText("driver-finance-detail-notes", remittance.observations || remittance.notes || "Sin observaciones");
   setText("driver-finance-detail-annulled-at", remittance.annulledAt ? formatDriverFinanceDateTime(remittance.annulledAt) : "-");
@@ -3453,15 +3453,15 @@ function submitDriverFinanceDiscrepancy(event) {
     reportedByType: driverProfile.driverType || "Conductor",
     reportedById: driverProfile.id,
     reportedByName: driverProfile.name,
-    involvedType: "Administracion",
+    involvedType: "Administración",
     involvedId: remittance.registeredByUserId || "",
-    involvedName: remittance.registeredByName || "Administracion",
+    involvedName: remittance.registeredByName || "Administración",
     createdByUserId: currentUser?.id || "",
     createdByName: currentUser?.name || driverProfile.name,
     createdAt: new Date().toISOString(),
     subject: "Discrepancia de rendici\u00f3n",
     message: notes || reason,
-    assignedTo: "Administracion",
+    assignedTo: "Administración",
     resolutionNote: "",
   };
 
@@ -4018,7 +4018,7 @@ function renderDriverExpenseList() {
   const pageItems = expenses.slice(pageStart, pageStart + DRIVER_EXPENSE_PAGE_SIZE);
 
   if (meta) {
-    meta.textContent = `${expenses.length} resultado${expenses.length === 1 ? "" : "s"} - Pagina ${driverExpensePage} de ${totalPages}`;
+    meta.textContent = `${expenses.length} resultado${expenses.length === 1 ? "" : "s"} - Página ${driverExpensePage} de ${totalPages}`;
   }
 
   if (!pageItems.length) {
@@ -4094,7 +4094,7 @@ function renderDriverExpensePagination(container, currentPage, totalPages) {
 
   container.innerHTML = `
     <button class="button button--compact button--muted" type="button" data-driver-action="expense-page" data-expense-page="${currentPage - 1}" ${currentPage <= 1 ? "disabled" : ""}>Anterior</button>
-    <span>Pagina ${escapeHtml(currentPage)} de ${escapeHtml(totalPages)}</span>
+    <span>Página ${escapeHtml(currentPage)} de ${escapeHtml(totalPages)}</span>
     <button class="button button--compact button--muted" type="button" data-driver-action="expense-page" data-expense-page="${currentPage + 1}" ${currentPage >= totalPages ? "disabled" : ""}>Siguiente</button>
   `;
 }
@@ -4667,7 +4667,7 @@ function openDriverExpenseResponseModal(expenseId) {
   setText("driver-expense-response-summary-id", expense.expenseId);
   setText("driver-expense-response-summary-concept", expense.concept);
   setText("driver-expense-response-summary-amount", formatDriverExpenseMoney(expense.amountRequested));
-  setText("driver-expense-response-admin-message", expense.review?.reason || "Administracion solicita informacion adicional.");
+  setText("driver-expense-response-admin-message", expense.review?.reason || "Administración solicita informacion adicional.");
   setInputValue("driver-expense-response-text", "");
   setInputValue("driver-expense-response-description", expense.description || "");
   setInputValue("driver-expense-response-provider", expense.providerName || "");
@@ -5583,7 +5583,7 @@ function renderDriverAssignmentRejectionConfirmation(service) {
   }
 
   return `
-    <p class="driver-policy-note">Â¿Quieres rechazar esta asignaciÃ³n? El servicio quedarÃ¡ sin conductor asignado.</p>
+    <p class="driver-policy-note">Quieres rechazar esta asignacion? El servicio quedara sin conductor asignado.</p>
     <button class="button button--secondary driver-button" type="button" data-driver-action="cancel-reject-assignment" data-service-id="${service.id}">Volver</button>
     <button class="button button--primary driver-button" type="button" data-driver-action="confirm-reject-assignment" data-service-id="${service.id}">Confirmar rechazo</button>
   `;
@@ -8273,7 +8273,7 @@ function createDriverCashCollectionIncident({ service, summary, payment, remitta
     paymentId: payment?.id || null,
     remittanceId: remittanceId || null,
     collectionAttemptId: driverCashCollectionState.attemptId,
-    assignedTo: "Administracion",
+    assignedTo: "Administración",
     createdByUserId: currentUser?.id || "",
     createdByName: currentUser?.name || "Conductor",
     createdAt: now,
@@ -9358,7 +9358,7 @@ function confirmDriverAssignmentRejection(serviceId) {
   if (!isDriverUsingCentralServices) {
     updateServiceStatus(serviceId, "cancelado");
     pendingDriverRejectionServiceId = null;
-    window.ElaraNotifications.showToast("AsignaciÃ³n rechazada en mock.", "warning");
+    window.ElaraNotifications.showToast("Asignacion rechazada en mock.", "warning");
     renderDriverServices();
     return;
   }
@@ -9387,7 +9387,7 @@ function confirmDriverAssignmentRejection(serviceId) {
     },
   });
   emitDriverServicesUpdatedEvent("rejected", service);
-  window.ElaraNotifications.showToast("AsignaciÃ³n rechazada correctamente.", "success");
+  window.ElaraNotifications.showToast("Asignacion rechazada correctamente.", "success");
   renderDriverServices();
 }
 
@@ -9760,7 +9760,7 @@ function adaptCentralServiceForDriver(service) {
     passengers: service.passengers || service.passengerCount || "1",
     luggage: service.luggage || service.baggage || "0",
     notes: service.notes || service.observations || "",
-    assignedVehicle: vehicle ? `${vehicle.brand} ${vehicle.model}` : service.vehicle || "VehÃ­culo pendiente",
+    assignedVehicle: vehicle ? `${vehicle.brand} ${vehicle.model}` : service.vehicle || "Vehiculo pendiente",
     plate: vehicle?.plate || service.plate || "",
     status,
     displayStatus,
@@ -10253,7 +10253,7 @@ function buildDriverProfileFromCollaborator(collaborator) {
     availabilityPreference: collaborator.availabilityPreference,
     collaboratorStatus: collaborator.operationalStatus || collaborator.availability || "No disponible",
     vehicleId: collaborator.vehicleId || "",
-    assignedVehicle: vehicle ? `${vehicle.brand} ${vehicle.model}` : "Sin vehÃ­culo asignado",
+    assignedVehicle: vehicle ? `${vehicle.brand} ${vehicle.model}` : "Sin vehiculo asignado",
     vehicleColor: vehicle ? vehicle.color : "-",
     plate: vehicle ? vehicle.plate : "-",
   };
