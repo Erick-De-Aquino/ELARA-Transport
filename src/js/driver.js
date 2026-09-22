@@ -356,6 +356,7 @@ let driverAccessMessage = DRIVER_UNASSOCIATED_MESSAGE;
 let selectedDriverFinanceRemittanceId = "";
 let returnToFinanceDetailAfterDiscrepancy = false;
 let isSubmittingDriverFinanceDiscrepancy = false;
+let isSubmittingDriverFinanceRemittance = false;
 let driverFinanceHistoryPage = 1;
 let driverFinanceFilters = getDefaultDriverFinanceFilters();
 let selectedDriverExpenseId = "";
@@ -876,11 +877,13 @@ function bindDriverEvents() {
       discardRouteChangeDraft();
     }
 
-    const driverFinanceModal = event.target.closest("#driver-finance-detail-modal, #driver-finance-discrepancy-modal");
+    const driverFinanceModal = event.target.closest("#driver-finance-remittance-modal, #driver-finance-detail-modal, #driver-finance-discrepancy-modal");
 
     if (driverFinanceModal && (modalClose || event.target === driverFinanceModal)) {
       if (driverFinanceModal.id === "driver-finance-discrepancy-modal") {
         closeDriverFinanceDiscrepancyModal({ returnToDetail: true });
+      } else if (driverFinanceModal.id === "driver-finance-remittance-modal") {
+        closeDriverFinanceRemittanceModal();
       } else {
         closeModal(driverFinanceModal);
       }
@@ -1007,6 +1010,11 @@ function bindDriverEvents() {
 
     if (action.dataset.driverAction === "finance-detail") {
       openDriverFinanceRemittanceDetail(action.dataset.remittanceId || "");
+      return;
+    }
+
+    if (action.dataset.driverAction === "finance-new-remittance") {
+      openDriverFinanceRemittanceSubmitModal();
       return;
     }
 
@@ -1194,6 +1202,7 @@ function bindDriverEvents() {
   const serviceIncidentDescription = document.getElementById("driver-service-incident-description");
   const profileForm = document.getElementById("driver-profile-form");
   const financeDiscrepancyForm = document.getElementById("driver-finance-discrepancy-form");
+  const financeRemittanceForm = document.getElementById("driver-finance-remittance-form");
   const expenseNewForm = document.getElementById("driver-expense-new-form");
   const expenseResponseForm = document.getElementById("driver-expense-response-form");
   const financeFilterFields = [
@@ -1252,6 +1261,10 @@ function bindDriverEvents() {
     financeDiscrepancyForm.addEventListener("submit", submitDriverFinanceDiscrepancy);
   }
 
+  if (financeRemittanceForm) {
+    financeRemittanceForm.addEventListener("submit", submitDriverFinanceRemittance);
+  }
+
   if (expenseNewForm) {
     expenseNewForm.addEventListener("submit", submitDriverExpenseRequest);
   }
@@ -1280,7 +1293,7 @@ function handleDriverFinanceKeydown(event) {
     return;
   }
 
-  const modal = document.querySelector("#driver-finance-discrepancy-modal:not([hidden]), #driver-finance-detail-modal:not([hidden])");
+  const modal = document.querySelector("#driver-finance-remittance-modal:not([hidden]), #driver-finance-discrepancy-modal:not([hidden]), #driver-finance-detail-modal:not([hidden])");
 
   if (modal) {
     event.preventDefault();
@@ -1288,6 +1301,8 @@ function handleDriverFinanceKeydown(event) {
 
     if (modal.id === "driver-finance-discrepancy-modal") {
       closeDriverFinanceDiscrepancyModal({ returnToDetail: true });
+    } else if (modal.id === "driver-finance-remittance-modal") {
+      closeDriverFinanceRemittanceModal();
     } else {
       closeModal(modal);
     }
@@ -2267,6 +2282,7 @@ function renderDriverFinances() {
   renderDriverFinanceSummary();
   renderDriverFinanceHistory();
   setDriverFinanceFiltersDisabled(isDriverFinanceLoading());
+  setDriverFinanceRemittanceActionVisibility();
 }
 
 function renderDriverFinanceFilters() {
@@ -2311,6 +2327,7 @@ function setDriverFinanceFiltersDisabled(disabled) {
 function renderDriverFinanceLoadingState() {
   renderDriverFinanceFilters();
   setDriverFinanceFiltersDisabled(true);
+  setDriverFinanceRemittanceActionVisibility(false);
 
   const summary = getElement("driver-finance-summary");
   const list = getElement("driver-finance-list");
@@ -3336,6 +3353,170 @@ function formatDriverSettlementDateTime(value) {
   });
 }
 
+function setDriverFinanceRemittanceActionVisibility(forceVisible) {
+  const action = getElement("driver-finance-remittance-action");
+
+  if (!action) {
+    return;
+  }
+
+  const position = getDriverFinancePosition();
+  const canCreate = forceVisible === undefined
+    ? shouldUseRealDriverFinances() && !isDriverFinanceLoading() && !driverFinanceLoadState.summaryError && Number(position.pendingAmount) > 0
+    : Boolean(forceVisible);
+
+  action.hidden = !canCreate;
+  action.disabled = !canCreate || isSubmittingDriverFinanceRemittance;
+}
+
+function openDriverFinanceRemittanceSubmitModal() {
+  if (!shouldUseRealDriverFinances()) {
+    window.ElaraNotifications.showToast("Accion real no disponible en modo demo.", "warning");
+    return;
+  }
+
+  const position = getDriverFinancePosition();
+
+  if (!Number(position.pendingAmount)) {
+    window.ElaraNotifications.showToast("No hay efectivo pendiente de rendir.", "info");
+    return;
+  }
+
+  setText("driver-finance-remittance-pending", formatDriverFinanceMoney(position.pendingAmount, position.currencyCode));
+  setText("driver-finance-remittance-amount", formatDriverFinanceMoney(position.pendingAmount, position.currencyCode));
+  setInputValue("driver-finance-remittance-notes", "");
+  clearDriverFinanceRemittanceError();
+  setDriverFinanceRemittanceSubmitDisabled(false);
+  openModal("driver-finance-remittance-modal");
+}
+
+async function submitDriverFinanceRemittance(event) {
+  event.preventDefault();
+
+  if (isSubmittingDriverFinanceRemittance) {
+    return;
+  }
+
+  if (!refreshDriverProfile()) {
+    window.ElaraNotifications.showToast(driverAccessMessage || DRIVER_NO_PORTAL_ACCESS_MESSAGE, "error");
+    return;
+  }
+
+  if (!shouldUseRealDriverFinances() || !window.ElaraSupabase?.client) {
+    showDriverFinanceRemittanceError("No hay conexion disponible para registrar la rendicion.");
+    return;
+  }
+
+  const position = getDriverFinancePosition();
+
+  if (!Number(position.pendingAmount)) {
+    showDriverFinanceRemittanceError("No hay efectivo pendiente de rendir.");
+    return;
+  }
+
+  isSubmittingDriverFinanceRemittance = true;
+  setDriverFinanceRemittanceSubmitDisabled(true, "Registrando...");
+  setDriverFinanceRemittanceActionVisibility();
+  clearDriverFinanceRemittanceError();
+
+  try {
+    const notes = getInputValue("driver-finance-remittance-notes").trim();
+    const { error } = await window.ElaraSupabase.client.rpc("create_driver_cash_remittance", {
+      p_notes: notes || null,
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    closeDriverFinanceRemittanceModal();
+    window.ElaraNotifications.showToast("Rendicion registrada correctamente.", "success");
+    driverFinanceHistoryPage = 1;
+    await loadDriverCashFinances({ force: true });
+    renderDriverFinances();
+  } catch (error) {
+    console.error("[ELARA Driver] No se pudo registrar la rendicion real del conductor.", {
+      message: error?.message || "",
+      code: error?.code || "",
+      details: error?.details || "",
+    });
+    showDriverFinanceRemittanceError(getDriverFinanceRemittanceSubmitErrorMessage(error));
+  } finally {
+    isSubmittingDriverFinanceRemittance = false;
+    setDriverFinanceRemittanceSubmitDisabled(false);
+    setDriverFinanceRemittanceActionVisibility();
+  }
+}
+
+function closeDriverFinanceRemittanceModal() {
+  closeModal("driver-finance-remittance-modal");
+  clearDriverFinanceRemittanceError();
+  setDriverFinanceRemittanceSubmitDisabled(false);
+}
+
+function showDriverFinanceRemittanceError(message) {
+  const error = getElement("driver-finance-remittance-error");
+
+  if (error) {
+    error.textContent = message;
+    error.hidden = false;
+  }
+}
+
+function clearDriverFinanceRemittanceError() {
+  const error = getElement("driver-finance-remittance-error");
+
+  if (error) {
+    error.textContent = "";
+    error.hidden = true;
+  }
+}
+
+function setDriverFinanceRemittanceSubmitDisabled(disabled, label = "") {
+  const submitButton = document.querySelector('#driver-finance-remittance-form button[type="submit"]');
+
+  if (!submitButton) {
+    return;
+  }
+
+  if (!submitButton.dataset.defaultLabel) {
+    submitButton.dataset.defaultLabel = submitButton.textContent || "Registrar rendicion";
+  }
+
+  submitButton.disabled = Boolean(disabled);
+  submitButton.textContent = disabled ? label || "Registrando..." : submitButton.dataset.defaultLabel;
+}
+
+function getDriverFinanceRemittanceSubmitErrorMessage(error) {
+  const code = String(error?.code || "");
+  const message = String(error?.message || "").toLowerCase();
+
+  if (code === "42501" || message.includes("valid conductor active context")) {
+    return "No tienes permiso para registrar esta rendicion.";
+  }
+
+  if (message.includes("no cash is pending")) {
+    return "No hay efectivo pendiente de rendir.";
+  }
+
+  if (message.includes("active driver cash account")) {
+    return "No hay una cuenta de caja activa para tu conductor.";
+  }
+
+  if (message.includes("active central cash account")) {
+    return "No hay una cuenta central activa para recibir la rendicion.";
+  }
+
+  if (code === "40001" || message.includes("changed during submission")) {
+    return "El efectivo pendiente cambio durante el registro. Intentalo nuevamente.";
+  }
+
+  if (message.includes("already belongs")) {
+    return "Ese efectivo ya esta asociado a otra rendicion.";
+  }
+
+  return "No se pudo registrar la rendicion. Intentalo nuevamente.";
+}
 function openDriverFinanceRemittanceDetail(remittanceId) {
   const remittance = getDriverFinanceRemittanceById(remittanceId);
 

@@ -1335,6 +1335,7 @@
                   <p class="panel__eyebrow">Rendiciones</p>
                   <h2 id="driver-finance-history-title">Historial de rendiciones</h2>
                 </div>
+                <button class="button button--compact" type="button" id="driver-finance-remittance-action" data-driver-action="finance-new-remittance" hidden>Registrar rendici&oacute;n</button>
               </div>
               <div class="driver-finance-filters">
                 <label class="field">
@@ -2569,6 +2570,33 @@
           <div class="form-actions-inline service-financial-form__actions">
             <button class="button button--secondary driver-button" type="button" data-driver-action="back-to-cash-collection">Volver</button>
             <button class="button driver-button" type="submit">Registrar incidencia</button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <div class="modal-backdrop" id="driver-finance-remittance-modal" role="dialog" aria-modal="true" aria-labelledby="driver-finance-remittance-title" hidden>
+      <section class="modal modal--summary">
+        <header class="modal__header">
+          <div>
+            <p class="panel__eyebrow">Mis finanzas</p>
+            <h2 id="driver-finance-remittance-title">Registrar rendici&oacute;n</h2>
+          </div>
+          <button class="button button--compact button--muted" type="button" data-modal-close>Cerrar</button>
+        </header>
+        <form class="modal__body modal__body--summary service-summary" id="driver-finance-remittance-form" novalidate>
+          <dl class="modal__fields-grid">
+            <div class="modal__field"><dt class="modal__field-label">Efectivo pendiente</dt><dd class="modal__field-value" id="driver-finance-remittance-pending">-</dd></div>
+            <div class="modal__field"><dt class="modal__field-label">Importe de la rendici&oacute;n</dt><dd class="modal__field-value" id="driver-finance-remittance-amount">-</dd></div>
+          </dl>
+          <label class="field field--optional field--compact-textarea">
+            <span>Observaciones</span>
+            <textarea id="driver-finance-remittance-notes" rows="3"></textarea>
+          </label>
+          <p class="form-error" id="driver-finance-remittance-error" hidden></p>
+          <div class="form-actions-inline form-actions-inline--end">
+            <button class="button button--compact button--muted" type="button" data-modal-close>Cancelar</button>
+            <button class="button button--compact" type="submit">Registrar rendici&oacute;n</button>
           </div>
         </form>
       </section>
