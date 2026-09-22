@@ -362,6 +362,8 @@ async function logout() {
 
   try {
     const supabaseClient = getSupabaseClient();
+    await endCurrentAppSessionForLogout(supabaseClient);
+
     const { error } = await supabaseClient.auth.signOut();
 
     if (error) {
@@ -383,6 +385,18 @@ async function logout() {
   } finally {
     isSigningOut = false;
     setLogoutLoading(false);
+  }
+}
+
+async function endCurrentAppSessionForLogout(supabaseClient) {
+  try {
+    const { error } = await supabaseClient.rpc("end_current_app_session");
+
+    if (error) {
+      throw markAuthStage(error, "app-session-end");
+    }
+  } catch (error) {
+    logAuthError("end-current-app-session", error);
   }
 }
 
