@@ -5354,13 +5354,14 @@ function formatDriverExpenseDateTime(value) {
 function renderHistoryServiceCard(service) {
   const routeSummary = getHistoryRouteSummary(service);
   const isExpanded = expandedHistoryServiceId === service.id;
+  const serviceLabel = [service.humanCode, service.type].filter(Boolean).join(" - ");
 
   return `
     <article class="driver-history-card${isExpanded ? " is-expanded" : ""}" data-driver-history-card data-service-id="${service.id}" tabindex="0" aria-expanded="${isExpanded}">
       <div class="driver-history-card__main">
         <div class="driver-history-card__top">
           <div>
-            <p class="panel__eyebrow">${escapeHtml(service.type)}</p>
+            <p class="panel__eyebrow">${escapeHtml(serviceLabel || service.type)}</p>
             <h3>${escapeHtml(routeSummary)}</h3>
           </div>
           ${renderStatusPill(service.status, service.displayStatus)}
@@ -5406,11 +5407,11 @@ function renderDriverHistoryReportAction(service, isReporting) {
     return "";
   }
 
-  if (service?.isRealDriverService) {
-    return '<button class="button button--secondary driver-button" type="button" disabled aria-disabled="true">Incidencia pendiente de RPC</button>';
+  if (canReportDriverServiceIncident(service)) {
+    return `<button class="button button--secondary driver-button" type="button" data-driver-action="service-incident" data-service-id="${service.id}">Reportar incidencia</button>`;
   }
 
-  return `<button class="button button--secondary driver-button" type="button" data-driver-action="history-report" data-service-id="${service.id}">Reportar incidencia</button>`;
+  return "";
 }
 function getDriverHistoryCashIncidentFields(service) {
   const incident = getDriverCashCollectionIncidentForService(service);
