@@ -32,11 +32,11 @@ const DRIVER_PROFILE_AVAILABILITY_LABELS = {
 const DRIVER_CLOSED_CENTRAL_SERVICE_STATUSES = ["Cancelado", "Finalizado", "No show", "No-show", "No realizado"];
 const DRIVER_CENTRAL_STAGE_SEQUENCE = ["en_camino", "esperando_pasajero", "pasajero_a_bordo"];
 const DRIVER_REAL_PROGRESS_STAGE_FLOW = {
-  on_way: { status: "en_camino", nextStage: "waiting_passenger", successLabel: "Llegada al origen registrada." },
-  waiting_passenger: { status: "esperando_pasajero", nextStage: "passenger_on_board", successLabel: "Pasajero a bordo registrado." },
-  passenger_on_board: { status: "pasajero_a_bordo", nextStage: "finishing", successLabel: "Llegada al destino registrada." },
-  finishing: { status: "en_servicio", nextStage: "finished", successLabel: "Servicio finalizado correctamente." },
-  finished: { status: "finalizado", nextStage: "", successLabel: "" },
+  on_way: { status: "en_camino", nextStage: "waiting_passenger", successLabel: "" },
+  waiting_passenger: { status: "esperando_pasajero", nextStage: "passenger_on_board", successLabel: "Llegada al origen registrada." },
+  passenger_on_board: { status: "pasajero_a_bordo", nextStage: "finishing", successLabel: "Pasajero a bordo registrado." },
+  finishing: { status: "en_servicio", nextStage: "finished", successLabel: "Llegada al destino registrada." },
+  finished: { status: "finalizado", nextStage: "", successLabel: "Servicio finalizado correctamente." },
 };
 const DRIVER_FINANCE_HISTORY_PAGE_SIZE = 10;
 const DRIVER_FINANCE_DEFAULT_HISTORY_DAYS = 30;
