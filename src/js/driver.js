@@ -2378,7 +2378,7 @@ function renderDriverFinanceSummary() {
     ["Total rendido", formatDriverFinanceMoney(position.totalRendered, position.currencyCode), "success"],
     ["Pendiente de rendir", formatDriverFinanceMoney(position.pendingAmount, position.currencyCode), "warning"],
     ["Rendiciones del periodo", String(periodRemittances.length), "neutral"],
-    ["Diferencias abiertas", `${openDifferenceCount} - ${formatDriverFinanceMoney(openDifferenceAmount, position.currencyCode)}`, openDifferenceCount ? "danger" : "neutral"],
+    ["Diferencias abiertas", formatDriverFinanceOpenDifferenceSummary(openDifferenceCount, openDifferenceAmount, position.currencyCode), openDifferenceCount ? "danger" : "neutral"],
   ];
 
   if (showRealFinance || position.excessAmount > 0 || getDriverFinanceOpenDifferences().some((incident) => normalizeDriverText(incident.type) === "excedente en rendicion")) {
@@ -3917,6 +3917,22 @@ function formatDriverFinanceMoney(value, currencyCode = "") {
   } catch (error) {
     return `${safeAmount.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
   }
+}
+
+function formatDriverFinanceOpenDifferenceSummary(count, amount, currencyCode = "") {
+  const safeCount = Number(count) || 0;
+  if (safeCount <= 0) {
+    return "0";
+  }
+
+  const numericAmount = Number(amount);
+  const safeAmount = Number.isFinite(numericAmount) ? Math.round((numericAmount + Number.EPSILON) * 100) / 100 : 0;
+
+  if (safeAmount === 0) {
+    return `${safeCount} - Sin cuantificar`;
+  }
+
+  return `${safeCount} - ${formatDriverFinanceMoney(safeAmount, currencyCode)}`;
 }
 
 function formatDriverFinanceDateTime(value) {
