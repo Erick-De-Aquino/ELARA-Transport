@@ -5218,3 +5218,25 @@ body.driver-active-mode:has(#mis-servicios:not([hidden]) #driver-active-service:
   align-self: start;
   justify-self: end;
 }
+.cash-remittance-receive-section,
+.cash-remittance-verification-section {
+  margin-top: 16px;
+  margin-bottom: 12px;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface-alt);
+}
+
+.cash-remittance-verification-section h3 {
+  margin: 0 0 12px;
+}
+
+.cash-remittance-verification-section .field {
+  margin: 0;
+}
+
+.cash-remittance-receive-section__actions,
+.cash-remittance-verification-section__actions {
+  margin-top: 14px;
+}

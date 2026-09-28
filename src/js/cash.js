@@ -1,4 +1,4 @@
-﻿/*
+/*
   Proyecto Atlas / ELARA Transport
   Archivo: cash.js
   Responsabilidad: Caja, cobros en efectivo y rendiciones mock.
@@ -1275,7 +1275,7 @@ function getCashRemittanceId(remittance) {
 }
 
 function getCashRemittanceStatus(remittance) {
-  return remittance?.status === "Anulada" || remittance?.annulledAt ? "Anulada" : "Válida";
+  return remittance?.status === "Anulada" || remittance?.annulledAt ? "Anulada" : "V\u00e1lida";
 }
 
 function getCashOverrunIncidentForRemittance(remittanceId) {
@@ -2459,6 +2459,755 @@ function escapeCashHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+const ADMIN_CASH_REMITTANCE_STATUS_LABELS_REAL = {
+  draft: "Borrador",
+  prepared: "Preparada",
+  submitted: "Enviada",
+  received: "Recibida",
+  verified: "Verificada",
+  cancelled: "Anulada",
+};
+
+const ADMIN_CASH_DISCREPANCY_STATUS_LABELS_REAL = {
+  open: "Abierta",
+  under_review: "En revisi\u00f3n",
+  resolved: "Resuelta",
+  cancelled: "Cancelada",
+};
+
+let adminCashRemittanceHistoryRowsReal = [];
+let adminCashRemittanceHistoryTotalReal = 0;
+let adminCashRemittanceDetailReal = null;
+let adminCashRemittanceHistoryRequestIdReal = 0;
+let pendingAdminCashRemittanceActionReal = null;
+let isAdminCashRemittanceActionRunningReal = false;
+let isAdminCashRemittanceClickBridgeReady = false;
+
+function getAdminCashSupabaseClient() {
+  return window.ElaraSupabase?.client || null;
+}
+
+function isCashUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || "").trim());
+}
+
+function ensureAdminCashRemittanceRealUi() {
+  const statusFilter = cashGetElement("cash-remittance-history-status");
+
+  if (statusFilter && statusFilter.dataset.realRemittanceStatuses !== "true") {
+    statusFilter.innerHTML = `
+      <option value="">Todos</option>
+      <option value="draft">Borrador</option>
+      <option value="prepared">Preparada</option>
+      <option value="submitted">Enviada</option>
+      <option value="received">Recibida</option>
+      <option value="verified">Verificada</option>
+      <option value="cancelled">Anulada</option>
+    `;
+    statusFilter.dataset.realRemittanceStatuses = "true";
+  }
+
+  ["cash-remittance-history-driver", "cash-remittance-history-from", "cash-remittance-history-to"].forEach((id) => {
+    const field = cashGetElement(id);
+
+    if (field) {
+      field.disabled = true;
+      field.title = "El listado real filtra por estado, b£squeda y paginaci¢n.";
+    }
+  });
+
+  const detailModal = cashGetElement("cash-remittance-detail-modal");
+  const detailBody = detailModal?.querySelector(".modal__body");
+  const detailActions = detailModal?.querySelector(".modal__actions");
+
+  if (detailBody && !cashGetElement("cash-remittance-detail-real-content")) {
+    detailBody.insertAdjacentHTML("beforeend", '<div id="cash-remittance-detail-real-content"></div>');
+  }
+
+  let receiveButton = cashGetElement("cash-remittance-receive-action");
+  let receiveSection = cashGetElement("cash-remittance-receive-section");
+
+  if (receiveButton && detailBody && !detailBody.contains(receiveButton)) {
+    receiveButton.remove();
+    receiveButton = null;
+    receiveSection = null;
+  }
+
+  if (detailBody && !receiveButton) {
+    const detailRealContent = cashGetElement("cash-remittance-detail-real-content");
+    const markup = `
+      <section class="service-summary__section cash-remittance-receive-section" id="cash-remittance-receive-section" hidden>
+        <div class="form-actions-inline form-actions-inline--end cash-remittance-receive-section__actions">
+          <button class="button button--compact" type="button" id="cash-remittance-receive-action" data-cash-admin-remittance-action="receive">Marcar recibida</button>
+        </div>
+      </section>
+    `;
+
+    if (detailRealContent) {
+      const receiveAnchor = cashGetElement("cash-remittance-receive-section") || detailRealContent;
+      receiveAnchor.insertAdjacentHTML("afterend", markup);
+    } else {
+      detailBody.insertAdjacentHTML("beforeend", markup);
+    }
+
+    receiveButton = cashGetElement("cash-remittance-receive-action");
+    receiveSection = cashGetElement("cash-remittance-receive-section");
+  }
+
+  let verifyAction = cashGetElement("cash-remittance-verify-action");
+
+  if (verifyAction && detailBody && !detailBody.contains(verifyAction)) {
+    verifyAction.remove();
+    verifyAction = null;
+  }
+
+  if (detailBody && !verifyAction) {
+    const detailRealContent = cashGetElement("cash-remittance-detail-real-content");
+    const markup = `
+      <section class="service-summary__section cash-remittance-verification-section" id="cash-remittance-verify-action" hidden>
+        <h3>Verificaci&oacute;n</h3>
+        <label class="field">
+          <span>Importe verificado</span>
+          <input id="cash-remittance-verify-amount" type="number" min="0.01" step="0.01" inputmode="decimal" />
+        </label>
+        <div class="form-actions-inline form-actions-inline--end cash-remittance-verification-section__actions">
+          <button class="button button--compact" type="button" data-cash-admin-remittance-action="verify">Verificar rendici&oacute;n</button>
+        </div>
+      </section>
+    `;
+
+    if (detailRealContent) {
+      const receiveAnchor = cashGetElement("cash-remittance-receive-section") || detailRealContent;
+      receiveAnchor.insertAdjacentHTML("afterend", markup);
+    } else {
+      detailBody.insertAdjacentHTML("beforeend", markup);
+    }
+
+    verifyAction = cashGetElement("cash-remittance-verify-action");
+  }
+
+  if (verifyAction && !verifyAction.querySelector('[data-cash-admin-remittance-action="verify"]')) {
+    verifyAction.insertAdjacentHTML(
+      "beforeend",
+      '<button class="button button--compact" type="button" data-cash-admin-remittance-action="verify">Verificar rendici&oacute;n</button>',
+    );
+  }
+  if (!cashGetElement("cash-remittance-admin-confirm-modal")) {
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      `
+        <div class="modal-backdrop" id="cash-remittance-admin-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="cash-remittance-admin-confirm-title" hidden>
+          <section class="modal modal--summary">
+            <header class="modal__header">
+              <div>
+                <p class="panel__eyebrow">Caja</p>
+                <h2 id="cash-remittance-admin-confirm-title">Confirmar acci&oacute;n</h2>
+              </div>
+              <button class="button button--compact button--muted" type="button" data-modal-close>Cerrar</button>
+            </header>
+            <div class="modal__body modal__body--summary service-summary">
+              <p class="modal__hint" id="cash-remittance-admin-confirm-summary">-</p>
+              <p class="form-error" id="cash-remittance-admin-confirm-error" hidden></p>
+              <div class="form-actions-inline form-actions-inline--end">
+                <button class="button button--compact button--muted" type="button" id="cash-remittance-admin-confirm-cancel">Cancelar</button>
+                <button class="button button--compact" type="button" id="cash-remittance-admin-confirm-action">Confirmar</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      `,
+    );
+  }
+
+  if (!isAdminCashRemittanceClickBridgeReady) {
+    document.addEventListener("click", handleAdminCashRemittanceRealDocumentClick);
+    document.addEventListener("keydown", handleAdminCashRemittanceRealKeydown);
+    isAdminCashRemittanceClickBridgeReady = true;
+  }
+}
+
+function getCashRemittanceStatus(remittance) {
+  const status = String(remittance?.status || "").trim();
+
+  if (Object.prototype.hasOwnProperty.call(ADMIN_CASH_REMITTANCE_STATUS_LABELS_REAL, status)) {
+    return ADMIN_CASH_REMITTANCE_STATUS_LABELS_REAL[status];
+  }
+
+  return remittance?.status === "Anulada" || remittance?.annulledAt ? "Anulada" : "V\u00e1lida";
+}
+
+function getAdminCashDiscrepancyStatusLabel(status) {
+  const normalizedStatus = String(status || "").trim();
+
+  if (Object.prototype.hasOwnProperty.call(ADMIN_CASH_DISCREPANCY_STATUS_LABELS_REAL, normalizedStatus)) {
+    return ADMIN_CASH_DISCREPANCY_STATUS_LABELS_REAL[normalizedStatus];
+  }
+
+  return normalizedStatus || "Sin estado";
+}
+
+async function renderCashRemittanceHistory() {
+  const container = cashGetElement("cash-remittance-history-list");
+  const meta = cashGetElement("cash-remittance-history-meta");
+  const pagination = cashGetElement("cash-remittance-history-pagination");
+
+  if (!container) {
+    return;
+  }
+
+  ensureAdminCashRemittanceRealUi();
+  syncCashRemittanceHistoryFiltersToDom();
+
+  const client = getAdminCashSupabaseClient();
+
+  if (!client) {
+    container.innerHTML = '<p class="service-assignment-empty">No se pudo conectar con Supabase para cargar rendiciones reales.</p>';
+    if (meta) {
+      meta.textContent = "Sin conexi¢n a datos reales";
+    }
+    renderCashPagination(pagination, 1, 1, "admin-remittances");
+    return;
+  }
+
+  const requestId = ++adminCashRemittanceHistoryRequestIdReal;
+  const offset = (Math.max(cashRemittanceHistoryPage, 1) - 1) * CASH_REMITTANCE_HISTORY_PAGE_SIZE;
+
+  container.innerHTML = '<p class="service-assignment-empty">Cargando rendiciones...</p>';
+  if (meta) {
+    meta.textContent = "Cargando...";
+  }
+  renderCashPagination(pagination, 1, 1, "admin-remittances");
+
+  try {
+    const { data, error } = await client.rpc("get_admin_cash_remittances", {
+      p_status: getAdminCashRemittanceStatusFilterValue(cashRemittanceHistoryFilters.status),
+      p_driver_id: isCashUuid(cashRemittanceHistoryFilters.driverId) ? cashRemittanceHistoryFilters.driverId : null,
+      p_search: cashRemittanceHistoryFilters.remittanceId || null,
+      p_limit: CASH_REMITTANCE_HISTORY_PAGE_SIZE,
+      p_offset: offset,
+    });
+
+    if (requestId !== adminCashRemittanceHistoryRequestIdReal) {
+      return;
+    }
+
+    if (error) {
+      throw error;
+    }
+
+    adminCashRemittanceHistoryRowsReal = (Array.isArray(data) ? data : []).map(normalizeAdminCashRemittanceListRow);
+    adminCashRemittanceHistoryTotalReal = adminCashRemittanceHistoryRowsReal.length ? adminCashRemittanceHistoryRowsReal[0].totalCount : 0;
+
+    const totalPages = Math.max(1, Math.ceil(adminCashRemittanceHistoryTotalReal / CASH_REMITTANCE_HISTORY_PAGE_SIZE));
+
+    if (cashRemittanceHistoryPage > totalPages) {
+      cashRemittanceHistoryPage = totalPages;
+      void renderCashRemittanceHistory();
+      return;
+    }
+
+    if (meta) {
+      meta.textContent = `${adminCashRemittanceHistoryTotalReal} resultado${adminCashRemittanceHistoryTotalReal === 1 ? "" : "s"} - P gina ${cashRemittanceHistoryPage} de ${totalPages}`;
+    }
+
+    if (!adminCashRemittanceHistoryRowsReal.length) {
+      container.innerHTML = '<p class="service-assignment-empty">No hay rendiciones para los filtros seleccionados.</p>';
+      renderCashPagination(pagination, cashRemittanceHistoryPage, totalPages, "admin-remittances");
+      return;
+    }
+
+    container.innerHTML = adminCashRemittanceHistoryRowsReal.map(renderAdminCashRemittanceHistoryCard).join("");
+    renderCashPagination(pagination, cashRemittanceHistoryPage, totalPages, "admin-remittances");
+  } catch (error) {
+    console.error("[ELARA Cash] No se pudo cargar el historial real de rendiciones.", { error });
+    container.innerHTML = `<p class="service-assignment-empty">${escapeCashHtml(formatAdminCashRemittanceError(error, "No se pudo cargar el historial de rendiciones."))}</p>`;
+    if (meta) {
+      meta.textContent = "Error al cargar rendiciones";
+    }
+    renderCashPagination(pagination, 1, 1, "admin-remittances");
+  }
+}
+
+function getAdminCashRemittanceStatusFilterValue(value) {
+  const status = String(value || "").trim();
+
+  return Object.prototype.hasOwnProperty.call(ADMIN_CASH_REMITTANCE_STATUS_LABELS_REAL, status) ? status : null;
+}
+
+function normalizeAdminCashRemittanceListRow(row) {
+  return {
+    remittanceId: String(row?.remittance_id || "").trim(),
+    humanCode: String(row?.human_code || "").trim(),
+    status: String(row?.status || "").trim(),
+    driverId: String(row?.driver_id || "").trim(),
+    driverHumanCode: String(row?.driver_human_code || "").trim(),
+    driverName: String(row?.driver_name || "").trim(),
+    sourceCashAccountName: String(row?.source_cash_account_name || "").trim(),
+    sourceCashAccountType: String(row?.source_cash_account_type || "").trim(),
+    destinationCashAccountName: String(row?.destination_cash_account_name || "").trim(),
+    destinationCashAccountType: String(row?.destination_cash_account_type || "").trim(),
+    currencyCode: String(row?.currency_code || financeData.cashSettings?.currency || "EUR").trim() || "EUR",
+    declaredAmount: roundCashAmount(row?.declared_amount),
+    verifiedAmount: row?.verified_amount == null ? null : roundCashAmount(row.verified_amount),
+    submittedAt: row?.submitted_at || "",
+    receivedAt: row?.received_at || "",
+    verifiedAt: row?.verified_at || "",
+    cancelledAt: row?.cancelled_at || "",
+    createdAt: row?.created_at || "",
+    openDiscrepancyCount: Number(row?.open_discrepancy_count) || 0,
+    openDifferenceAmount: roundCashAmount(row?.open_difference_amount),
+    totalCount: Number(row?.total_count) || 0,
+  };
+}
+
+function renderAdminCashRemittanceHistoryCard(remittance) {
+  const date = remittance.submittedAt || remittance.createdAt;
+  const accountText = `${formatAdminCashAccountLabel(remittance.sourceCashAccountName, remittance.sourceCashAccountType)} -> ${formatAdminCashAccountLabel(remittance.destinationCashAccountName, remittance.destinationCashAccountType)}`;
+  const discrepancyText = remittance.openDiscrepancyCount > 0
+    ? `<small>Discrepancias abiertas: ${escapeCashHtml(remittance.openDiscrepancyCount)} - ${escapeCashHtml(formatAdminCashMoney(remittance.openDifferenceAmount, remittance.currencyCode))}</small>`
+    : "";
+
+  return `
+    <article class="cash-row cash-row--history">
+      <div>
+        <strong>${escapeCashHtml(remittance.humanCode || remittance.remittanceId)}</strong>
+        <span>${escapeCashHtml(formatCashDateTime(date))} - ${escapeCashHtml(formatAdminCashDriverLabel(remittance))}</span>
+        <small>${escapeCashHtml(accountText)}</small>
+        ${discrepancyText}
+      </div>
+      <strong class="cash-row__amount cash-row__amount--in">${escapeCashHtml(formatAdminCashMoney(remittance.declaredAmount, remittance.currencyCode))}</strong>
+      <span class="cash-row__status">${escapeCashHtml(getCashRemittanceStatus(remittance))}</span>
+      <button class="button button--compact button--muted" type="button" data-cash-remittance-detail="${escapeCashHtml(remittance.remittanceId)}">Detalle</button>
+    </article>
+  `;
+}
+
+async function openCashRemittanceDetail(remittanceId, options = {}) {
+  const id = String(remittanceId || "").trim();
+  const client = getAdminCashSupabaseClient();
+
+  ensureAdminCashRemittanceRealUi();
+
+  if (!id) {
+    notifyCash("Selecciona una rendici\u00f3n v\u00e1lida.", "warning");
+    return;
+  }
+
+  if (!client) {
+    notifyCash("No se pudo conectar con Supabase para cargar el detalle real.", "error");
+    return;
+  }
+
+  selectedCashRemittanceId = id;
+  adminCashRemittanceDetailReal = null;
+  renderAdminCashRemittanceDetailLoading(id);
+
+  if (!options.keepOpen) {
+    openCashModal("cash-remittance-detail-modal");
+  }
+
+  try {
+    const { data, error } = await client.rpc("get_admin_cash_remittance_detail", { p_remittance_id: id });
+
+    if (error) {
+      throw error;
+    }
+
+    const row = Array.isArray(data) ? data[0] : data;
+
+    if (!row) {
+      throw new Error("Cash remittance was not found.");
+    }
+
+    adminCashRemittanceDetailReal = normalizeAdminCashRemittanceDetail(row);
+    selectedCashRemittanceId = adminCashRemittanceDetailReal.remittanceId;
+    renderAdminCashRemittanceDetail(adminCashRemittanceDetailReal);
+  } catch (error) {
+    console.error("[ELARA Cash] No se pudo cargar el detalle real de la rendici\u00f3n.", { error });
+    renderAdminCashRemittanceDetailError(formatAdminCashRemittanceError(error, "No se pudo cargar el detalle de la rendici\u00f3n."));
+  }
+}
+
+function normalizeAdminCashRemittanceDetail(row) {
+  return {
+    ...normalizeAdminCashRemittanceListRow(row),
+    notes: String(row?.notes || "").trim(),
+    cancellationReason: String(row?.cancellation_reason || "").trim(),
+    submittedByDriverHumanCode: String(row?.submitted_by_driver_human_code || "").trim(),
+    submittedByDriverName: String(row?.submitted_by_driver_name || "").trim(),
+    preparedByUserHumanCode: String(row?.prepared_by_user_human_code || "").trim(),
+    preparedByUserName: String(row?.prepared_by_user_name || "").trim(),
+    cancelledByUserHumanCode: String(row?.cancelled_by_user_human_code || "").trim(),
+    cancelledByUserName: String(row?.cancelled_by_user_name || "").trim(),
+    items: parseAdminCashJsonArray(row?.items).map(normalizeAdminCashRemittanceItem),
+    discrepancies: parseAdminCashJsonArray(row?.discrepancies).map(normalizeAdminCashDiscrepancy),
+  };
+}
+
+function normalizeAdminCashRemittanceItem(item) {
+  return {
+    cashMovementHumanCode: String(item?.cash_movement_human_code || "").trim(),
+    servicePaymentHumanCode: String(item?.service_payment_human_code || "").trim(),
+    serviceHumanCode: String(item?.service_human_code || "").trim(),
+    amount: roundCashAmount(item?.amount),
+    description: String(item?.description || "").trim(),
+  };
+}
+
+function normalizeAdminCashDiscrepancy(discrepancy) {
+  return {
+    humanCode: String(discrepancy?.human_code || "").trim(),
+    status: String(discrepancy?.status || "").trim(),
+    reasonCode: String(discrepancy?.reason_code || "").trim(),
+    reasonDetails: String(discrepancy?.reason_details || "").trim(),
+    differenceAmount: roundCashAmount(discrepancy?.difference_amount),
+  };
+}
+
+function parseAdminCashJsonArray(value) {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+      console.warn("[ELARA Cash] JSON de detalle de rendici\u00f3n inv\u00e1lido.", { error });
+    }
+  }
+
+  return [];
+}
+
+function renderAdminCashRemittanceDetailLoading(remittanceId) {
+  cashSetText("cash-remittance-detail-id", remittanceId);
+  cashSetText("cash-remittance-detail-date", "Cargando...");
+  cashSetText("cash-remittance-detail-collector", "Cargando...");
+  cashSetText("cash-remittance-detail-amount", "Cargando...");
+  cashSetText("cash-remittance-detail-registered-by", "Cargando...");
+  cashSetText("cash-remittance-detail-status", "Cargando...");
+  cashSetText("cash-remittance-detail-difference", "Cargando...");
+  cashSetText("cash-remittance-detail-notes", "Cargando...");
+  cashSetText("cash-remittance-detail-voided-at", "-");
+  cashSetText("cash-remittance-detail-voided-by", "-");
+  cashSetText("cash-remittance-detail-void-reason", "-");
+  renderAdminCashRemittanceDetailExtra({ loading: true });
+  setElementVisibility("cash-remittance-void-action", false);
+  setElementVisibility("cash-remittance-receive-section", false);
+  setElementVisibility("cash-remittance-receive-action", false);
+  setElementVisibility("cash-remittance-verify-action", false);
+}
+
+function renderAdminCashRemittanceDetailError(message) {
+  renderAdminCashRemittanceDetailExtra({ error: message });
+  setElementVisibility("cash-remittance-void-action", false);
+  setElementVisibility("cash-remittance-receive-section", false);
+  setElementVisibility("cash-remittance-receive-action", false);
+  setElementVisibility("cash-remittance-verify-action", false);
+}
+
+function renderAdminCashRemittanceDetail(detail) {
+  const actorLabel = formatAdminCashActorLabel(detail.submittedByDriverName, detail.submittedByDriverHumanCode) || formatAdminCashActorLabel(detail.preparedByUserName, detail.preparedByUserHumanCode) || "-";
+
+  cashSetText("cash-remittance-detail-id", detail.humanCode || detail.remittanceId);
+  cashSetText("cash-remittance-detail-date", formatCashDateTime(detail.submittedAt || detail.createdAt));
+  cashSetText("cash-remittance-detail-collector", formatAdminCashDriverLabel(detail));
+  cashSetText("cash-remittance-detail-amount", formatAdminCashMoney(detail.declaredAmount, detail.currencyCode));
+  cashSetText("cash-remittance-detail-registered-by", actorLabel);
+  cashSetText("cash-remittance-detail-status", getCashRemittanceStatus(detail));
+  cashSetText("cash-remittance-detail-difference", formatAdminCashRemittanceDifference(detail));
+  cashSetText("cash-remittance-detail-notes", detail.notes || "Sin observaciones");
+  cashSetText("cash-remittance-detail-voided-at", detail.cancelledAt ? formatCashDateTime(detail.cancelledAt) : "-");
+  cashSetText("cash-remittance-detail-voided-by", formatAdminCashActorLabel(detail.cancelledByUserName, detail.cancelledByUserHumanCode) || "-");
+  cashSetText("cash-remittance-detail-void-reason", detail.cancellationReason || "-");
+  setElementVisibility("cash-remittance-void-action", false);
+  renderAdminCashRemittanceDetailExtra(detail);
+  renderAdminCashRemittanceDetailActions(detail);
+}
+
+function renderAdminCashRemittanceDetailExtra(detail) {
+  const container = cashGetElement("cash-remittance-detail-real-content");
+
+  if (!container) {
+    return;
+  }
+
+  if (detail?.loading) {
+    container.innerHTML = '<p class="service-assignment-empty">Cargando detalle real...</p>';
+    return;
+  }
+
+  if (detail?.error) {
+    container.innerHTML = `<p class="service-assignment-empty">${escapeCashHtml(detail.error)}</p>`;
+    return;
+  }
+
+  const itemRows = detail.items.length
+    ? detail.items.map((item) => `
+        <article class="cash-row cash-row--history">
+          <div>
+            <strong>${escapeCashHtml(item.cashMovementHumanCode || item.servicePaymentHumanCode || item.serviceHumanCode || "Movimiento")}</strong>
+            <span>${escapeCashHtml([item.serviceHumanCode ? `Servicio ${item.serviceHumanCode}` : "", item.description || ""].filter(Boolean).join(" - ") || "Efectivo rendido")}</span>
+          </div>
+          <strong class="cash-row__amount cash-row__amount--in">${escapeCashHtml(formatAdminCashMoney(item.amount, detail.currencyCode))}</strong>
+        </article>
+      `).join("")
+    : '<p class="service-assignment-empty">Sin movimientos asociados.</p>';
+  const discrepancyRows = detail.discrepancies.length
+    ? detail.discrepancies.map((discrepancy) => `
+        <article class="cash-row cash-row--history">
+          <div>
+            <strong>${escapeCashHtml(discrepancy.humanCode || "Discrepancia")}</strong>
+            <span>${escapeCashHtml(getAdminCashDiscrepancyStatusLabel(discrepancy.status))} - ${escapeCashHtml(discrepancy.reasonDetails || discrepancy.reasonCode || "Sin detalle")}</span>
+          </div>
+          <strong>${escapeCashHtml(formatAdminCashMoney(discrepancy.differenceAmount, detail.currencyCode))}</strong>
+        </article>
+      `).join("")
+    : '<p class="service-assignment-empty">Sin discrepancias registradas.</p>';
+
+  container.innerHTML = `
+    <section class="service-summary__section">
+      <h3>Cuentas</h3>
+      <p class="modal__hint">Origen: ${escapeCashHtml(formatAdminCashAccountLabel(detail.sourceCashAccountName, detail.sourceCashAccountType))} - Destino: ${escapeCashHtml(formatAdminCashAccountLabel(detail.destinationCashAccountName, detail.destinationCashAccountType))}</p>
+    </section>
+    <section class="service-summary__section">
+      <h3>Movimientos rendidos</h3>
+      <div class="cash-list">${itemRows}</div>
+    </section>
+    <section class="service-summary__section">
+      <h3>Discrepancias</h3>
+      <div class="cash-list">${discrepancyRows}</div>
+    </section>
+  `;
+}
+
+function renderAdminCashRemittanceDetailActions(detail) {
+  ensureAdminCashRemittanceRealUi();
+
+  const receiveSection = cashGetElement("cash-remittance-receive-section");
+  const receiveButton = cashGetElement("cash-remittance-receive-action");
+  const verifyAction = cashGetElement("cash-remittance-verify-action");
+  const verifyInput = cashGetElement("cash-remittance-verify-amount");
+  const verifyButton = verifyAction?.querySelector('[data-cash-admin-remittance-action="verify"]');
+  const isSubmitted = detail.status === "submitted";
+  const isReceived = detail.status === "received";
+
+  if (receiveSection) {
+    receiveSection.hidden = !isSubmitted;
+  }
+
+  if (receiveButton) {
+    receiveButton.hidden = !isSubmitted;
+    receiveButton.disabled = false;
+  }
+
+  if (verifyAction) {
+    verifyAction.hidden = !isReceived;
+  }
+
+  if (verifyButton) {
+    verifyButton.hidden = !isReceived;
+    verifyButton.disabled = false;
+  }
+
+  if (verifyInput) {
+    verifyInput.value = isReceived ? String(roundCashAmount(detail.declaredAmount).toFixed(2)) : "";
+  }
+}
+function handleAdminCashRemittanceRealDocumentClick(event) {
+  const confirmModal = event.target.closest("#cash-remittance-admin-confirm-modal");
+
+  if (confirmModal && (event.target.closest("[data-modal-close]") || event.target === confirmModal || event.target.closest("#cash-remittance-admin-confirm-cancel"))) {
+    closeAdminCashRemittanceConfirmModal();
+    return;
+  }
+
+  if (event.target.closest("#cash-remittance-admin-confirm-action")) {
+    void executePendingAdminCashRemittanceAction();
+    return;
+  }
+
+  const actionButton = event.target.closest("[data-cash-admin-remittance-action]");
+
+  if (actionButton && !cashGetElement("caja")?.hidden) {
+    openAdminCashRemittanceActionConfirmation(actionButton.dataset.cashAdminRemittanceAction || "");
+  }
+}
+
+function handleAdminCashRemittanceRealKeydown(event) {
+  if (event.key === "Escape" && !cashGetElement("cash-remittance-admin-confirm-modal")?.hidden) {
+    closeAdminCashRemittanceConfirmModal();
+  }
+}
+
+function openAdminCashRemittanceActionConfirmation(action) {
+  const detail = adminCashRemittanceDetailReal;
+
+  if (!detail) {
+    notifyCash("Carga primero el detalle de la rendici\u00f3n.", "warning");
+    return;
+  }
+
+  if (action === "receive") {
+    if (detail.status !== "submitted") {
+      notifyCash("Solo se pueden recibir rendiciones enviadas.", "warning");
+      return;
+    }
+
+    pendingAdminCashRemittanceActionReal = { type: "receive", remittanceId: detail.remittanceId };
+    openAdminCashRemittanceConfirmModal("Recibir rendici\u00f3n", `Se marcar\u00e1 ${detail.humanCode || "la rendici\u00f3n"} como recibida por ${formatAdminCashMoney(detail.declaredAmount, detail.currencyCode)}.`);
+    return;
+  }
+
+  if (action === "verify") {
+    if (detail.status !== "received") {
+      notifyCash("Solo se pueden verificar rendiciones recibidas.", "warning");
+      return;
+    }
+
+    const verifiedAmount = getMoneyInput("cash-remittance-verify-amount");
+
+    if (verifiedAmount <= 0) {
+      notifyCash("Introduce un importe verificado v\u00e1lido.", "warning");
+      return;
+    }
+
+    const difference = roundCashAmount(verifiedAmount - detail.declaredAmount);
+    let differenceText = "No se registrar\u00e1 diferencia.";
+
+    if (difference < 0) {
+      differenceText = `Se registrar\u00e1 un faltante de ${formatAdminCashMoney(Math.abs(difference), detail.currencyCode)} y quedar\u00e1 en revisi\u00f3n.`;
+    } else if (difference > 0) {
+      differenceText = `Se registrar\u00e1 un excedente de ${formatAdminCashMoney(difference, detail.currencyCode)} y quedar\u00e1 en revisi\u00f3n.`;
+    }
+
+    pendingAdminCashRemittanceActionReal = { type: "verify", remittanceId: detail.remittanceId, verifiedAmount };
+    openAdminCashRemittanceConfirmModal("Verificar rendici\u00f3n", `Se verificar\u00e1 ${detail.humanCode || "la rendici\u00f3n"} por ${formatAdminCashMoney(verifiedAmount, detail.currencyCode)}. ${differenceText}`);
+  }
+}
+
+function openAdminCashRemittanceConfirmModal(title, summary) {
+  cashSetText("cash-remittance-admin-confirm-title", title);
+  cashSetText("cash-remittance-admin-confirm-summary", summary);
+  cashSetText("cash-remittance-admin-confirm-error", "");
+  setElementVisibility("cash-remittance-admin-confirm-error", false);
+
+  const actionButton = cashGetElement("cash-remittance-admin-confirm-action");
+
+  if (actionButton) {
+    actionButton.disabled = false;
+    actionButton.textContent = "Confirmar";
+  }
+
+  openCashModal("cash-remittance-admin-confirm-modal");
+}
+
+function closeAdminCashRemittanceConfirmModal() {
+  pendingAdminCashRemittanceActionReal = null;
+  isAdminCashRemittanceActionRunningReal = false;
+  closeCashModal(cashGetElement("cash-remittance-admin-confirm-modal"));
+}
+
+async function executePendingAdminCashRemittanceAction() {
+  const client = getAdminCashSupabaseClient();
+  const action = pendingAdminCashRemittanceActionReal;
+  const actionButton = cashGetElement("cash-remittance-admin-confirm-action");
+  const errorElement = cashGetElement("cash-remittance-admin-confirm-error");
+
+  if (!client || !action || isAdminCashRemittanceActionRunningReal) {
+    return;
+  }
+
+  isAdminCashRemittanceActionRunningReal = true;
+
+  if (actionButton) {
+    actionButton.disabled = true;
+    actionButton.textContent = "Procesando...";
+  }
+
+  try {
+    const rpcName = action.type === "receive" ? "receive_cash_remittance" : "verify_cash_remittance";
+    const rpcArgs = action.type === "receive"
+      ? { p_remittance_id: action.remittanceId }
+      : { p_remittance_id: action.remittanceId, p_verified_amount: action.verifiedAmount };
+    const { error } = await client.rpc(rpcName, rpcArgs);
+
+    if (error) {
+      throw error;
+    }
+
+    closeAdminCashRemittanceConfirmModal();
+    notifyCash(action.type === "receive" ? "Rendici\u00f3n recibida correctamente." : "Rendici\u00f3n verificada correctamente.", "success");
+    void renderCashRemittanceHistory();
+    await openCashRemittanceDetail(action.remittanceId, { keepOpen: true });
+  } catch (error) {
+    const message = formatAdminCashRemittanceError(error, "No se pudo completar la acci\u00f3n sobre la rendici\u00f3n.");
+    console.error("[ELARA Cash] Error en acci\u00f3n real de rendici\u00f3n.", { error, action });
+    if (errorElement) {
+      errorElement.textContent = message;
+      errorElement.hidden = false;
+    }
+    notifyCash(message, "error");
+  } finally {
+    isAdminCashRemittanceActionRunningReal = false;
+    if (actionButton) {
+      actionButton.disabled = false;
+      actionButton.textContent = "Confirmar";
+    }
+  }
+}
+
+function formatAdminCashDriverLabel(remittance) {
+  const name = String(remittance?.driverName || remittance?.submittedByDriverName || "").trim();
+  const code = String(remittance?.driverHumanCode || remittance?.submittedByDriverHumanCode || "").trim();
+
+  return [name || "Conductor", code].filter(Boolean).join(" - ");
+}
+
+function formatAdminCashActorLabel(name, humanCode) {
+  return [String(name || "").trim(), String(humanCode || "").trim()].filter(Boolean).join(" - ");
+}
+
+function formatAdminCashAccountLabel(name, type) {
+  return [String(name || "Cuenta").trim(), String(type || "").trim()].filter(Boolean).join(" - ");
+}
+
+function formatAdminCashMoney(value, currencyCode) {
+  const amount = roundCashAmount(value);
+  const currency = String(currencyCode || financeData.cashSettings?.currency || "EUR").trim() || "EUR";
+
+  return new Intl.NumberFormat("es-ES", { style: "currency", currency }).format(amount);
+}
+
+function formatAdminCashRemittanceDifference(detail) {
+  const verifiedAmount = detail?.verifiedAmount;
+
+  if (verifiedAmount == null) {
+    return detail?.openDiscrepancyCount > 0 ? `${detail.openDiscrepancyCount} abierta(s)` : "Sin diferencia";
+  }
+
+  const difference = roundCashAmount(verifiedAmount - detail.declaredAmount);
+
+  return difference === 0 ? "Sin diferencia" : formatAdminCashMoney(difference, detail.currencyCode);
+}
+
+function formatAdminCashRemittanceError(error, fallbackMessage) {
+  const message = String(error?.message || "").trim();
+  const code = String(error?.code || "").trim();
+
+  if (code === "42501" || /permission|not authorized|require_admin_user|No tienes permiso/i.test(message)) {
+    return "No tienes permiso para operar rendiciones de caja.";
+  }
+
+  if (["23502", "23503", "23514", "40001", "P0002"].includes(code) && message) {
+    return message;
+  }
+
+  return message || fallbackMessage;
 }
 
 window.ElaraCash = {
