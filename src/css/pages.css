@@ -5240,3 +5240,26 @@ body.driver-active-mode:has(#mis-servicios:not([hidden]) #driver-active-service:
 .cash-remittance-verification-section__actions {
   margin-top: 14px;
 }
+
+#cash-remittance-detail-modal .modal--summary {
+  display: flex;
+  flex-direction: column;
+  max-height: min(90vh, 860px);
+  overflow: hidden;
+}
+
+#cash-remittance-detail-modal .modal__header {
+  flex: 0 0 auto;
+}
+
+#cash-remittance-detail-modal .modal__body--summary {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+  padding-bottom: 18px;
+}
+
+#cash-remittance-detail-modal .modal__actions {
+  flex: 0 0 auto;
+}
