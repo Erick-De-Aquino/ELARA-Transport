@@ -2906,11 +2906,6 @@ async function openAdminCashDiscrepancyDetail(discrepancyId, options = {}) {
 
   selectedAdminCashDiscrepancyIdReal = id;
   adminCashDiscrepancyDetailReal = null;
-  renderAdminCashDiscrepancyDetailLoading(id);
-
-  if (!options.keepOpen) {
-    openCashModal("cash-discrepancy-detail-modal");
-  }
 
   try {
     const { data, error } = await client.rpc("get_admin_cash_discrepancy_detail", { p_discrepancy_id: id });
@@ -2928,9 +2923,15 @@ async function openAdminCashDiscrepancyDetail(discrepancyId, options = {}) {
     adminCashDiscrepancyDetailReal = normalizeAdminCashDiscrepancyDetail(row);
     selectedAdminCashDiscrepancyIdReal = adminCashDiscrepancyDetailReal.discrepancyId;
     renderAdminCashDiscrepancyDetail(adminCashDiscrepancyDetailReal);
+
+    if (!options.keepOpen) {
+      openCashModal("cash-discrepancy-detail-modal");
+    }
   } catch (error) {
+    selectedAdminCashDiscrepancyIdReal = "";
+    adminCashDiscrepancyDetailReal = null;
     console.error("[ELARA Cash] No se pudo cargar el detalle real de la discrepancia.", { error });
-    renderAdminCashDiscrepancyDetailError(formatAdminCashDiscrepancyError(error, "No se pudo cargar el detalle de la discrepancia."));
+    notifyCash(formatAdminCashDiscrepancyError(error, "No se pudo cargar el detalle de la discrepancia."), "error");
   }
 }
 
