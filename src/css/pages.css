@@ -5263,3 +5263,37 @@ body.driver-active-mode:has(#mis-servicios:not([hidden]) #driver-active-service:
 #cash-remittance-detail-modal .modal__actions {
   flex: 0 0 auto;
 }
+.cash-discrepancy-amounts {
+  display: grid;
+  gap: 4px;
+  min-width: 150px;
+  color: var(--color-muted);
+  font-size: 0.82rem;
+  line-height: 1.35;
+  text-align: right;
+}
+
+.cash-discrepancy-amounts strong {
+  color: var(--color-text);
+  font-size: 0.9rem;
+}
+
+#cash-discrepancy-detail-modal .cash-discrepancy-detail-modal {
+  display: flex;
+  flex-direction: column;
+  max-height: min(90vh, 860px);
+  overflow: hidden;
+}
+
+#cash-discrepancy-detail-modal .modal__header,
+#cash-discrepancy-detail-modal .modal__actions {
+  flex: 0 0 auto;
+}
+
+#cash-discrepancy-detail-modal .modal__body--summary {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+  padding-bottom: 18px;
+}

@@ -333,6 +333,42 @@
                 <div class="cash-list" id="cash-remittance-history-list"></div>
                 <div class="cash-pagination" id="cash-remittance-history-pagination"></div>
               </article>
+              <article class="panel cash-panel" aria-labelledby="cash-discrepancies-heading">
+                <div class="panel__header">
+                  <div>
+                    <p class="panel__eyebrow">Control administrativo</p>
+                    <h2 id="cash-discrepancies-heading">Discrepancias</h2>
+                  </div>
+                </div>
+                <div class="cash-history-controls">
+                  <label class="field">
+                    <span>Estado</span>
+                    <select id="cash-discrepancy-status">
+                      <option value="">Todos</option>
+                      <option value="open">Abierta</option>
+                      <option value="under_review">En revisi&oacute;n</option>
+                      <option value="resolved">Resuelta</option>
+                      <option value="cancelled">Cancelada</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Tipo</span>
+                    <select id="cash-discrepancy-type">
+                      <option value="">Todos</option>
+                      <option value="remittance">Rendici&oacute;n</option>
+                      <option value="cash_count">Arqueo</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>B&uacute;squeda</span>
+                    <input id="cash-discrepancy-search" type="search" placeholder="DIF-0001, REM-0001" />
+                  </label>
+                  <button class="button button--compact button--muted" type="button" id="cash-discrepancy-clear">Limpiar</button>
+                </div>
+                <p class="cash-results-meta" id="cash-discrepancy-meta">-</p>
+                <div class="cash-list" id="cash-discrepancy-list"></div>
+                <div class="cash-pagination" id="cash-discrepancy-pagination"></div>
+              </article>
 
             </div>
 
@@ -616,6 +652,45 @@
           </section>
         </div>
 
+        <div class="modal-backdrop" id="cash-discrepancy-detail-modal" role="dialog" aria-modal="true" aria-labelledby="cash-discrepancy-detail-title" hidden>
+          <section class="modal modal--summary cash-discrepancy-detail-modal">
+            <header class="modal__header">
+              <div>
+                <p class="panel__eyebrow">Caja</p>
+                <h2 id="cash-discrepancy-detail-title">Detalle de discrepancia</h2>
+              </div>
+              <button class="button button--compact button--muted" type="button" data-modal-close>Cerrar</button>
+            </header>
+            <div class="modal__body modal__body--summary service-summary" id="cash-discrepancy-detail-body">
+              <p class="service-assignment-empty">Selecciona una discrepancia.</p>
+            </div>
+            <div class="modal__actions" id="cash-discrepancy-detail-actions"></div>
+          </section>
+        </div>
+
+        <div class="modal-backdrop" id="cash-discrepancy-action-modal" role="dialog" aria-modal="true" aria-labelledby="cash-discrepancy-action-title" hidden>
+          <section class="modal modal--summary">
+            <header class="modal__header">
+              <div>
+                <p class="panel__eyebrow">Caja</p>
+                <h2 id="cash-discrepancy-action-title">Confirmar acci&oacute;n</h2>
+              </div>
+              <button class="button button--compact button--muted" type="button" data-modal-close>Cerrar</button>
+            </header>
+            <div class="modal__body modal__body--summary service-summary">
+              <p class="modal__hint" id="cash-discrepancy-action-summary">-</p>
+              <label class="field field--compact-textarea" id="cash-discrepancy-action-notes-field" hidden>
+                <span id="cash-discrepancy-action-notes-label">Notas</span>
+                <textarea id="cash-discrepancy-action-notes" rows="3"></textarea>
+              </label>
+              <p class="form-error" id="cash-discrepancy-action-error" hidden></p>
+              <div class="form-actions-inline form-actions-inline--end">
+                <button class="button button--compact button--muted" type="button" id="cash-discrepancy-action-cancel">Cancelar</button>
+                <button class="button button--compact" type="button" id="cash-discrepancy-action-confirm">Confirmar</button>
+              </div>
+            </div>
+          </section>
+        </div>
         <!-- =========================
              MODULO CUENTAS POR COBRAR
         ========================= -->

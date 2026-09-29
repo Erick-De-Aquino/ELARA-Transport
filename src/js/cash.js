@@ -19,12 +19,15 @@ const ADMIN_INCIDENTS_EVENT = "elara:admin-incidents-updated";
 const CASH_VALID_COLLECTOR_TYPES = ["Elara", "Administracion", "Chofer", "Colaborador"];
 const CASH_REMITTANCE_HISTORY_PAGE_SIZE = 20;
 const CASH_DEFAULT_HISTORY_DAYS = 30;
+const CASH_DISCREPANCY_PAGE_SIZE = 20;
 
 let isCashControlsInitialized = false;
 let selectedCashRemittanceId = "";
 let pendingCashRemittanceOverrunDraft = null;
 let cashRemittanceHistoryPage = 1;
 let cashRemittanceHistoryFilters = getDefaultCashRemittanceHistoryFilters();
+let cashDiscrepancyPage = 1;
+let cashDiscrepancyFilters = getDefaultCashDiscrepancyFilters();
 
 function showCash() {
   if (!canViewCash()) {
@@ -49,6 +52,7 @@ function renderCashView() {
   renderCashMovements();
   renderCashForms();
   renderCashRemittanceHistory();
+  renderAdminCashDiscrepancies();
   renderCashCounts();
 }
 
@@ -206,10 +210,10 @@ function registerSettlementCashOutflow({
 
   const normalizedSettlementId = String(settlementId || "").trim();
   const normalizedAmount = roundCashAmount(amount);
-  const normalizedCategory = `Pago de liquidación ${normalizedSettlementId}`;
+  const normalizedCategory = `Pago de liquidaci\u00f3n ${normalizedSettlementId}`;
 
   if (!normalizedSettlementId || normalizedAmount <= 0 || !paymentMethod) {
-    return { ok: false, movement: null, movementId: null, duplicate: false, error: "Datos de pago de liquidación incompletos." };
+    return { ok: false, movement: null, movementId: null, duplicate: false, error: "Datos de pago de liquidaci\u00f3n incompletos." };
   }
 
   const existingMovement = financeData.cashMovements.find(
@@ -282,16 +286,16 @@ function registerSettlementPaymentReversal({
   const normalizedSettlementId = String(settlementId || "").trim();
   const normalizedOriginalMovementId = String(originalCashMovementId || "").trim();
   const normalizedAmount = roundCashAmount(amount);
-  const normalizedCategory = `Reversión de pago de liquidación ${normalizedSettlementId}`;
+  const normalizedCategory = `Reversi\u00f3n de pago de liquidaci\u00f3n ${normalizedSettlementId}`;
 
   if (!normalizedSettlementId || !normalizedOriginalMovementId || normalizedAmount <= 0 || !reason) {
-    return { ok: false, movement: null, movementId: null, duplicate: false, error: "Datos de reversión de liquidación incompletos." };
+    return { ok: false, movement: null, movementId: null, duplicate: false, error: "Datos de reversi\u00f3n de liquidaci\u00f3n incompletos." };
   }
 
   const originalMovement = financeData.cashMovements.find((movement) => movement.id === normalizedOriginalMovementId && movement.sourceType === "settlement");
 
   if (!originalMovement) {
-    return { ok: false, movement: null, movementId: null, duplicate: false, error: "No se encontró el movimiento original de Caja." };
+    return { ok: false, movement: null, movementId: null, duplicate: false, error: "No se encontr\u00f3 el movimiento original de Caja." };
   }
 
   const existingReversal = financeData.cashMovements.find(
@@ -454,16 +458,16 @@ function registerReceivablePaymentReversal({
   const normalizedServiceId = String(serviceId || "").trim();
   const normalizedOriginalMovementId = String(originalCashMovementId || "").trim();
   const normalizedAmount = roundCashAmount(amount);
-  const normalizedCategory = `Reversión de cobro de cuenta por cobrar ${normalizedReceivableId}`;
+  const normalizedCategory = `Reversi\u00f3n de cobro de cuenta por cobrar ${normalizedReceivableId}`;
 
   if (!normalizedReceivableId || !normalizedPaymentId || !normalizedServiceId || !normalizedOriginalMovementId || normalizedAmount <= 0 || !reason) {
-    return { ok: false, movement: null, movementId: null, duplicate: false, error: "Datos de reversión de cuenta por cobrar incompletos." };
+    return { ok: false, movement: null, movementId: null, duplicate: false, error: "Datos de reversi\u00f3n de cuenta por cobrar incompletos." };
   }
 
   const originalMovement = financeData.cashMovements.find((movement) => movement.id === normalizedOriginalMovementId && movement.sourceType === "receivable" && movement.sourceId === normalizedReceivableId && movement.receivablePaymentId === normalizedPaymentId);
 
   if (!originalMovement) {
-    return { ok: false, movement: null, movementId: null, duplicate: false, error: "No se encontró el movimiento original de Caja." };
+    return { ok: false, movement: null, movementId: null, duplicate: false, error: "No se encontr\u00f3 el movimiento original de Caja." };
   }
 
   const existingReversal = financeData.cashMovements.find(
@@ -703,7 +707,7 @@ function renderCashRemittanceHistory() {
   const pageItems = remittances.slice(pageStart, pageStart + CASH_REMITTANCE_HISTORY_PAGE_SIZE);
 
   if (meta) {
-    meta.textContent = `${remittances.length} resultado${remittances.length === 1 ? "" : "s"} · Pagina ${cashRemittanceHistoryPage} de ${totalPages}`;
+    meta.textContent = `${remittances.length} resultado${remittances.length === 1 ? "" : "s"} \u00b7 Pagina ${cashRemittanceHistoryPage} de ${totalPages}`;
   }
 
   if (!pageItems.length) {
@@ -722,7 +726,7 @@ function renderCashRemittanceHistory() {
         <article class="cash-row cash-row--history">
           <div>
             <strong>${escapeCashHtml(driver?.name || "Conductor")}</strong>
-            <span>${escapeCashHtml(formatCashDateTime(remittance.createdAt))} · ${escapeCashHtml(driver?.driverType || "Conductor")}</span>
+            <span>${escapeCashHtml(formatCashDateTime(remittance.createdAt))} \u00b7 ${escapeCashHtml(driver?.driverType || "Conductor")}</span>
             <small>Registrado por ${escapeCashHtml(remittance.registeredByName || "Administracion")}</small>
             ${observations ? `<small>${escapeCashHtml(observations)}</small>` : ""}
           </div>
@@ -798,6 +802,10 @@ function initCashControls() {
   const historyTo = cashGetElement("cash-remittance-history-to");
   const historyId = cashGetElement("cash-remittance-history-id");
   const historyClear = cashGetElement("cash-remittance-history-clear");
+  const discrepancyStatus = cashGetElement("cash-discrepancy-status");
+  const discrepancyType = cashGetElement("cash-discrepancy-type");
+  const discrepancySearch = cashGetElement("cash-discrepancy-search");
+  const discrepancyClear = cashGetElement("cash-discrepancy-clear");
 
   remittanceForm?.addEventListener("submit", registerCashRemittanceSettlement);
   countForm?.addEventListener("submit", registerCashCount);
@@ -810,13 +818,16 @@ function initCashControls() {
   [historyDriver, historyStatus, historyFrom, historyTo].forEach((element) => element?.addEventListener("change", handleCashRemittanceHistoryFilterChange));
   historyId?.addEventListener("input", handleCashRemittanceHistoryFilterChange);
   historyClear?.addEventListener("click", clearCashRemittanceHistoryFilters);
+  [discrepancyStatus, discrepancyType].forEach((element) => element?.addEventListener("change", handleCashDiscrepancyFilterChange));
+  discrepancySearch?.addEventListener("input", handleCashDiscrepancyFilterChange);
+  discrepancyClear?.addEventListener("click", clearCashDiscrepancyFilters);
   document.addEventListener("click", handleCashDocumentClick);
   document.addEventListener("keydown", handleCashKeydown);
   isCashControlsInitialized = true;
 }
 
 function handleCashDocumentClick(event) {
-  const cashModal = event.target.closest("#cash-remittance-form-modal, #cash-count-form-modal, #cash-adjustment-form-modal, #cash-void-form-modal, #cash-difference-close-modal, #cash-remittance-detail-modal, #cash-remittance-void-modal, #cash-remittance-overrun-modal, #cash-count-detail-modal");
+  const cashModal = event.target.closest("#cash-remittance-form-modal, #cash-count-form-modal, #cash-adjustment-form-modal, #cash-void-form-modal, #cash-difference-close-modal, #cash-remittance-detail-modal, #cash-remittance-void-modal, #cash-remittance-overrun-modal, #cash-count-detail-modal, #cash-discrepancy-detail-modal, #cash-discrepancy-action-modal");
   const closeButton = event.target.closest("[data-modal-close]");
 
   if (cashModal && (closeButton || event.target === cashModal)) {
@@ -841,6 +852,14 @@ function handleCashDocumentClick(event) {
   const paginationButton = event.target.closest("[data-cash-pagination]");
 
   if (paginationButton && !cashGetElement("caja")?.hidden) {
+    const paginationScope = paginationButton.dataset.cashPagination || "";
+
+    if (paginationScope === "admin-discrepancies") {
+      cashDiscrepancyPage = Number(paginationButton.dataset.cashPage) || 1;
+      void renderAdminCashDiscrepancies();
+      return;
+    }
+
     cashRemittanceHistoryPage = Number(paginationButton.dataset.cashPage) || 1;
     renderCashRemittanceHistory();
     return;
@@ -866,6 +885,29 @@ function handleCashDocumentClick(event) {
     return;
   }
 
+  const discrepancyDetailButton = event.target.closest("[data-cash-discrepancy-detail]");
+
+  if (discrepancyDetailButton && !cashGetElement("caja")?.hidden) {
+    void openAdminCashDiscrepancyDetail(discrepancyDetailButton.dataset.cashDiscrepancyDetail);
+    return;
+  }
+
+  if (event.target.closest("#cash-discrepancy-action-cancel") && !cashGetElement("caja")?.hidden) {
+    closeAdminCashDiscrepancyActionModal();
+    return;
+  }
+
+  if (event.target.closest("#cash-discrepancy-action-confirm") && !cashGetElement("caja")?.hidden) {
+    void executePendingAdminCashDiscrepancyAction();
+    return;
+  }
+
+  const discrepancyActionButton = event.target.closest("[data-cash-admin-discrepancy-action]");
+
+  if (discrepancyActionButton && !cashGetElement("caja")?.hidden) {
+    openAdminCashDiscrepancyActionModal(discrepancyActionButton.dataset.cashAdminDiscrepancyAction || "");
+    return;
+  }
   const remittanceVoidButton = event.target.closest("#cash-remittance-void-action");
 
   if (remittanceVoidButton && !cashGetElement("caja")?.hidden) {
@@ -901,7 +943,7 @@ function handleCashKeydown(event) {
     return;
   }
 
-  const openModal = document.querySelector("#cash-remittance-form-modal:not([hidden]), #cash-count-form-modal:not([hidden]), #cash-adjustment-form-modal:not([hidden]), #cash-void-form-modal:not([hidden]), #cash-difference-close-modal:not([hidden]), #cash-remittance-detail-modal:not([hidden]), #cash-remittance-void-modal:not([hidden]), #cash-remittance-overrun-modal:not([hidden]), #cash-count-detail-modal:not([hidden])");
+  const openModal = document.querySelector("#cash-remittance-form-modal:not([hidden]), #cash-count-form-modal:not([hidden]), #cash-adjustment-form-modal:not([hidden]), #cash-void-form-modal:not([hidden]), #cash-difference-close-modal:not([hidden]), #cash-remittance-detail-modal:not([hidden]), #cash-remittance-void-modal:not([hidden]), #cash-remittance-overrun-modal:not([hidden]), #cash-count-detail-modal:not([hidden]), #cash-discrepancy-detail-modal:not([hidden]), #cash-discrepancy-action-modal:not([hidden])");
 
   if (openModal) {
     closeCashModal(openModal);
@@ -958,7 +1000,7 @@ function openCashRemittanceVoidModal(remittanceId) {
   selectedCashRemittanceId = getCashRemittanceId(remittance);
   cashSetText(
     "cash-remittance-void-summary",
-    `${driver?.name || "Conductor"} · ${formatCashMoney(remittance.amount)} · ${selectedCashRemittanceId}`,
+    `${driver?.name || "Conductor"} \u00b7 ${formatCashMoney(remittance.amount)} \u00b7 ${selectedCashRemittanceId}`,
   );
 
   const idInput = cashGetElement("cash-remittance-void-id");
@@ -1111,7 +1153,7 @@ function openCashVoidMovementModal(movementId) {
     reason.value = "";
   }
 
-  cashSetText("cash-void-summary", `${movement.id} · ${movement.category || movement.type} · ${formatCashMoney(movement.amount)}`);
+  cashSetText("cash-void-summary", `${movement.id} \u00b7 ${movement.category || movement.type} \u00b7 ${formatCashMoney(movement.amount)}`);
   openCashModal("cash-void-form-modal");
   reason?.focus();
 }
@@ -1140,7 +1182,7 @@ function openCashDifferenceCloseModal(countId) {
     note.value = "";
   }
 
-  cashSetText("cash-difference-close-summary", `${count.id} · Diferencia ${formatCashMoney(count.differenceAmount)}`);
+  cashSetText("cash-difference-close-summary", `${count.id} \u00b7 Diferencia ${formatCashMoney(count.differenceAmount)}`);
   openCashModal("cash-difference-close-modal");
   note?.focus();
 }
@@ -1476,9 +1518,9 @@ function updateCashRemittanceFormSummary() {
   const position = getCashDriverPosition(driverId) || finalizeCashDriverPosition(getOrCreateCashDriverPosition(new Map(), driverId));
   const amount = getMoneyInput("cash-remittance-amount");
   const exceedsPending = amount > position.pendingAmount;
-  const warning = exceedsPending ? ` · Excedente estimado: ${formatCashMoney(amount - position.pendingAmount)}.` : "";
+  const warning = exceedsPending ? ` \u00b7 Excedente estimado: ${formatCashMoney(amount - position.pendingAmount)}.` : "";
 
-  container.textContent = `Total cobrado: ${formatCashMoney(position.totalCollected)} · Total rendido: ${formatCashMoney(position.totalRendered)} · Pendiente: ${formatCashMoney(position.pendingAmount)}${position.excessAmount > 0 ? ` · Excedente: ${formatCashMoney(position.excessAmount)}` : ""}${warning}`;
+  container.textContent = `Total cobrado: ${formatCashMoney(position.totalCollected)} \u00b7 Total rendido: ${formatCashMoney(position.totalRendered)} \u00b7 Pendiente: ${formatCashMoney(position.pendingAmount)}${position.excessAmount > 0 ? ` \u00b7 Excedente: ${formatCashMoney(position.excessAmount)}` : ""}${warning}`;
 }
 
 function openCashRemittanceOverrunModal(draft, pendingAmount) {
@@ -1487,7 +1529,7 @@ function openCashRemittanceOverrunModal(draft, pendingAmount) {
 
   cashSetText(
     "cash-remittance-overrun-summary",
-    `El importe entregado supera en ${formatCashMoney(excessAmount)} el saldo registrado. Se recibiran ${formatCashMoney(draft.amount)} y se abrira una incidencia para revision. Conductor: ${driver?.name || "Conductor"}. Saldo registrado: ${formatCashMoney(pendingAmount)}.`,
+    `El importe entregado supera en ${formatCashMoney(excessAmount)} el saldo registrado. Se recibiran ${formatCashMoney(draft.amount)} y se abrira una incidencia para revisi\u00f3n. Conductor: ${driver?.name || "Conductor"}. Saldo registrado: ${formatCashMoney(pendingAmount)}.`,
   );
   openCashModal("cash-remittance-overrun-modal");
 }
@@ -1563,7 +1605,7 @@ function createCashRemittance({ driverId, amount, observations, expectedPendingA
     registeredByUserId: currentUser?.id || "",
     registeredByName: currentUser?.name || "Administracion",
     observations: observations || "",
-    status: "Válida",
+    status: "V\u00e1lida",
   };
 
   financeData.remittances.push(remittance);
@@ -2051,7 +2093,7 @@ function normalizeCashRemittances(remittances) {
           registeredByUserId: settlement.registeredByUserId,
           registeredByName: settlement.registeredByName,
           observations: settlement.notes || settlement.observations || "",
-          status: settlement.status === "Anulada" || settlement.voidedAt ? "Anulada" : "Válida",
+          status: settlement.status === "Anulada" || settlement.voidedAt ? "Anulada" : "V\u00e1lida",
           annulledAt: settlement.voidedAt,
           annulledByUserId: settlement.voidedByUserId,
           annulledByName: settlement.voidedByName,
@@ -2079,7 +2121,7 @@ function normalizeCashRemittance(remittance) {
     registeredByUserId: remittance.registeredByUserId || remittance.createdByUserId || "",
     registeredByName: remittance.registeredByName || remittance.createdByName || "Administracion",
     observations: remittance.observations || remittance.notes || "",
-    status: remittance.status === "Anulada" || remittance.annulledAt || remittance.voidedAt ? "Anulada" : "Válida",
+    status: remittance.status === "Anulada" || remittance.annulledAt || remittance.voidedAt ? "Anulada" : "V\u00e1lida",
     annulledAt: remittance.annulledAt || remittance.voidedAt || "",
     annulledByUserId: remittance.annulledByUserId || remittance.voidedByUserId || "",
     annulledByName: remittance.annulledByName || remittance.voidedByName || "",
@@ -2205,7 +2247,7 @@ function getCashSettlementIntegrityWarnings() {
       paymentMovementsBySettlement.set(key, occurrences);
 
       if (!settlementId || !settlementIds.has(settlementId)) {
-        warnings.push(`${movement.id || "Movimiento sin ID"}: movimiento de liquidación sin settlementId válido.`);
+        warnings.push(`${movement.id || "Movimiento sin ID"}: movimiento de liquidaci\u00f3n sin settlementId v\u00e1lido.`);
       }
     });
 
@@ -2219,7 +2261,7 @@ function getCashSettlementIntegrityWarnings() {
       reversalMovementsByOriginal.set(originalCashMovementId, occurrences);
 
       if (!getCashSettlementMovementSettlementId(movement) || !settlementIds.has(getCashSettlementMovementSettlementId(movement))) {
-        warnings.push(`${movement.id || "Movimiento sin ID"}: reversión de liquidación sin settlementId válido.`);
+        warnings.push(`${movement.id || "Movimiento sin ID"}: reversi\u00f3n de liquidaci\u00f3n sin settlementId v\u00e1lido.`);
       }
     });
 
@@ -2227,17 +2269,17 @@ function getCashSettlementIntegrityWarnings() {
     const unreversedMovements = movements.filter((movement) => !movement.reversedByCashMovementId);
 
     if (unreversedMovements.length > 1) {
-      warnings.push(`${key}: pagos de liquidación duplicados.`);
+      warnings.push(`${key}: pagos de liquidaci\u00f3n duplicados.`);
     }
   });
 
   reversalMovementsByOriginal.forEach((movements, originalCashMovementId) => {
     if (!originalCashMovementId) {
-      warnings.push("Reversión de pago de liquidación sin movimiento original.");
+      warnings.push("Reversi\u00f3n de pago de liquidaci\u00f3n sin movimiento original.");
     }
 
     if (movements.length > 1) {
-      warnings.push(`${originalCashMovementId}: reversión de pago de liquidación duplicada.`);
+      warnings.push(`${originalCashMovementId}: reversi\u00f3n de pago de liquidaci\u00f3n duplicada.`);
     }
   });
 
@@ -2371,11 +2413,11 @@ function getCashExpenseMovementCategory(expenseId, settlementType) {
 }
 
 function isCashSettlementPaymentMovement(movement) {
-  return movement?.sourceType === "settlement" || String(movement?.category || "").startsWith("Pago de liquidación");
+  return movement?.sourceType === "settlement" || String(movement?.category || "").startsWith("Pago de liquidaci\u00f3n");
 }
 
 function isCashSettlementReversalMovement(movement) {
-  return movement?.sourceType === "settlement-payment-reversal" || String(movement?.category || "").startsWith("Reversión de pago de liquidación");
+  return movement?.sourceType === "settlement-payment-reversal" || String(movement?.category || "").startsWith("Reversi\u00f3n de pago de liquidaci\u00f3n");
 }
 
 function getCashSettlementMovementSettlementId(movement) {
@@ -2387,7 +2429,7 @@ function isCashReceivableMovement(movement) {
 }
 
 function isCashReceivableReversalMovement(movement) {
-  return movement?.sourceType === "receivable-payment-reversal" || String(movement?.category || "").startsWith("Reversión de cobro pendiente") || String(movement?.category || "").startsWith("Reversion de cobro pendiente");
+  return movement?.sourceType === "receivable-payment-reversal" || String(movement?.category || "").startsWith("Reversi\u00f3n de cobro pendiente") || String(movement?.category || "").startsWith("Reversion de cobro pendiente");
 }
 
 function getCashReceivableMovementPaymentId(movement) {
@@ -2477,6 +2519,16 @@ const ADMIN_CASH_DISCREPANCY_STATUS_LABELS_REAL = {
   cancelled: "Cancelada",
 };
 
+const ADMIN_CASH_DISCREPANCY_TYPE_LABELS_REAL = {
+  remittance: "Rendici\u00f3n",
+  cash_count: "Arqueo",
+};
+
+const ADMIN_CASH_DISCREPANCY_REASON_LABELS_REAL = {
+  admin_verification_difference: "Diferencia por verificaci\u00f3n administrativa",
+  driver_reported: "Reportada por conductor",
+};
+
 let adminCashRemittanceHistoryRowsReal = [];
 let adminCashRemittanceHistoryTotalReal = 0;
 let adminCashRemittanceDetailReal = null;
@@ -2484,6 +2536,13 @@ let adminCashRemittanceHistoryRequestIdReal = 0;
 let pendingAdminCashRemittanceActionReal = null;
 let isAdminCashRemittanceActionRunningReal = false;
 let isAdminCashRemittanceClickBridgeReady = false;
+let adminCashDiscrepancyRowsReal = [];
+let adminCashDiscrepancyTotalReal = 0;
+let adminCashDiscrepancyDetailReal = null;
+let selectedAdminCashDiscrepancyIdReal = "";
+let adminCashDiscrepancyRequestIdReal = 0;
+let pendingAdminCashDiscrepancyActionReal = null;
+let isAdminCashDiscrepancyActionRunningReal = false;
 
 function getAdminCashSupabaseClient() {
   return window.ElaraSupabase?.client || null;
@@ -2514,7 +2573,7 @@ function ensureAdminCashRemittanceRealUi() {
 
     if (field) {
       field.disabled = true;
-      field.title = "El listado real filtra por estado, b£squeda y paginaci¢n.";
+      field.title = "El listado real filtra por estado, b\u00fasqueda y paginaci\u00f3n.";
     }
   });
 
@@ -2648,6 +2707,620 @@ function getAdminCashDiscrepancyStatusLabel(status) {
   return normalizedStatus || "Sin estado";
 }
 
+function getDefaultCashDiscrepancyFilters() {
+  return {
+    status: "",
+    type: "",
+    search: "",
+  };
+}
+
+function handleCashDiscrepancyFilterChange() {
+  cashDiscrepancyFilters = {
+    status: cashGetInputValue("cash-discrepancy-status"),
+    type: cashGetInputValue("cash-discrepancy-type"),
+    search: cashGetInputValue("cash-discrepancy-search"),
+  };
+  cashDiscrepancyPage = 1;
+  void renderAdminCashDiscrepancies();
+}
+
+function clearCashDiscrepancyFilters() {
+  cashDiscrepancyFilters = getDefaultCashDiscrepancyFilters();
+  cashDiscrepancyPage = 1;
+  syncCashDiscrepancyFiltersToDom();
+  void renderAdminCashDiscrepancies();
+}
+
+function syncCashDiscrepancyFiltersToDom() {
+  [
+    ["cash-discrepancy-status", "status"],
+    ["cash-discrepancy-type", "type"],
+    ["cash-discrepancy-search", "search"],
+  ].forEach(([id, key]) => {
+    const element = cashGetElement(id);
+
+    if (element && element.value !== cashDiscrepancyFilters[key]) {
+      element.value = cashDiscrepancyFilters[key] || "";
+    }
+  });
+}
+
+function getAdminCashDiscrepancyStatusFilterValue(value) {
+  const status = String(value || "").trim();
+
+  return Object.prototype.hasOwnProperty.call(ADMIN_CASH_DISCREPANCY_STATUS_LABELS_REAL, status) ? status : null;
+}
+
+function getAdminCashDiscrepancyTypeFilterValue(value) {
+  const type = String(value || "").trim();
+
+  return Object.prototype.hasOwnProperty.call(ADMIN_CASH_DISCREPANCY_TYPE_LABELS_REAL, type) ? type : null;
+}
+
+async function renderAdminCashDiscrepancies() {
+  const container = cashGetElement("cash-discrepancy-list");
+  const meta = cashGetElement("cash-discrepancy-meta");
+  const pagination = cashGetElement("cash-discrepancy-pagination");
+
+  if (!container) {
+    return;
+  }
+
+  syncCashDiscrepancyFiltersToDom();
+
+  const client = getAdminCashSupabaseClient();
+
+  if (!client) {
+    container.innerHTML = '<p class="service-assignment-empty">No se pudo conectar con Supabase para cargar discrepancias reales.</p>';
+    if (meta) {
+      meta.textContent = "Sin conexi\u00f3n a datos reales";
+    }
+    renderCashPagination(pagination, 1, 1, "admin-discrepancies");
+    return;
+  }
+
+  const requestId = ++adminCashDiscrepancyRequestIdReal;
+  const offset = (Math.max(cashDiscrepancyPage, 1) - 1) * CASH_DISCREPANCY_PAGE_SIZE;
+
+  container.innerHTML = '<p class="service-assignment-empty">Cargando discrepancias...</p>';
+  if (meta) {
+    meta.textContent = "Cargando...";
+  }
+  renderCashPagination(pagination, 1, 1, "admin-discrepancies");
+
+  try {
+    const { data, error } = await client.rpc("get_admin_cash_discrepancies", {
+      p_status: getAdminCashDiscrepancyStatusFilterValue(cashDiscrepancyFilters.status),
+      p_type: getAdminCashDiscrepancyTypeFilterValue(cashDiscrepancyFilters.type),
+      p_driver_id: null,
+      p_search: cashDiscrepancyFilters.search || null,
+      p_limit: CASH_DISCREPANCY_PAGE_SIZE,
+      p_offset: offset,
+    });
+
+    if (requestId !== adminCashDiscrepancyRequestIdReal) {
+      return;
+    }
+
+    if (error) {
+      throw error;
+    }
+
+    adminCashDiscrepancyRowsReal = (Array.isArray(data) ? data : []).map(normalizeAdminCashDiscrepancyListRow);
+    adminCashDiscrepancyTotalReal = adminCashDiscrepancyRowsReal.length ? adminCashDiscrepancyRowsReal[0].totalCount : 0;
+
+    const totalPages = Math.max(1, Math.ceil(adminCashDiscrepancyTotalReal / CASH_DISCREPANCY_PAGE_SIZE));
+
+    if (cashDiscrepancyPage > totalPages) {
+      cashDiscrepancyPage = totalPages;
+      void renderAdminCashDiscrepancies();
+      return;
+    }
+
+    if (meta) {
+      meta.textContent = `${adminCashDiscrepancyTotalReal} resultado${adminCashDiscrepancyTotalReal === 1 ? "" : "s"} - P\u00e1gina ${cashDiscrepancyPage} de ${totalPages}`;
+    }
+
+    if (!adminCashDiscrepancyRowsReal.length) {
+      container.innerHTML = '<p class="service-assignment-empty">No hay discrepancias para los filtros seleccionados.</p>';
+      renderCashPagination(pagination, cashDiscrepancyPage, totalPages, "admin-discrepancies");
+      return;
+    }
+
+    container.innerHTML = adminCashDiscrepancyRowsReal.map(renderAdminCashDiscrepancyCard).join("");
+    renderCashPagination(pagination, cashDiscrepancyPage, totalPages, "admin-discrepancies");
+  } catch (error) {
+    console.error("[ELARA Cash] No se pudo cargar el listado real de discrepancias.", { error });
+    container.innerHTML = `<p class="service-assignment-empty">${escapeCashHtml(formatAdminCashDiscrepancyError(error, "No se pudo cargar el listado de discrepancias."))}</p>`;
+    if (meta) {
+      meta.textContent = "Error al cargar discrepancias";
+    }
+    renderCashPagination(pagination, 1, 1, "admin-discrepancies");
+  }
+}
+
+function normalizeAdminCashDiscrepancyListRow(row) {
+  return {
+    discrepancyId: String(row?.discrepancy_id || "").trim(),
+    humanCode: String(row?.human_code || "").trim(),
+    discrepancyType: String(row?.discrepancy_type || "").trim(),
+    status: String(row?.status || "").trim(),
+    expectedAmount: roundCashAmount(row?.expected_amount),
+    actualAmount: roundCashAmount(row?.actual_amount),
+    differenceAmount: roundCashAmount(row?.difference_amount),
+    currencyCode: String(row?.currency_code || financeData.cashSettings?.currency || "EUR").trim() || "EUR",
+    reasonCode: String(row?.reason_code || "").trim(),
+    reasonDetails: String(row?.reason_details || "").trim(),
+    openedAt: row?.opened_at || "",
+    createdAt: row?.created_at || "",
+    remittanceId: String(row?.remittance_id || "").trim(),
+    remittanceHumanCode: String(row?.remittance_human_code || "").trim(),
+    cashCountId: String(row?.cash_count_id || "").trim(),
+    cashCountHumanCode: String(row?.cash_count_human_code || "").trim(),
+    driverId: String(row?.driver_id || "").trim(),
+    driverHumanCode: String(row?.driver_human_code || "").trim(),
+    driverName: String(row?.driver_name || "").trim(),
+    totalCount: Number(row?.total_count) || 0,
+  };
+}
+
+function renderAdminCashDiscrepancyCard(discrepancy) {
+  const origin = formatAdminCashDiscrepancyOrigin(discrepancy);
+  const driver = formatAdminCashDriverLabel(discrepancy);
+  const reason = formatAdminCashDiscrepancyReason(discrepancy);
+
+  return `
+    <article class="cash-row cash-row--history">
+      <div>
+        <strong>${escapeCashHtml(discrepancy.humanCode || discrepancy.discrepancyId)}</strong>
+        <span>${escapeCashHtml(getAdminCashDiscrepancyStatusLabel(discrepancy.status))} - ${escapeCashHtml(getAdminCashDiscrepancyTypeLabel(discrepancy.discrepancyType))} - ${escapeCashHtml(origin)}</span>
+        <small>${escapeCashHtml(driver)}</small>
+        <small>${escapeCashHtml(reason)}</small>
+        <small>${escapeCashHtml(formatCashDateTime(discrepancy.createdAt || discrepancy.openedAt))}</small>
+      </div>
+      <div class="cash-discrepancy-amounts">
+        <span>Esperado: ${escapeCashHtml(formatAdminCashMoney(discrepancy.expectedAmount, discrepancy.currencyCode))}</span>
+        <span>Real: ${escapeCashHtml(formatAdminCashMoney(discrepancy.actualAmount, discrepancy.currencyCode))}</span>
+        <strong>${escapeCashHtml(formatAdminCashDiscrepancyDifference(discrepancy.differenceAmount, discrepancy.currencyCode))}</strong>
+      </div>
+      <span class="cash-row__status">${escapeCashHtml(getAdminCashDiscrepancyStatusLabel(discrepancy.status))}</span>
+      <button class="button button--compact button--muted" type="button" data-cash-discrepancy-detail="${escapeCashHtml(discrepancy.discrepancyId)}">Detalle</button>
+    </article>
+  `;
+}
+
+async function openAdminCashDiscrepancyDetail(discrepancyId, options = {}) {
+  const id = String(discrepancyId || "").trim();
+  const client = getAdminCashSupabaseClient();
+
+  if (!id) {
+    notifyCash("Selecciona una discrepancia v\u00e1lida.", "warning");
+    return;
+  }
+
+  if (!client) {
+    notifyCash("No se pudo conectar con Supabase para cargar el detalle real.", "error");
+    return;
+  }
+
+  selectedAdminCashDiscrepancyIdReal = id;
+  adminCashDiscrepancyDetailReal = null;
+  renderAdminCashDiscrepancyDetailLoading(id);
+
+  if (!options.keepOpen) {
+    openCashModal("cash-discrepancy-detail-modal");
+  }
+
+  try {
+    const { data, error } = await client.rpc("get_admin_cash_discrepancy_detail", { p_discrepancy_id: id });
+
+    if (error) {
+      throw error;
+    }
+
+    const row = Array.isArray(data) ? data[0] : data;
+
+    if (!row) {
+      throw new Error("Cash discrepancy was not found.");
+    }
+
+    adminCashDiscrepancyDetailReal = normalizeAdminCashDiscrepancyDetail(row);
+    selectedAdminCashDiscrepancyIdReal = adminCashDiscrepancyDetailReal.discrepancyId;
+    renderAdminCashDiscrepancyDetail(adminCashDiscrepancyDetailReal);
+  } catch (error) {
+    console.error("[ELARA Cash] No se pudo cargar el detalle real de la discrepancia.", { error });
+    renderAdminCashDiscrepancyDetailError(formatAdminCashDiscrepancyError(error, "No se pudo cargar el detalle de la discrepancia."));
+  }
+}
+
+function normalizeAdminCashDiscrepancyDetail(row) {
+  return {
+    ...normalizeAdminCashDiscrepancyListRow(row),
+    updatedAt: row?.updated_at || "",
+    resolvedAt: row?.resolved_at || "",
+    cancelledAt: row?.cancelled_at || "",
+    resolutionNotes: String(row?.resolution_notes || "").trim(),
+    resolvedBy: String(row?.resolved_by || "").trim(),
+    resolvedByHumanCode: String(row?.resolved_by_human_code || "").trim(),
+    resolvedByName: String(row?.resolved_by_name || "").trim(),
+    cancelledBy: String(row?.cancelled_by || "").trim(),
+    cancelledByHumanCode: String(row?.cancelled_by_human_code || "").trim(),
+    cancelledByName: String(row?.cancelled_by_name || "").trim(),
+    remittanceStatus: String(row?.remittance_status || "").trim(),
+    remittanceDeclaredAmount: row?.remittance_declared_amount == null ? null : roundCashAmount(row.remittance_declared_amount),
+    remittanceVerifiedAmount: row?.remittance_verified_amount == null ? null : roundCashAmount(row.remittance_verified_amount),
+    cashAccountId: String(row?.cash_account_id || "").trim(),
+    cashAccountHumanCode: String(row?.cash_account_human_code || "").trim(),
+    cashAccountName: String(row?.cash_account_name || "").trim(),
+    cashAccountType: String(row?.cash_account_type || "").trim(),
+  };
+}
+
+function renderAdminCashDiscrepancyDetailLoading(discrepancyId) {
+  const body = cashGetElement("cash-discrepancy-detail-body");
+  const actions = cashGetElement("cash-discrepancy-detail-actions");
+
+  if (body) {
+    body.innerHTML = `<p class="service-assignment-empty">Cargando ${escapeCashHtml(discrepancyId)}...</p>`;
+  }
+
+  if (actions) {
+    actions.innerHTML = "";
+  }
+}
+
+function renderAdminCashDiscrepancyDetailError(message) {
+  const body = cashGetElement("cash-discrepancy-detail-body");
+  const actions = cashGetElement("cash-discrepancy-detail-actions");
+
+  if (body) {
+    body.innerHTML = `<p class="service-assignment-empty">${escapeCashHtml(message)}</p>`;
+  }
+
+  if (actions) {
+    actions.innerHTML = "";
+  }
+}
+
+function renderAdminCashDiscrepancyDetail(detail) {
+  const body = cashGetElement("cash-discrepancy-detail-body");
+
+  if (!body) {
+    return;
+  }
+
+  const relationFields = detail.discrepancyType === "remittance"
+    ? [
+        renderAdminCashDiscrepancyField("Rendici\u00f3n", detail.remittanceHumanCode),
+        renderAdminCashDiscrepancyField("Estado rendici\u00f3n", getCashRemittanceStatus({ status: detail.remittanceStatus })),
+        renderAdminCashDiscrepancyField("Declarado", detail.remittanceDeclaredAmount == null ? "" : formatAdminCashMoney(detail.remittanceDeclaredAmount, detail.currencyCode)),
+        renderAdminCashDiscrepancyField("Verificado", detail.remittanceVerifiedAmount == null ? "" : formatAdminCashMoney(detail.remittanceVerifiedAmount, detail.currencyCode)),
+      ].join("")
+    : [renderAdminCashDiscrepancyField("Arqueo", detail.cashCountHumanCode)].join("");
+  const resolutionFields = [
+    renderAdminCashDiscrepancyField("Notas", detail.resolutionNotes, { wide: true }),
+    renderAdminCashDiscrepancyField("Resuelta el", detail.resolvedAt ? formatCashDateTime(detail.resolvedAt) : ""),
+    renderAdminCashDiscrepancyField("Resuelta por", formatAdminCashActorLabel(detail.resolvedByName, detail.resolvedByHumanCode)),
+    renderAdminCashDiscrepancyField("Cancelada el", detail.cancelledAt ? formatCashDateTime(detail.cancelledAt) : ""),
+    renderAdminCashDiscrepancyField("Cancelada por", formatAdminCashActorLabel(detail.cancelledByName, detail.cancelledByHumanCode)),
+  ].join("");
+
+  body.innerHTML = `
+    <section class="service-summary__section">
+      <h3>Identificaci\u00f3n</h3>
+      <dl class="modal__fields-grid">
+        ${renderAdminCashDiscrepancyField("Codigo", detail.humanCode || detail.discrepancyId)}
+        ${renderAdminCashDiscrepancyField("Estado", getAdminCashDiscrepancyStatusLabel(detail.status))}
+        ${renderAdminCashDiscrepancyField("Tipo", getAdminCashDiscrepancyTypeLabel(detail.discrepancyType))}
+      </dl>
+    </section>
+    <section class="service-summary__section">
+      <h3>Importes</h3>
+      <dl class="modal__fields-grid">
+        ${renderAdminCashDiscrepancyField("Esperado", formatAdminCashMoney(detail.expectedAmount, detail.currencyCode))}
+        ${renderAdminCashDiscrepancyField("Real", formatAdminCashMoney(detail.actualAmount, detail.currencyCode))}
+        ${renderAdminCashDiscrepancyField("Diferencia", formatAdminCashDiscrepancyDifference(detail.differenceAmount, detail.currencyCode))}
+        ${renderAdminCashDiscrepancyField("Moneda", detail.currencyCode)}
+      </dl>
+    </section>
+    <section class="service-summary__section">
+      <h3>Motivo</h3>
+      <dl class="modal__fields-grid">
+        ${renderAdminCashDiscrepancyField("Origen", getAdminCashDiscrepancyReasonLabel(detail.reasonCode))}
+        ${renderAdminCashDiscrepancyField("Descripci\u00f3n", detail.reasonDetails, { wide: true })}
+      </dl>
+    </section>
+    <section class="service-summary__section">
+      <h3>Relacion</h3>
+      <dl class="modal__fields-grid">${relationFields || renderAdminCashDiscrepancyField("Relacion", "-")}</dl>
+    </section>
+    <section class="service-summary__section">
+      <h3>Conductor</h3>
+      <dl class="modal__fields-grid">
+        ${renderAdminCashDiscrepancyField("Conductor", formatAdminCashDriverLabel(detail))}
+      </dl>
+    </section>
+    <section class="service-summary__section">
+      <h3>Cuenta</h3>
+      <dl class="modal__fields-grid">
+        ${renderAdminCashDiscrepancyField("Cuenta", formatAdminCashAccountLabel(detail.cashAccountName, detail.cashAccountType))}
+      </dl>
+    </section>
+    <section class="service-summary__section">
+      <h3>Fechas</h3>
+      <dl class="modal__fields-grid">
+        ${renderAdminCashDiscrepancyField("Apertura", detail.openedAt ? formatCashDateTime(detail.openedAt) : "")}
+        ${renderAdminCashDiscrepancyField("Creaci\u00f3n", detail.createdAt ? formatCashDateTime(detail.createdAt) : "")}
+        ${renderAdminCashDiscrepancyField("Actualizaci\u00f3n", detail.updatedAt ? formatCashDateTime(detail.updatedAt) : "")}
+      </dl>
+    </section>
+    ${resolutionFields ? `<section class="service-summary__section"><h3>Resoluci\u00f3n</h3><dl class="modal__fields-grid">${resolutionFields}</dl></section>` : ""}
+  `;
+
+  renderAdminCashDiscrepancyDetailActions(detail);
+}
+
+function renderAdminCashDiscrepancyField(label, value, options = {}) {
+  const text = String(value ?? "").trim();
+
+  if (!text || text === "-") {
+    return "";
+  }
+
+  return `<div class="modal__field${options.wide ? " modal__field--wide" : ""}"><dt class="modal__field-label">${escapeCashHtml(label)}</dt><dd class="modal__field-value">${escapeCashHtml(text)}</dd></div>`;
+}
+
+function renderAdminCashDiscrepancyDetailActions(detail) {
+  const actions = cashGetElement("cash-discrepancy-detail-actions");
+
+  if (!actions) {
+    return;
+  }
+
+  const canMutate = ["open", "under_review"].includes(detail.status);
+  const buttons = [];
+
+  if (detail.status === "open") {
+    buttons.push('<button class="button button--compact button--muted" type="button" data-cash-admin-discrepancy-action="review">Pasar a revisi\u00f3n</button>');
+  }
+
+  if (canMutate) {
+    buttons.push('<button class="button button--compact" type="button" data-cash-admin-discrepancy-action="resolve">Resolver</button>');
+  }
+
+  if (canMutate && isCurrentCashSuperadmin()) {
+    buttons.push('<button class="button button--compact button--danger" type="button" data-cash-admin-discrepancy-action="cancel">Cancelar</button>');
+  }
+
+  actions.innerHTML = buttons.join("");
+}
+
+function openAdminCashDiscrepancyActionModal(action) {
+  const detail = adminCashDiscrepancyDetailReal;
+  const normalizedAction = String(action || "").trim();
+
+  if (!detail) {
+    notifyCash("Carga primero el detalle de la discrepancia.", "warning");
+    return;
+  }
+
+  if (!["open", "under_review"].includes(detail.status)) {
+    notifyCash("Esta discrepancia ya esta cerrada.", "warning");
+    return;
+  }
+
+  if (normalizedAction === "review" && detail.status !== "open") {
+    notifyCash("Solo las discrepancias abiertas pueden pasar a revisi\u00f3n.", "warning");
+    return;
+  }
+
+  if (normalizedAction === "cancel" && !isCurrentCashSuperadmin()) {
+    notifyCash("Solo Superadmin puede cancelar discrepancias.", "error");
+    return;
+  }
+
+  const titleByAction = {
+    review: "Pasar a revisi\u00f3n",
+    resolve: "Resolver discrepancia",
+    cancel: "Cancelar discrepancia",
+  };
+  const summaryByAction = {
+    review: `Se pasar\u00e1 ${detail.humanCode || "la discrepancia"} a revisi\u00f3n.`,
+    resolve: `Se resolver\u00e1 ${detail.humanCode || "la discrepancia"}.`,
+    cancel: `Se cancelar\u00e1 ${detail.humanCode || "la discrepancia"}.`,
+  };
+
+  if (!titleByAction[normalizedAction]) {
+    return;
+  }
+
+  pendingAdminCashDiscrepancyActionReal = { type: normalizedAction, discrepancyId: detail.discrepancyId };
+  cashSetText("cash-discrepancy-action-title", titleByAction[normalizedAction]);
+  cashSetText("cash-discrepancy-action-summary", summaryByAction[normalizedAction]);
+  cashSetText("cash-discrepancy-action-error", "");
+  setElementVisibility("cash-discrepancy-action-error", false);
+
+  const notesField = cashGetElement("cash-discrepancy-action-notes-field");
+  const notesLabel = cashGetElement("cash-discrepancy-action-notes-label");
+  const notesInput = cashGetElement("cash-discrepancy-action-notes");
+  const confirmButton = cashGetElement("cash-discrepancy-action-confirm");
+
+  if (notesField) {
+    notesField.hidden = normalizedAction === "review";
+  }
+
+  if (notesLabel) {
+    notesLabel.textContent = normalizedAction === "cancel" ? "Motivo de cancelaci\u00f3n" : "Notas de resoluci\u00f3n";
+  }
+
+  if (notesInput) {
+    notesInput.value = "";
+    notesInput.required = normalizedAction !== "review";
+    notesInput.maxLength = 1000;
+  }
+
+  if (confirmButton) {
+    confirmButton.disabled = false;
+    confirmButton.textContent = "Confirmar";
+  }
+
+  openCashModal("cash-discrepancy-action-modal");
+}
+
+function closeAdminCashDiscrepancyActionModal() {
+  pendingAdminCashDiscrepancyActionReal = null;
+  isAdminCashDiscrepancyActionRunningReal = false;
+  closeCashModal(cashGetElement("cash-discrepancy-action-modal"));
+}
+
+async function executePendingAdminCashDiscrepancyAction() {
+  const client = getAdminCashSupabaseClient();
+  const action = pendingAdminCashDiscrepancyActionReal;
+  const actionButton = cashGetElement("cash-discrepancy-action-confirm");
+  const errorElement = cashGetElement("cash-discrepancy-action-error");
+
+  if (!client || !action || isAdminCashDiscrepancyActionRunningReal) {
+    return;
+  }
+
+  const notes = cashGetInputValue("cash-discrepancy-action-notes");
+
+  if (["resolve", "cancel"].includes(action.type) && !notes) {
+    const message = action.type === "cancel" ? "El motivo de cancelacion es obligatorio." : "Las notas de resolucion son obligatorias.";
+    if (errorElement) {
+      errorElement.textContent = message;
+      errorElement.hidden = false;
+    }
+    notifyCash(message, "warning");
+    return;
+  }
+
+  if (notes.length > 1000) {
+    const message = "El texto no puede superar 1000 caracteres.";
+    if (errorElement) {
+      errorElement.textContent = message;
+      errorElement.hidden = false;
+    }
+    notifyCash(message, "warning");
+    return;
+  }
+
+  isAdminCashDiscrepancyActionRunningReal = true;
+
+  if (actionButton) {
+    actionButton.disabled = true;
+    actionButton.textContent = "Procesando...";
+  }
+
+  try {
+    const rpcByAction = {
+      review: "review_cash_discrepancy",
+      resolve: "resolve_cash_discrepancy",
+      cancel: "cancel_cash_discrepancy",
+    };
+    const argsByAction = {
+      review: { p_discrepancy_id: action.discrepancyId },
+      resolve: { p_discrepancy_id: action.discrepancyId, p_resolution_notes: notes },
+      cancel: { p_discrepancy_id: action.discrepancyId, p_reason: notes },
+    };
+    const { error } = await client.rpc(rpcByAction[action.type], argsByAction[action.type]);
+
+    if (error) {
+      throw error;
+    }
+
+    const toastByAction = {
+      review: "Discrepancia pasada a revisi\u00f3n.",
+      resolve: "Discrepancia resuelta correctamente.",
+      cancel: "Discrepancia cancelada.",
+    };
+
+    closeAdminCashDiscrepancyActionModal();
+    notifyCash(toastByAction[action.type], "success");
+    void renderAdminCashDiscrepancies();
+    await openAdminCashDiscrepancyDetail(action.discrepancyId, { keepOpen: true });
+  } catch (error) {
+    const message = formatAdminCashDiscrepancyError(error, "No se pudo completar la acci\u00f3n sobre la discrepancia.");
+    console.error("[ELARA Cash] Error en acci\u00f3n real de discrepancia.", { error, action });
+    if (errorElement) {
+      errorElement.textContent = message;
+      errorElement.hidden = false;
+    }
+    notifyCash(message, "error");
+  } finally {
+    isAdminCashDiscrepancyActionRunningReal = false;
+    if (actionButton) {
+      actionButton.disabled = false;
+      actionButton.textContent = "Confirmar";
+    }
+  }
+}
+
+function getAdminCashDiscrepancyTypeLabel(type) {
+  const normalizedType = String(type || "").trim();
+
+  if (Object.prototype.hasOwnProperty.call(ADMIN_CASH_DISCREPANCY_TYPE_LABELS_REAL, normalizedType)) {
+    return ADMIN_CASH_DISCREPANCY_TYPE_LABELS_REAL[normalizedType];
+  }
+
+  return normalizedType || "Sin tipo";
+}
+
+function getAdminCashDiscrepancyReasonLabel(reasonCode) {
+  const normalizedReason = String(reasonCode || "").trim();
+
+  if (Object.prototype.hasOwnProperty.call(ADMIN_CASH_DISCREPANCY_REASON_LABELS_REAL, normalizedReason)) {
+    return ADMIN_CASH_DISCREPANCY_REASON_LABELS_REAL[normalizedReason];
+  }
+
+  return normalizedReason ? normalizedReason.replace(/_/g, " ") : "Sin motivo";
+}
+
+function formatAdminCashDiscrepancyReason(discrepancy) {
+  return discrepancy.reasonDetails || getAdminCashDiscrepancyReasonLabel(discrepancy.reasonCode);
+}
+
+function formatAdminCashDiscrepancyOrigin(discrepancy) {
+  if (discrepancy.discrepancyType === "remittance") {
+    return discrepancy.remittanceHumanCode ? `Rendici\u00f3n ${discrepancy.remittanceHumanCode}` : "Rendici\u00f3n";
+  }
+
+  if (discrepancy.discrepancyType === "cash_count") {
+    return discrepancy.cashCountHumanCode ? `Arqueo ${discrepancy.cashCountHumanCode}` : "Arqueo";
+  }
+
+  return "Sin relacion";
+}
+
+function formatAdminCashDiscrepancyDifference(value, currencyCode) {
+  const amount = roundCashAmount(value);
+
+  if (amount < 0) {
+    return `Faltante: ${formatAdminCashMoney(Math.abs(amount), currencyCode)}`;
+  }
+
+  if (amount > 0) {
+    return `Excedente: ${formatAdminCashMoney(amount, currencyCode)}`;
+  }
+
+  return "Sin diferencia cuantificada";
+}
+
+function formatAdminCashDiscrepancyError(error, fallbackMessage) {
+  const message = String(error?.message || "").trim();
+  const code = String(error?.code || "").trim();
+
+  if (code === "42501" || /permission|not authorized|require_admin_user|require_superadmin_user|No tienes permiso/i.test(message)) {
+    return "No tienes permiso para operar discrepancias de caja.";
+  }
+
+  if (["23502", "23503", "23514", "40001", "P0002"].includes(code) && message) {
+    return message;
+  }
+
+  return message || fallbackMessage;
+}
 async function renderCashRemittanceHistory() {
   const container = cashGetElement("cash-remittance-history-list");
   const meta = cashGetElement("cash-remittance-history-meta");
@@ -2665,7 +3338,7 @@ async function renderCashRemittanceHistory() {
   if (!client) {
     container.innerHTML = '<p class="service-assignment-empty">No se pudo conectar con Supabase para cargar rendiciones reales.</p>';
     if (meta) {
-      meta.textContent = "Sin conexi¢n a datos reales";
+      meta.textContent = "Sin conexi\u00f3n a datos reales";
     }
     renderCashPagination(pagination, 1, 1, "admin-remittances");
     return;
@@ -2709,7 +3382,7 @@ async function renderCashRemittanceHistory() {
     }
 
     if (meta) {
-      meta.textContent = `${adminCashRemittanceHistoryTotalReal} resultado${adminCashRemittanceHistoryTotalReal === 1 ? "" : "s"} - P gina ${cashRemittanceHistoryPage} de ${totalPages}`;
+      meta.textContent = `${adminCashRemittanceHistoryTotalReal} resultado${adminCashRemittanceHistoryTotalReal === 1 ? "" : "s"} - P\u00e1gina ${cashRemittanceHistoryPage} de ${totalPages}`;
     }
 
     if (!adminCashRemittanceHistoryRowsReal.length) {
@@ -3232,7 +3905,6 @@ window.ElaraCash = {
 };
 
 ensureFinanceData();
-
 
 
 
