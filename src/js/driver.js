@@ -368,6 +368,7 @@ let driverSettlementPage = 1;
 let driverSettlementFilters = getDefaultDriverSettlementFilters();
 let areDriverSettlementFiltersVisible = false;
 let isSubmittingDriverExpense = false;
+let isSubmittingDriverExpenseSubmit = false;
 let isSubmittingDriverExpenseResponse = false;
 let driverCashCollectionState = {
   serviceId: "",
@@ -1046,6 +1047,11 @@ function bindDriverEvents() {
 
     if (action.dataset.driverAction === "expense-new") {
       openDriverExpenseNewModal();
+      return;
+    }
+
+    if (action.dataset.driverAction === "expense-submit") {
+      void submitRealDriverExpenseDraft(action.dataset.expenseId || selectedDriverExpenseId);
       return;
     }
 
@@ -4245,7 +4251,7 @@ function renderDriverExpenseRow(expense) {
             <span>${escapeHtml(formatDriverExpenseDate(expense.expenseDate))} - ${escapeHtml(expense.category)}</span>
           </div>
           <h3>${escapeHtml(expense.description || expense.expenseId)}</h3>
-          <p>${escapeHtml(relation)} - Estado gasto: ${escapeHtml(expense.status)}</p>
+          <p>${escapeHtml(relation)} - Estado gasto: ${escapeHtml(getDriverExpenseStatusLabel(expense.status))}</p>
         </div>
         <div class="driver-expense-row__side">
           <strong>${escapeHtml(formatDriverExpenseMoney(expense.amount, expense.currencyCode))}</strong>
@@ -4375,7 +4381,7 @@ function renderDriverExpenseDetail(expense) {
     container.innerHTML = `
       ${renderDriverExpenseDetailSection("Gasto", [
         ["Codigo", expense.expenseId],
-        ["Estado", expense.status],
+        ["Estado", getDriverExpenseStatusLabel(expense.status)],
         ["Estado de reembolso", expense.reimbursementStatus],
         ["Estado pago operativo", expense.paymentStatus],
         ["Categoria", expense.category],
@@ -4392,13 +4398,20 @@ function renderDriverExpenseDetail(expense) {
       ${renderDriverExpenseReviewSection(expense)}
       ${renderDriverExpenseReimbursementSection(expense)}
     `;
-    actions.innerHTML = `<button class="button button--secondary" type="button" data-modal-close>Cerrar</button>`;
+    actions.innerHTML = `
+      ${
+        expense.status === "draft"
+          ? `<button class="button button--primary" type="button" data-driver-action="expense-submit" data-expense-id="${escapeHtml(expense.expenseUuid || expense.expenseId)}">Enviar para revision</button>`
+          : ""
+      }
+      <button class="button button--secondary" type="button" data-modal-close>Cerrar</button>
+    `;
     return;
   }
 
   container.innerHTML = `
     ${renderDriverExpenseDetailSection("Solicitud", [
-      ["Estado", expense.status],
+      ["Estado", getDriverExpenseStatusLabel(expense.status)],
       ["Categoria", expense.category],
       ["Concepto", expense.concept],
       ["Fecha del gasto", formatDriverExpenseDate(expense.expenseDate)],
@@ -4738,8 +4751,9 @@ async function submitRealDriverExpenseRequest() {
   }
 
   isSubmittingDriverExpense = true;
-  setDriverExpenseSubmitDisabled(true, "Registrando...");
+  setDriverExpenseSubmitDisabled(true, "Enviando...");
   showDriverExpenseFormError("driver-expense-new-error", "");
+  let createdExpense = null;
 
   try {
     const { data, error } = await window.ElaraSupabase.client.rpc("create_driver_expense", rpcPayload);
@@ -4748,16 +4762,44 @@ async function submitRealDriverExpenseRequest() {
       throw error;
     }
 
-    const expense = Array.isArray(data) ? data[0] : data;
+    createdExpense = Array.isArray(data) ? data[0] : data;
+    const createdExpenseId = getDriverExpenseRealId(createdExpense);
+
+    if (!createdExpenseId) {
+      const submitError = new Error("El gasto se guardo como borrador, pero no pudo identificarse para enviarlo.");
+      submitError.isSubmitAfterCreateError = true;
+      throw submitError;
+    }
+
+    const { error: submitError } = await window.ElaraSupabase.client.rpc("submit_driver_expense", { p_expense_id: createdExpenseId });
+
+    if (submitError) {
+      submitError.isSubmitAfterCreateError = true;
+      throw submitError;
+    }
+
     closeModal("driver-expense-new-modal");
-    window.ElaraNotifications.showToast(`Solicitud de gasto registrada correctamente.${expense?.human_code ? ` ${expense.human_code}` : ""}`, "success");
+    window.ElaraNotifications.showToast("Solicitud de gasto enviada correctamente.", "success");
     resetDriverExpensesLoadState();
     await loadDriverExpenses({ force: true }).catch((error) => {
-      console.error("[ELARA Driver] No se pudo refrescar Mis gastos tras crear la solicitud.", { error: error?.message || error });
+      console.error("[ELARA Driver] No se pudo refrescar Mis gastos tras enviar la solicitud.", { error: error?.message || error });
     });
     renderDriverExpenses();
   } catch (error) {
-    console.error("[ELARA Driver] No se pudo registrar la solicitud real de gasto.", { error: error?.message || error });
+    console.error("[ELARA Driver] No se pudo completar el envio real de gasto.", { error: error?.message || error });
+
+    if (createdExpense || error?.isSubmitAfterCreateError) {
+      const message = "El gasto se guard\u00f3 como borrador, pero no pudo enviarse para revisi\u00f3n.";
+      showDriverExpenseFormError("driver-expense-new-error", message);
+      window.ElaraNotifications.showToast(message, "warning");
+      resetDriverExpensesLoadState();
+      await loadDriverExpenses({ force: true }).catch((refreshError) => {
+        console.error("[ELARA Driver] No se pudo refrescar Mis gastos tras guardar el borrador.", { error: refreshError?.message || refreshError });
+      });
+      renderDriverExpenses();
+      return;
+    }
+
     showDriverExpenseFormError("driver-expense-new-error", getDriverExpenseCreateErrorMessage(error));
   } finally {
     isSubmittingDriverExpense = false;
@@ -4765,6 +4807,71 @@ async function submitRealDriverExpenseRequest() {
   }
 }
 
+function getDriverExpenseRealId(expense) {
+  return String(expense?.expense_id || expense?.expenseId || expense?.id || "").trim();
+}
+
+async function submitRealDriverExpenseDraft(expenseId) {
+  const normalizedExpenseId = String(expenseId || "").trim();
+
+  if (isSubmittingDriverExpenseSubmit) {
+    return;
+  }
+
+  if (!normalizedExpenseId) {
+    window.ElaraNotifications.showToast("Selecciona un gasto valido.", "warning");
+    return;
+  }
+
+  if (!window.ElaraSupabase?.client) {
+    window.ElaraNotifications.showToast("No hay conexion disponible para enviar la solicitud.", "error");
+    return;
+  }
+
+  isSubmittingDriverExpenseSubmit = true;
+  setDriverExpenseDraftSubmitDisabled(true);
+
+  try {
+    const { error } = await window.ElaraSupabase.client.rpc("submit_driver_expense", { p_expense_id: normalizedExpenseId });
+
+    if (error) {
+      throw error;
+    }
+
+    window.ElaraNotifications.showToast("Solicitud de gasto enviada correctamente.", "success");
+    resetDriverExpensesLoadState();
+    await loadDriverExpenses({ force: true }).catch((error) => {
+      console.error("[ELARA Driver] No se pudo refrescar Mis gastos tras enviar el borrador.", { error: error?.message || error });
+    });
+    renderDriverExpenses();
+
+    if (!getElement("driver-expense-detail-modal")?.hidden) {
+      await openDriverExpenseDetail(normalizedExpenseId);
+    }
+  } catch (error) {
+    console.error("[ELARA Driver] No se pudo enviar el gasto para revision.", { error: error?.message || error });
+    window.ElaraNotifications.showToast("No se pudo enviar el gasto para revisi\u00f3n.", "error");
+  } finally {
+    isSubmittingDriverExpenseSubmit = false;
+    setDriverExpenseDraftSubmitDisabled(false);
+  }
+}
+
+function setDriverExpenseDraftSubmitDisabled(disabled) {
+  document.querySelectorAll('[data-driver-action="expense-submit"]').forEach((button) => {
+    button.disabled = disabled;
+  });
+}
+
+function getDriverExpenseStatusLabel(status) {
+  return {
+    draft: "Borrador",
+    submitted: "Enviado",
+    approved: "Aprobado",
+    rejected: "Rechazado",
+    cancelled: "Cancelado",
+  }[String(status || "").trim()] || String(status || "").trim();
+}
 function getDriverExpenseRealRpcPayload(payload) {
   return {
     p_category_key: String(payload.category || "").trim(),

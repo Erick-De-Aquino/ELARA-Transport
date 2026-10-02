@@ -1,29 +1,36 @@
 /*
   Proyecto Atlas / ELARA Transport
   Archivo: expenses.js
-  Responsabilidad: interfaz administrativa mock del modulo Gastos.
+  Responsabilidad: interfaz administrativa real read-only del modulo Gastos.
 */
 
 "use strict";
 
 const EXPENSES_PAGE_SIZE = 20;
 const EXPENSES_STATUS_FILTERS = [
-  "Pendiente de revisi\u00f3n",
-  "Requiere informaci\u00f3n",
-  "Pendiente de pago",
-  "Pendiente de reembolso",
-  "Pagada",
-  "Reembolsada",
-  "Rechazada",
-  "Anulada",
+  ["draft", "Borrador"],
+  ["submitted", "Enviado"],
+  ["approved", "Aprobado"],
+  ["rejected", "Rechazado"],
+  ["cancelled", "Cancelado"],
 ];
-
+const EXPENSES_PAYMENT_RESPONSIBILITY_FILTERS = [
+  ["elara", "Pago por ELARA"],
+  ["user_advance", "Adelantado por usuario"],
+  ["driver_advance", "Adelantado por conductor"],
+];
 let isExpensesInitialized = false;
 let expensesPage = 1;
 let selectedExpenseId = "";
 let pendingExpenseAction = null;
+let isSubmittingExpenseReview = false;
 let expensesFilters = getDefaultExpensesFilters();
-
+let adminExpenseRows = [];
+let adminExpenseTotal = 0;
+let adminExpenseCategoryOptions = new Map();
+let adminExpenseDetail = null;
+let adminExpenseRequestId = 0;
+let isExpensesLoading = false;
 function initExpenses() {
   if (isExpensesInitialized) {
     return;
@@ -43,9 +50,11 @@ function showExpenses() {
 
   setExpensesText("page-eyebrow", "FINANZAS");
   setExpensesText("page-title", "Gastos");
-  setExpensesText("page-summary", "Gestiona costes operativos, solicitudes, pagos y reembolsos.");
+  setExpensesText("page-summary", "Gastos administrativos reales en modo solo lectura.");
   configureExpensesPrimaryAction();
+  configureExpensesRealFilterVisibility();
   renderExpensesView();
+  void loadAdminExpenses();
 }
 
 function renderExpensesView() {
@@ -61,15 +70,24 @@ function renderExpensesSummary() {
     return;
   }
 
-  const summary = window.ElaraExpensesCore.getExpenseSummary(getExpensesCoreFilters());
+  const approvedCount = adminExpenseRows.filter((expense) => expense.status === "approved").length;
+  const draftCount = adminExpenseRows.filter((expense) => expense.status === "draft").length;
+  const pendingPaymentAmount = adminExpenseRows.reduce((total, expense) => total + expense.pendingPaymentAmount, 0);
+  const pendingReimbursementAmount = adminExpenseRows.reduce((total, expense) => total + expense.pendingReimbursementAmount, 0);
+  const paidAmount = adminExpenseRows.reduce((total, expense) => total + expense.paidAmount, 0);
+  const settlementReferences = adminExpenseRows.filter((expense) => expense.hasSettlementReference).length;
   const metrics = [
-    ["Solicitado", formatExpenseMoney(summary.totalRequested), "neutral"],
-    ["Aprobado", formatExpenseMoney(summary.totalApproved), "info"],
-    ["Pagado", formatExpenseMoney(summary.totalPaid), "success"],
-    ["Pendientes de revisi\u00f3n", String(summary.pendingReviewCount), "warning"],
-    ["Pendiente de pago", formatExpenseMoney(summary.pendingPaymentAmount), "warning"],
-    ["Pendiente de reembolso", formatExpenseMoney(summary.pendingReimbursementAmount), "warning"],
+    ["Resultados", String(adminExpenseTotal), "neutral"],
+    ["Aprobados", String(approvedCount), "info"],
+    ["Borradores", String(draftCount), "warning"],
+    ["Pagado", formatExpenseMoney(paidAmount), "success"],
+    ["Pendiente de pago", formatExpenseMoney(pendingPaymentAmount), "warning"],
+    ["Pendiente de reembolso", formatExpenseMoney(pendingReimbursementAmount), "warning"],
   ];
+
+  if (settlementReferences > 0) {
+    metrics[2] = ["Con liquidaci\u00f3n", String(settlementReferences), "info"];
+  }
 
   container.innerHTML = metrics
     .map(
@@ -91,39 +109,38 @@ function renderExpensesList() {
     return;
   }
 
-  const expenses = getFilteredExpensesForView();
-  const totalPages = Math.max(1, Math.ceil(expenses.length / EXPENSES_PAGE_SIZE));
-
-  if (expensesPage > totalPages) {
-    expensesPage = totalPages;
+  if (isExpensesLoading) {
+    container.innerHTML = '<p class="expenses-empty">Cargando gastos reales...</p>';
+    pagination.innerHTML = "";
+    pagination.hidden = true;
+    return;
   }
 
-  if (!expenses.length) {
+  const totalPages = Math.max(1, Math.ceil(adminExpenseTotal / EXPENSES_PAGE_SIZE));
+
+  if (!adminExpenseRows.length) {
     container.innerHTML = '<p class="expenses-empty">No hay gastos que coincidan con los filtros.</p>';
     pagination.innerHTML = "";
     pagination.hidden = true;
     return;
   }
 
-  const start = (expensesPage - 1) * EXPENSES_PAGE_SIZE;
-  const visibleExpenses = expenses.slice(start, start + EXPENSES_PAGE_SIZE);
-
-  container.innerHTML = visibleExpenses.map(renderExpenseRow).join("");
-  renderExpensesPagination(pagination, expenses.length, totalPages);
+  container.innerHTML = adminExpenseRows.map(renderExpenseRow).join("");
+  renderExpensesPagination(pagination, adminExpenseTotal, totalPages);
 }
 
 function renderExpenseRow(expense) {
   const badge = getExpenseStatusBadge(expense.status);
   const relation = getExpenseRelationLabel(expense);
   const responsible = getExpenseResponsibleLabel(expense);
-  const approved = expense.amountApproved !== null ? `<small>Aprobado: ${escapeExpenseHtml(formatExpenseMoney(expense.amountApproved))}</small>` : "";
+  const supplier = expense.supplierName ? `Proveedor: ${expense.supplierName}` : "Sin proveedor";
 
   return `
     <article class="expenses-row expenses-list-grid">
       <div class="expenses-row__main">
-        <strong>${escapeExpenseHtml(expense.expenseId)}</strong>
-        <span>${escapeExpenseHtml(expense.concept || "Sin concepto")}</span>
-        <small>${escapeExpenseHtml(expense.category)}${expense.requiresExceptionalApproval ? " \u00B7 Excepcional" : ""}</small>
+        <strong>${escapeExpenseHtml(expense.humanCode || "Gasto")}</strong>
+        <span>${escapeExpenseHtml(expense.description || "Sin descripci\u00f3n")}</span>
+        <small>${escapeExpenseHtml(expense.categoryName || expense.categoryCode || "Sin categor\u00eda")}</small>
       </div>
       <time>${escapeExpenseHtml(formatExpenseDate(expense.expenseDate))}</time>
       <div class="expenses-row__stack">
@@ -131,13 +148,13 @@ function renderExpenseRow(expense) {
         <small>${escapeExpenseHtml(responsible.secondary)}</small>
       </div>
       <div class="expenses-row__stack expenses-row__amount">
-        <strong>${escapeExpenseHtml(formatExpenseMoney(expense.amountRequested))}</strong>
-        ${approved}
+        <strong>${escapeExpenseHtml(formatExpenseMoney(expense.amount, expense.currencyCode))}</strong>
+        <small>${escapeExpenseHtml(getExpensePaymentResponsibilityLabel(expense.paymentResponsibility))}</small>
       </div>
-      <span class="expense-status-badge expense-status-badge--${escapeExpenseHtml(badge.tone)}">${escapeExpenseHtml(expense.status)}</span>
+      <span class="expense-status-badge expense-status-badge--${escapeExpenseHtml(badge.tone)}">${escapeExpenseHtml(getExpenseStatusLabel(expense.status))}</span>
       <div class="expenses-row__stack">
         <strong>${escapeExpenseHtml(relation.primary)}</strong>
-        <small>${escapeExpenseHtml(relation.secondary)}</small>
+        <small>${escapeExpenseHtml(relation.secondary || supplier)}</small>
       </div>
       <div class="expenses-row__actions">
         <button class="button button--compact button--muted" type="button" data-expense-detail="${escapeExpenseHtml(expense.expenseId)}">Detalle</button>
@@ -148,15 +165,15 @@ function renderExpenseRow(expense) {
 
 function renderExpensesPagination(container, total, totalPages) {
   if (totalPages <= 1) {
-    container.innerHTML = "";
-    container.hidden = true;
+    container.innerHTML = total > 0 ? `<span>${escapeExpenseHtml(total)} resultado${total === 1 ? "" : "s"}</span>` : "";
+    container.hidden = total === 0;
     return;
   }
 
   container.hidden = false;
   container.innerHTML = `
     <button class="button button--compact button--muted" type="button" data-expenses-page="prev"${expensesPage <= 1 ? " disabled" : ""}>Anterior</button>
-    <span>${escapeExpenseHtml(total)} resultados \u00B7 P\u00e1gina ${escapeExpenseHtml(expensesPage)} de ${escapeExpenseHtml(totalPages)}</span>
+    <span>${escapeExpenseHtml(total)} resultados - P\u00e1gina ${escapeExpenseHtml(expensesPage)} de ${escapeExpenseHtml(totalPages)}</span>
     <button class="button button--compact button--muted" type="button" data-expenses-page="next"${expensesPage >= totalPages ? " disabled" : ""}>Siguiente</button>
   `;
 }
@@ -167,42 +184,155 @@ function renderExpensesStaticFilters() {
 
   if (statusContainer) {
     statusContainer.innerHTML = EXPENSES_STATUS_FILTERS.map(
-      (status) => `
-        <label class="filter-chip"><input type="checkbox" data-expense-filter="status" value="${escapeExpenseHtml(status)}" /><span>${escapeExpenseHtml(status)}</span></label>
+      ([value, label]) => `
+        <label class="filter-chip"><input type="radio" name="expenses-status-filter" data-expense-filter="status" value="${escapeExpenseHtml(value)}" /><span>${escapeExpenseHtml(label)}</span></label>
       `,
     ).join("");
   }
 
-  if (categoryContainer && window.ElaraExpensesCore?.getExpenseCategories) {
-    categoryContainer.innerHTML = window.ElaraExpensesCore
-      .getExpenseCategories()
-      .map(
-        (category) => `
-          <label class="filter-chip"><input type="checkbox" data-expense-filter="category" value="${escapeExpenseHtml(category)}" /><span>${escapeExpenseHtml(category)}</span></label>
-        `,
-      )
-      .join("");
+  renderExpensesCategoryFilters(categoryContainer);
+  renderExpensesPaymentResponsibilityFilters();
+}
+
+function renderExpensesCategoryFilters(categoryContainer = getExpensesElement("expenses-category-filters")) {
+  if (!categoryContainer) {
+    return;
+  }
+
+  const categories = Array.from(adminExpenseCategoryOptions.values()).sort((first, second) => first.name.localeCompare(second.name, "es"));
+
+  if (!categories.length) {
+    categoryContainer.innerHTML = '<span class="modal__hint">Se cargar\u00e1n con los datos reales.</span>';
+    return;
+  }
+
+  categoryContainer.innerHTML = categories
+    .map(
+      (category) => `
+        <label class="filter-chip"><input type="radio" name="expenses-category-filter" data-expense-filter="category" value="${escapeExpenseHtml(category.id)}"${expensesFilters.categoryId === category.id ? " checked" : ""} /><span>${escapeExpenseHtml(category.name)}</span></label>
+      `,
+    )
+    .join("");
+}
+
+function renderExpensesPaymentResponsibilityFilters() {
+  const currentInputs = Array.from(document.querySelectorAll('[data-expense-filter="paidBy"]'));
+  const group = currentInputs[0]?.closest(".customer-filter__group");
+
+  if (!group) {
+    return;
+  }
+
+  const title = group.querySelector("strong");
+  if (title) {
+    title.textContent = "Responsabilidad";
+  }
+
+  currentInputs.forEach((input) => input.closest("label")?.remove());
+  group.insertAdjacentHTML(
+    "beforeend",
+    EXPENSES_PAYMENT_RESPONSIBILITY_FILTERS.map(
+      ([value, label]) => `
+        <label class="filter-chip"><input type="radio" name="expenses-responsibility-filter" data-expense-filter="paidBy" value="${escapeExpenseHtml(value)}" /><span>${escapeExpenseHtml(label)}</span></label>
+      `,
+    ).join(""),
+  );
+}
+
+function configureExpensesRealFilterVisibility() {
+  document.querySelectorAll('[data-expense-filter="recordType"]').forEach((input) => {
+    const group = input.closest(".customer-filter__group");
+    if (group) group.hidden = true;
+  });
+
+  const from = getExpensesElement("expenses-filter-from");
+  const dateGroup = from?.closest(".customer-filter__group");
+  if (dateGroup) dateGroup.hidden = true;
+
+  document.querySelectorAll("[data-expense-exceptional]").forEach((input) => {
+    const group = input.closest(".customer-filter__group");
+    if (group) group.hidden = true;
+  });
+}
+
+async function loadAdminExpenses() {
+  const container = getExpensesElement("expenses-list");
+  const client = getExpensesSupabaseClient();
+
+  if (!client) {
+    adminExpenseRows = [];
+    adminExpenseTotal = 0;
+    isExpensesLoading = false;
+    renderExpensesView();
+    if (container) {
+      container.innerHTML = '<p class="expenses-empty">No se pudo conectar con Supabase para cargar gastos reales.</p>';
+    }
+    return;
+  }
+
+  const requestId = ++adminExpenseRequestId;
+  const offset = (Math.max(expensesPage, 1) - 1) * EXPENSES_PAGE_SIZE;
+  isExpensesLoading = true;
+  renderExpensesView();
+
+  try {
+    const { data, error } = await client.rpc("get_admin_expenses", {
+      p_status: getSingleExpenseFilterValue(expensesFilters.statuses),
+      p_category_id: expensesFilters.categoryId || null,
+      p_driver_id: null,
+      p_service_id: null,
+      p_payment_responsibility: getSingleExpenseFilterValue(expensesFilters.paidBy),
+      p_search: expensesFilters.query || null,
+      p_limit: EXPENSES_PAGE_SIZE,
+      p_offset: offset,
+    });
+
+    if (requestId !== adminExpenseRequestId) {
+      return;
+    }
+
+    if (error) {
+      throw error;
+    }
+
+    adminExpenseRows = (Array.isArray(data) ? data : []).map(normalizeAdminExpenseListRow);
+    adminExpenseTotal = adminExpenseRows.length ? adminExpenseRows[0].totalCount : 0;
+    adminExpenseRows.forEach(registerAdminExpenseCategoryOption);
+
+    const totalPages = Math.max(1, Math.ceil(adminExpenseTotal / EXPENSES_PAGE_SIZE));
+    if (expensesPage > totalPages) {
+      expensesPage = totalPages;
+      isExpensesLoading = false;
+      void loadAdminExpenses();
+      return;
+    }
+
+    isExpensesLoading = false;
+    renderExpensesCategoryFilters();
+    renderExpensesView();
+  } catch (error) {
+    if (requestId !== adminExpenseRequestId) {
+      return;
+    }
+
+    console.error("[ELARA Expenses] No se pudo cargar el listado real de gastos.", { error });
+    adminExpenseRows = [];
+    adminExpenseTotal = 0;
+    isExpensesLoading = false;
+    renderExpensesView();
+    if (container) {
+      container.innerHTML = `<p class="expenses-empty">${escapeExpenseHtml(formatExpenseError(error, "No se pudo cargar el listado de gastos."))}</p>`;
+    }
   }
 }
 
 function bindExpensesEvents() {
   const search = getExpensesElement("expenses-search");
-  const from = getExpensesElement("expenses-filter-from");
-  const to = getExpensesElement("expenses-filter-to");
 
   search?.addEventListener("input", () => {
     expensesFilters.query = search.value.trim();
     expensesPage = 1;
-    renderExpensesView();
-  });
-
-  [from, to].forEach((input) => {
-    input?.addEventListener("change", () => {
-      expensesFilters.from = from?.value || "";
-      expensesFilters.to = to?.value || "";
-      expensesPage = 1;
-      renderExpensesView();
-    });
+    void loadAdminExpenses();
   });
 
   document.addEventListener("change", handleExpensesDocumentChange);
@@ -214,19 +344,11 @@ function bindExpensesEvents() {
 
 function handleExpensesDocumentChange(event) {
   const filterInput = event.target.closest("[data-expense-filter]");
-  const exceptionalInput = event.target.closest("[data-expense-exceptional]");
 
   if (filterInput) {
     syncExpensesChipFilters();
     expensesPage = 1;
-    renderExpensesView();
-    return;
-  }
-
-  if (exceptionalInput) {
-    expensesFilters.exceptional = exceptionalInput.value || "";
-    expensesPage = 1;
-    renderExpensesView();
+    void loadAdminExpenses();
     return;
   }
 
@@ -238,7 +360,6 @@ function handleExpensesDocumentChange(event) {
     updateNewExpenseReceiptState();
   }
 }
-
 function handleExpensesDocumentClick(event) {
   const primaryAction = event.target.closest("#primary-action");
 
@@ -308,14 +429,7 @@ function handleExpensesDataUpdated() {
     return;
   }
 
-  renderExpensesView();
-
-  if (selectedExpenseId && !getExpenseById(selectedExpenseId)) {
-    selectedExpenseId = "";
-    closeExpenseModal(getExpensesElement("expense-detail-modal"));
-  } else if (selectedExpenseId && !getExpensesElement("expense-detail-modal")?.hidden) {
-    renderExpenseDetail(selectedExpenseId);
-  }
+  void loadAdminExpenses();
 }
 
 function configureExpensesPrimaryAction() {
@@ -326,7 +440,7 @@ function configureExpensesPrimaryAction() {
   }
 
   primaryAction.textContent = "Nuevo gasto";
-  primaryAction.hidden = !canExpenseAction("expenses.create");
+  primaryAction.hidden = true;
   primaryAction.removeAttribute("data-modal-open");
   primaryAction.removeAttribute("data-modal-target");
 }
@@ -485,44 +599,375 @@ function submitNewExpense(event) {
   notifyExpense("Gasto registrado correctamente.", "success");
 }
 
-function openExpenseDetailModal(expenseId) {
-  const expense = getExpenseById(expenseId);
+async function openExpenseDetailModal(expenseId) {
+  const id = String(expenseId || "").trim();
+  const client = getExpensesSupabaseClient();
 
-  if (!expense) {
-    notifyExpense("No se encontro el gasto seleccionado.", "warning");
+  if (!id) {
+    notifyExpense("Selecciona un gasto v\u00e1lido.", "warning");
     return;
   }
 
-  selectedExpenseId = expense.expenseId;
-  renderExpenseDetail(expense.expenseId);
-  openExpenseModal("expense-detail-modal");
+  if (!client) {
+    notifyExpense("No se pudo conectar con Supabase para cargar el detalle real.", "error");
+    return;
+  }
+
+  selectedExpenseId = id;
+  adminExpenseDetail = null;
+
+  try {
+    const { data, error } = await client.rpc("get_admin_expense_detail", { p_expense_id: id });
+
+    if (error) {
+      throw error;
+    }
+
+    const row = Array.isArray(data) ? data[0] : data;
+
+    if (!row) {
+      throw new Error("Expense was not found.");
+    }
+
+    adminExpenseDetail = normalizeAdminExpenseDetail(row);
+    selectedExpenseId = adminExpenseDetail.expenseId;
+    renderExpenseDetail(adminExpenseDetail);
+    openExpenseModal("expense-detail-modal");
+  } catch (error) {
+    selectedExpenseId = "";
+    adminExpenseDetail = null;
+    console.error("[ELARA Expenses] No se pudo cargar el detalle real del gasto.", { error });
+    notifyExpense(formatExpenseError(error, "No se pudo cargar el detalle del gasto."), "error");
+  }
 }
 
-function renderExpenseDetail(expenseId) {
-  const expense = getExpenseById(expenseId);
+function renderExpenseDetail(expense) {
+  const detail = typeof expense === "string" ? adminExpenseDetail : expense;
   const container = getExpensesElement("expense-detail-content");
   const actions = getExpensesElement("expense-detail-actions");
 
-  if (!expense || !container || !actions) {
+  if (!detail || !container || !actions) {
     return;
   }
 
-  setExpensesText("expense-detail-id", expense.expenseId);
+  setExpensesText("expense-detail-id", detail.humanCode || detail.expenseId);
   container.innerHTML = `
-    ${renderExpenseDetailSection("Informaci\u00f3n general", getExpenseGeneralFields(expense))}
-    ${renderExpenseAmountSection(expense)}
-    ${renderExpenseDetailSection("Relaciones", getExpenseRelationFields(expense))}
-    ${renderExpenseDetailSection("Revisi\u00f3n", getExpenseReviewFields(expense))}
-    ${renderExpenseDetailSection(expense.reimbursement.required ? "Reembolso" : "Pago", getExpenseSettlementFields(expense))}
-    ${expense.cancellation.cancelledAt ? renderExpenseDetailSection("Anulaci\u00f3n", [
-      ["Fecha", formatExpenseDateTime(expense.cancellation.cancelledAt)],
-      ["Usuario", expense.cancellation.cancelledByName || "Sistema"],
-      ["Motivo", expense.cancellation.reason || "Sin motivo"],
-    ]) : ""}
+    ${detail.hasSettlementReference ? renderExpenseSettlementReferenceNotice(detail) : ""}
+    ${renderExpenseDetailSection("Identificaci\u00f3n", getExpenseRealIdentificationFields(detail))}
+    ${renderExpenseAmountSection(detail)}
+    ${renderExpenseDetailSection("Responsabilidad", getExpenseRealResponsibilityFields(detail))}
+    ${renderExpenseDetailSection("Relaciones", getExpenseRealRelationFields(detail))}
+    ${renderExpenseDetailSection("Fechas y actores", getExpenseRealActorFields(detail))}
+    ${renderExpenseDocumentsSection(detail.documents)}
+    ${renderExpensePaymentsSection(detail.payments)}
+    ${renderExpenseReimbursementsSection(detail.reimbursements)}
+    ${renderExpenseHistorySection(detail.history)}
+    ${renderExpenseAllocationsSection(detail.allocations)}
   `;
-  actions.innerHTML = renderExpenseDetailActions(expense);
+  actions.innerHTML = renderExpenseDetailActions(detail);
 }
 
+function renderExpenseSettlementReferenceNotice(expense) {
+  const countLabel = expense.settlementReferenceCount === 1 ? "1 referencia" : `${expense.settlementReferenceCount} referencias`;
+
+  return `
+    <section class="expense-detail-section">
+      <p class="expense-confirm-box"><span>Este gasto ya tiene referencia en una liquidaci\u00f3n.</span><small>${escapeExpenseHtml(countLabel)}</small></p>
+    </section>
+  `;
+}
+
+function getExpenseRealIdentificationFields(expense) {
+  return [
+    ["C\u00f3digo", expense.humanCode],
+    ["Estado", getExpenseStatusLabel(expense.status)],
+    ["Fecha", formatExpenseDate(expense.expenseDate)],
+    ["Categor\u00eda", formatExpenseCategoryLabel(expense)],
+    ["Descripci\u00f3n", expense.description, true],
+    ["Notas", expense.notes, true],
+    ["Notas internas", expense.internalNotes, true],
+    ["Motivo rechazo", expense.rejectionReason, true],
+    ["Motivo anulaci\u00f3n", expense.cancellationReason, true],
+  ];
+}
+
+function getExpenseRealResponsibilityFields(expense) {
+  return [
+    ["Responsabilidad", getExpensePaymentResponsibilityLabel(expense.paymentResponsibility)],
+    ["Estado de pago", getExpensePaymentStatusLabel(expense.paymentStatus)],
+    ["Estado de reembolso", getExpenseReimbursementStatusLabel(expense.reimbursementStatus)],
+    ["Reembolsable", expense.reimbursable ? "S\u00ed" : "No"],
+  ];
+}
+
+function getExpenseRealRelationFields(expense) {
+  return [
+    ["Conductor", formatExpenseDriverLabel(expense.driverHumanCode, expense.driverName)],
+    ["Adelantado por conductor", formatExpenseDriverLabel(expense.advancedByDriverHumanCode, expense.advancedByDriverName)],
+    ["Adelantado por usuario", formatExpenseUserLabel(expense.advancedByUserHumanCode, expense.advancedByUserName)],
+    ["Servicio", formatExpenseServiceLabel(expense.serviceHumanCode, expense.serviceType, expense.serviceStatus)],
+    ["Veh\u00edculo", formatExpenseVehicleLabel(expense.vehicleHumanCode, expense.vehiclePlate, expense.vehicleLabel)],
+    ["Proveedor", expense.supplierName || expense.supplierHumanCode],
+  ];
+}
+
+function getExpenseRealActorFields(expense) {
+  return [
+    ["Creado", formatExpenseActorDate(expense.createdAt, expense.createdByHumanCode, expense.createdByName)],
+    ["Enviado", formatExpenseActorDate(expense.submittedAt, expense.submittedByHumanCode, expense.submittedByName)],
+    ["Aprobado", formatExpenseActorDate(expense.approvedAt, expense.approvedByHumanCode, expense.approvedByName)],
+    ["Rechazado", formatExpenseActorDate(expense.rejectedAt, expense.rejectedByHumanCode, expense.rejectedByName)],
+    ["Cancelado", formatExpenseActorDate(expense.cancelledAt, expense.cancelledByHumanCode, expense.cancelledByName)],
+    ["Actualizado", formatExpenseActorDate(expense.updatedAt, expense.updatedByHumanCode, expense.updatedByName)],
+  ];
+}
+
+function renderExpenseAmountSection(expense) {
+  const amountItems = [
+    ["Importe", formatExpenseMoney(expense.amount, expense.currencyCode), "strong"],
+    ["Pagado", formatExpenseMoney(expense.paidAmount, expense.currencyCode), "strong"],
+    ["Pendiente pago", formatExpenseMoney(expense.pendingPaymentAmount, expense.currencyCode), "strong"],
+    ["Reembolsado", formatExpenseMoney(expense.reimbursedAmount, expense.currencyCode), "strong"],
+    ["Pendiente reembolso", formatExpenseMoney(expense.pendingReimbursementAmount, expense.currencyCode), "strong"],
+    ["Subtotal", formatExpenseMoney(expense.subtotalAmount, expense.currencyCode)],
+    ["Impuesto", `${formatExpenseMoney(expense.taxAmount, expense.currencyCode)} (${formatExpenseDecimal(expense.taxRate)}%)`],
+  ];
+
+  return `
+    <section class="expense-detail-section expense-detail-section--amounts">
+      <h3 class="modal__section-title">Importes</h3>
+      <div class="expense-detail-amount-grid">
+        ${amountItems
+          .map(
+            ([label, value, tone]) => `
+              <div class="expense-detail-amount">
+                <span>${escapeExpenseHtml(label)}</span>
+                <strong class="${tone === "strong" ? "expense-detail-amount__value" : ""}">${escapeExpenseHtml(value)}</strong>
+              </div>
+            `,
+          )
+          .join("")}
+      </div>
+    </section>
+  `;
+}
+function normalizeAdminExpenseListRow(row = {}) {
+  const expense = {
+    expenseId: String(row.expense_id || "").trim(),
+    humanCode: String(row.human_code || "").trim(),
+    status: String(row.status || "").trim(),
+    expenseDate: String(row.expense_date || "").trim(),
+    createdAt: row.created_at || "",
+    submittedAt: row.submitted_at || "",
+    categoryId: String(row.category_id || "").trim(),
+    categoryCode: String(row.category_code || "").trim(),
+    categoryName: String(row.category_name || "").trim(),
+    amount: roundExpenseAmount(row.amount),
+    currencyCode: String(row.currency_code || "EUR").trim() || "EUR",
+    paymentResponsibility: String(row.payment_responsibility || "").trim(),
+    paymentStatus: String(row.payment_status || "").trim(),
+    reimbursementStatus: String(row.reimbursement_status || "").trim(),
+    reimbursable: Boolean(row.reimbursable),
+    driverId: String(row.driver_id || "").trim(),
+    driverHumanCode: String(row.driver_human_code || "").trim(),
+    driverName: String(row.driver_name || "").trim(),
+    serviceId: String(row.service_id || "").trim(),
+    serviceHumanCode: String(row.service_human_code || "").trim(),
+    vehicleId: String(row.vehicle_id || "").trim(),
+    vehicleHumanCode: String(row.vehicle_human_code || "").trim(),
+    vehiclePlate: String(row.vehicle_plate || "").trim(),
+    vehicleLabel: String(row.vehicle_label || "").trim(),
+    supplierId: String(row.supplier_id || "").trim(),
+    supplierHumanCode: String(row.supplier_human_code || "").trim(),
+    supplierName: String(row.supplier_name || "").trim(),
+    description: String(row.description || "").trim(),
+    notes: String(row.notes || "").trim(),
+    paidAmount: roundExpenseAmount(row.paid_amount),
+    reimbursedAmount: roundExpenseAmount(row.reimbursed_amount),
+    pendingPaymentAmount: roundExpenseAmount(row.pending_payment_amount),
+    pendingReimbursementAmount: roundExpenseAmount(row.pending_reimbursement_amount),
+    documentCount: Number(row.document_count) || 0,
+    latestStatusAt: row.latest_status_at || "",
+    settlementReferenceCount: Number(row.settlement_reference_count) || 0,
+    hasSettlementReference: Boolean(row.has_settlement_reference),
+    totalCount: Number(row.total_count) || 0,
+  };
+
+  return expense;
+}
+
+function normalizeAdminExpenseDetail(row = {}) {
+  return Object.assign(normalizeAdminExpenseListRow(row), {
+    subtotalAmount: roundExpenseAmount(row.subtotal_amount),
+    taxRate: roundExpenseAmount(row.tax_rate),
+    taxAmount: roundExpenseAmount(row.tax_amount),
+    internalNotes: String(row.internal_notes || "").trim(),
+    rejectionReason: String(row.rejection_reason || "").trim(),
+    cancellationReason: String(row.cancellation_reason || "").trim(),
+    createdBy: String(row.created_by || "").trim(),
+    createdByHumanCode: String(row.created_by_human_code || "").trim(),
+    createdByName: String(row.created_by_name || "").trim(),
+    submittedByHumanCode: String(row.submitted_by_human_code || "").trim(),
+    submittedByName: String(row.submitted_by_name || "").trim(),
+    approvedAt: row.approved_at || "",
+    approvedByHumanCode: String(row.approved_by_human_code || "").trim(),
+    approvedByName: String(row.approved_by_name || "").trim(),
+    rejectedAt: row.rejected_at || "",
+    rejectedByHumanCode: String(row.rejected_by_human_code || "").trim(),
+    rejectedByName: String(row.rejected_by_name || "").trim(),
+    cancelledAt: row.cancelled_at || "",
+    cancelledByHumanCode: String(row.cancelled_by_human_code || "").trim(),
+    cancelledByName: String(row.cancelled_by_name || "").trim(),
+    updatedByHumanCode: String(row.updated_by_human_code || "").trim(),
+    updatedByName: String(row.updated_by_name || "").trim(),
+    advancedByDriverId: String(row.advanced_by_driver_id || "").trim(),
+    advancedByDriverHumanCode: String(row.advanced_by_driver_human_code || "").trim(),
+    advancedByDriverName: String(row.advanced_by_driver_name || "").trim(),
+    advancedByUserId: String(row.advanced_by_user_id || "").trim(),
+    advancedByUserHumanCode: String(row.advanced_by_user_human_code || "").trim(),
+    advancedByUserName: String(row.advanced_by_user_name || "").trim(),
+    serviceType: String(row.service_type || "").trim(),
+    serviceStatus: String(row.service_status || "").trim(),
+    documents: normalizeExpenseJsonArray(row.documents),
+    payments: normalizeExpenseJsonArray(row.payments),
+    reimbursements: normalizeExpenseJsonArray(row.reimbursements),
+    history: normalizeExpenseJsonArray(row.history),
+    allocations: normalizeExpenseJsonArray(row.allocations),
+  });
+}
+
+function normalizeExpenseJsonArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function registerAdminExpenseCategoryOption(expense) {
+  if (!expense.categoryId) {
+    return;
+  }
+
+  adminExpenseCategoryOptions.set(expense.categoryId, {
+    id: expense.categoryId,
+    key: expense.categoryCode,
+    name: expense.categoryName || expense.categoryCode || expense.categoryId,
+  });
+}
+
+function renderExpenseDocumentsSection(documents = []) {
+  if (!documents.length) {
+    return renderExpenseEmptySection("Documentos", "Sin documentos adjuntos");
+  }
+
+  return renderExpenseCollectionSection(
+    "Documentos",
+    documents.map((document) => [
+      ["Archivo", document.file_name || document.document_number || "Documento"],
+      ["Tipo", getExpenseDocumentTypeLabel(document.document_type)],
+      ["Estado", getExpenseDocumentStatusLabel(document.status)],
+      ["Fecha", formatExpenseDate(document.issued_at) || formatExpenseDateTime(document.created_at)],
+      ["Subido por", formatExpenseUserLabel(document.created_by_human_code, document.created_by_name)],
+    ]),
+  );
+}
+
+function renderExpensePaymentsSection(payments = []) {
+  if (!payments.length) {
+    return renderExpenseEmptySection("Pagos", "Sin pagos registrados");
+  }
+
+  return renderExpenseCollectionSection(
+    "Pagos",
+    payments.map((payment) => [
+      ["Pago", payment.human_code || "Pago"],
+      ["Importe", formatExpenseMoney(payment.amount, payment.currency_code)],
+      ["Estado", getExpensePaymentRecordStatusLabel(payment.status)],
+      ["M\u00e9todo", getExpensePaymentMethodLabel(payment.payment_method)],
+      ["Fecha", formatExpenseDateTime(payment.paid_at || payment.registered_at)],
+      ["Cuenta", formatExpenseCashAccountLabel(payment.cash_account_name, payment.cash_account_type)],
+      ["Referencia", payment.external_reference],
+      ["Actor", formatExpenseUserLabel(payment.created_by_human_code, payment.created_by_name)],
+      ["Notas", payment.notes, true],
+    ]),
+  );
+}
+
+function renderExpenseReimbursementsSection(reimbursements = []) {
+  if (!reimbursements.length) {
+    return renderExpenseEmptySection("Reembolsos", "Sin reembolsos registrados");
+  }
+
+  return renderExpenseCollectionSection(
+    "Reembolsos",
+    reimbursements.map((reimbursement) => [
+      ["Reembolso", reimbursement.human_code || "Reembolso"],
+      ["Importe", formatExpenseMoney(reimbursement.amount, reimbursement.currency_code)],
+      ["Estado", getExpensePaymentRecordStatusLabel(reimbursement.status)],
+      ["Beneficiario", formatExpenseReimbursementBeneficiary(reimbursement)],
+      ["M\u00e9todo", getExpensePaymentMethodLabel(reimbursement.payment_method)],
+      ["Fecha", formatExpenseDateTime(reimbursement.reimbursed_at)],
+      ["Cuenta", formatExpenseCashAccountLabel(reimbursement.cash_account_name, reimbursement.cash_account_type)],
+      ["Referencia", reimbursement.external_reference],
+      ["Actor", formatExpenseUserLabel(reimbursement.created_by_human_code, reimbursement.created_by_name)],
+      ["Notas", reimbursement.notes, true],
+    ]),
+  );
+}
+
+function renderExpenseHistorySection(history = []) {
+  if (!history.length) {
+    return renderExpenseEmptySection("Historial", "Sin historial registrado");
+  }
+
+  return renderExpenseCollectionSection(
+    "Historial",
+    history.map((event) => [
+      ["Cambio", `${getExpenseStatusLabel(event.previous_status) || "Inicio"} -> ${getExpenseStatusLabel(event.new_status)}`],
+      ["Fecha", formatExpenseDateTime(event.changed_at)],
+      ["Actor", formatExpenseUserLabel(event.changed_by_human_code, event.changed_by_name)],
+      ["Raz\u00f3n", event.reason, true],
+    ]),
+  );
+}
+
+function renderExpenseAllocationsSection(allocations = []) {
+  if (!allocations.length) {
+    return "";
+  }
+
+  return renderExpenseCollectionSection(
+    "Allocations",
+    allocations.map((allocation) => [
+      ["Tipo", getExpenseAllocationTypeLabel(allocation.allocation_type)],
+      ["Servicio", allocation.service_human_code],
+      ["Veh\u00edculo", allocation.vehicle_human_code],
+      ["Conductor", formatExpenseDriverLabel(allocation.driver_human_code, allocation.driver_name)],
+      ["Importe", formatExpenseMoney(allocation.allocated_amount)],
+      ["Porcentaje", allocation.percentage ? `${formatExpenseDecimal(allocation.percentage)}%` : ""],
+      ["Descripci\u00f3n", allocation.description, true],
+    ]),
+  );
+}
+
+function renderExpenseEmptySection(title, message) {
+  return `
+    <section class="expense-detail-section">
+      ${title ? `<h3 class="modal__section-title">${escapeExpenseHtml(title)}</h3>` : ""}
+      <p class="modal__hint">${escapeExpenseHtml(message)}</p>
+    </section>
+  `;
+}
+
+function renderExpenseCollectionSection(title, itemGroups = []) {
+  const content = itemGroups
+    .map((fields) => renderExpenseDetailSection("", fields, { compact: true }))
+    .join("");
+
+  return `
+    <section class="expense-detail-section">
+      ${title ? `<h3 class="modal__section-title">${escapeExpenseHtml(title)}</h3>` : ""}
+      ${content || '<p class="modal__hint">Sin registros.</p>'}
+    </section>
+  `;
+}
 function renderExpenseDetailSection(title, fields, options = {}) {
   const normalizedFields = fields
     .map(normalizeExpenseDetailField)
@@ -536,7 +981,7 @@ function renderExpenseDetailSection(title, fields, options = {}) {
 
   return `
     <section class="${escapeExpenseHtml(classes)}">
-      <h3 class="modal__section-title">${escapeExpenseHtml(title)}</h3>
+      ${title ? `<h3 class="modal__section-title">${escapeExpenseHtml(title)}</h3>` : ""}
       <dl class="modal__fields-grid">
         ${normalizedFields
           .map(
@@ -553,7 +998,7 @@ function renderExpenseDetailSection(title, fields, options = {}) {
   `;
 }
 
-function renderExpenseAmountSection(expense) {
+function renderMockExpenseAmountSection(expense) {
   const amountItems = [
     ["Solicitado", formatExpenseMoney(expense.amountRequested), "strong"],
     ["Aprobado", expense.amountApproved === null ? "Pendiente de aprobaci\u00f3n" : formatExpenseMoney(expense.amountApproved), "strong"],
@@ -653,7 +1098,7 @@ function hasUsefulExpenseDetailValue(value) {
 
   const text = String(value).trim();
 
-  return Boolean(text && text !== "-" && text !== "No aplica" && text !== "Sin fecha" && text !== "Sin referencia" && text !== "Sin motivo" && text !== "Sin registro");
+  return Boolean(text && text !== "-" && text !== "Sin fecha" && text !== "Sin referencia" && text !== "Sin motivo" && text !== "Sin registro");
 }
 
 function isEmptyExpenseRelation(value) {
@@ -662,164 +1107,188 @@ function isEmptyExpenseRelation(value) {
   return !text || text === "Sin vehiculo" || text === "Sin servicio" || text === "Sin relacion" || text === "Sin proveedor";
 }
 
-function renderExpenseDetailActions(expense) {
-  const leftActions = [];
-  const rightActions = [];
-
-  if (window.ElaraExpensesCore.canApproveExpense(expense, getExpenseCurrentUser())) {
-    rightActions.push('<button class="button button--compact" type="button" data-expense-action="approve">Aprobar</button>');
-    rightActions.push('<button class="button button--compact button--muted" type="button" data-expense-action="partial">Aprobar parcialmente</button>');
-  } else if (expense.requiresExceptionalApproval && expense.status === "Pendiente de revisi\u00f3n" && getExpenseActiveContext() === "administrativo") {
-    rightActions.push('<span class="modal__hint expense-action-note">Requiere aprobaci&oacute;n excepcional de Superadmin.</span>');
-  }
-
-  if (window.ElaraExpensesCore.canRequestExpenseInformation(expense, getExpenseCurrentUser())) {
-    rightActions.push('<button class="button button--compact button--muted" type="button" data-expense-action="info">Solicitar informaci&oacute;n</button>');
-  }
-
-  if (window.ElaraExpensesCore.canRejectExpense(expense, getExpenseCurrentUser())) {
-    rightActions.push('<button class="button button--compact button--danger" type="button" data-expense-action="reject">Rechazar</button>');
-  }
-
-  if (window.ElaraExpensesCore.canPayExpense(expense, getExpenseCurrentUser())) {
-    rightActions.push('<button class="button button--compact" type="button" data-expense-action="payment">Registrar pago</button>');
-  }
-
-  if (window.ElaraExpensesCore.canReimburseExpense(expense, getExpenseCurrentUser())) {
-    rightActions.push('<button class="button button--compact" type="button" data-expense-action="reimbursement">Registrar reembolso</button>');
-  }
-
-  if (window.ElaraExpensesCore.canCancelExpense(expense, getExpenseCurrentUser())) {
-    leftActions.push('<button class="button button--compact button--danger" type="button" data-expense-action="cancel">Anular</button>');
-  }
-
-  rightActions.push('<button class="button button--compact button--muted" type="button" data-expense-modal-close>Cerrar</button>');
+function renderExpenseDetailActions(detail) {
+  const canReview = detail?.status === "submitted";
 
   return `
-    <div class="expense-detail-actions__group expense-detail-actions__group--left">${leftActions.join("")}</div>
-    <div class="expense-detail-actions__group expense-detail-actions__group--right">${rightActions.join("")}</div>
+    <div class="expense-detail-actions__group expense-detail-actions__group--left">
+      ${
+        canReview
+          ? `<button class="button button--compact" type="button" data-expense-action="approve">Aprobar</button><button class="button button--compact button--danger" type="button" data-expense-action="reject">Rechazar</button>`
+          : ""
+      }
+    </div>
+    <div class="expense-detail-actions__group expense-detail-actions__group--right">
+      <button class="button button--compact button--muted" type="button" data-expense-modal-close>Cerrar</button>
+    </div>
   `;
 }
 
 function handleExpenseAction(action) {
-  const expense = getExpenseById(selectedExpenseId);
+  const expense = adminExpenseDetail;
 
   if (!expense) {
     notifyExpense("No se encontro el gasto seleccionado.", "warning");
     return;
   }
 
-  if (["approve", "partial", "info", "reject"].includes(action)) {
-    openExpenseReviewModal(expense, action);
+  if (!["approve", "reject"].includes(action)) {
+    notifyExpense("Accion de gasto no disponible.", "warning");
     return;
   }
 
-  if (action === "payment" || action === "reimbursement") {
-    openExpenseSettlementModal(expense, action);
+  if (expense.status !== "submitted") {
+    notifyExpense("Solo los gastos enviados pueden revisarse.", "warning");
     return;
   }
 
-  if (action === "cancel") {
-    openExpenseCancelModal(expense);
-  }
+  openExpenseReviewModal(expense, action);
 }
 
 function openExpenseReviewModal(expense, action) {
   pendingExpenseAction = { type: action, expenseId: expense.expenseId };
-  const isApproval = action === "approve" || action === "partial";
+  const isApproval = action === "approve";
   const amountField = getExpensesElement("expense-review-amount-field");
   const amountInput = getExpensesElement("expense-review-amount");
   const reason = getExpensesElement("expense-review-reason");
+  const reasonLabel = reason?.closest("label")?.querySelector("span");
+  const submitButton = getExpensesElement("expense-review-form")?.querySelector('button[type="submit"]');
 
-  setExpensesText("expense-review-title", getExpenseReviewTitle(action));
+  setExpensesText("expense-review-title", isApproval ? "Aprobar gasto" : "Rechazar gasto");
   renderExpenseReviewSummary(expense);
-  setExpenseInputValue("expense-review-amount", action === "partial" ? "" : expense.amountRequested);
+  setExpenseInputValue("expense-review-amount", expense.amount);
   setExpenseInputValue("expense-review-reason", "");
   setExpenseFormError("expense-review-error", "");
 
   if (amountField) {
-    amountField.hidden = !isApproval;
+    amountField.hidden = true;
   }
 
   if (amountInput) {
-    amountInput.readOnly = action === "approve";
-    amountInput.max = expense.amountRequested;
+    amountInput.readOnly = true;
   }
 
   if (reason) {
-    reason.required = action !== "approve";
+    reason.required = !isApproval;
+  }
+
+  if (reasonLabel) {
+    reasonLabel.textContent = isApproval ? "Notas internas" : "Motivo del rechazo *";
+  }
+
+  if (submitButton) {
+    submitButton.textContent = isApproval ? "Aprobar gasto" : "Rechazar gasto";
+    submitButton.classList.toggle("button--danger", !isApproval);
   }
 
   openExpenseModal("expense-review-modal");
-  (isApproval ? getExpensesElement("expense-review-amount") : reason)?.focus();
+  reason?.focus();
 }
 
-function submitExpenseReview(event) {
+async function submitExpenseReview(event) {
   event.preventDefault();
 
-  const expense = getExpenseById(pendingExpenseAction?.expenseId);
+  if (isSubmittingExpenseReview) {
+    return;
+  }
 
-  if (!expense) {
+  const action = pendingExpenseAction?.type;
+  const expenseId = pendingExpenseAction?.expenseId;
+  const notes = getExpenseInputValue("expense-review-reason");
+  const client = getExpensesSupabaseClient();
+
+  if (!expenseId || !["approve", "reject"].includes(action)) {
     notifyExpense("No se encontro el gasto seleccionado.", "warning");
     return;
   }
 
-  const action = pendingExpenseAction.type;
-  const reason = getExpenseInputValue("expense-review-reason");
-  let result = null;
-
-  if (action === "approve" || action === "partial") {
-    const amount = getExpenseNumberInput("expense-review-amount");
-
-    if (action === "partial" && amount >= window.ElaraExpensesCore.roundExpenseMoney(expense.amountRequested)) {
-      setExpenseFormError("expense-review-error", "El importe parcial debe ser menor que el solicitado.");
-      notifyExpense("El importe parcial debe ser menor que el solicitado.", "warning");
-      return;
-    }
-
-    if (action === "partial" && !reason) {
-      setExpenseFormError("expense-review-error", "Indica el motivo de la aprobacion parcial.");
-      notifyExpense("Indica el motivo de la aprobacion parcial.", "warning");
-      return;
-    }
-
-    result = window.ElaraExpensesCore.approveExpense(expense.expenseId, amount, { reason }, getExpenseCurrentUser());
-  } else if (action === "info") {
-    if (!reason) {
-      setExpenseFormError("expense-review-error", "Indica la informacion adicional solicitada.");
-      notifyExpense("Indica la informacion adicional solicitada.", "warning");
-      return;
-    }
-
-    result = window.ElaraExpensesCore.requestExpenseInformation(expense.expenseId, reason, getExpenseCurrentUser());
-  } else if (action === "reject") {
-    if (!reason) {
-      setExpenseFormError("expense-review-error", "El motivo de rechazo es obligatorio.");
-      notifyExpense("El motivo de rechazo es obligatorio.", "warning");
-      return;
-    }
-
-    result = window.ElaraExpensesCore.rejectExpense(expense.expenseId, reason, getExpenseCurrentUser());
-  }
-
-  if (!result?.ok) {
-    setExpenseFormError("expense-review-error", result?.error || "No se pudo completar la revision.");
-    notifyExpense(result?.error || "No se pudo completar la revision.", "error");
+  if (!client) {
+    setExpenseFormError("expense-review-error", "No se pudo conectar con Supabase.");
+    notifyExpense("No se pudo conectar con Supabase.", "error");
     return;
   }
 
-  addExpenseActivity(getExpenseActivityType(action), getExpenseActivityTitle(action), getExpenseActivityDescription(action, result.data), result.data);
-  renderExpensesView();
-  closeExpenseReviewFlowAfterSuccess();
-  notifyExpense(getExpenseReviewToast(action), "success");
+  if (action === "reject" && !notes) {
+    setExpenseFormError("expense-review-error", "El motivo de rechazo es obligatorio.");
+    notifyExpense("El motivo de rechazo es obligatorio.", "warning");
+    return;
+  }
+
+  isSubmittingExpenseReview = true;
+  setExpenseReviewSubmitDisabled(true);
+  setExpenseFormError("expense-review-error", "");
+
+  try {
+    const rpcName = action === "approve" ? "approve_expense" : "reject_expense";
+    const rpcPayload = action === "approve" ? { p_expense_id: expenseId, p_notes: notes || null } : { p_expense_id: expenseId, p_reason: notes };
+    const { error } = await client.rpc(rpcName, rpcPayload);
+
+    if (error) {
+      throw error;
+    }
+
+    closeExpenseModal(getExpensesElement("expense-review-modal"));
+    notifyExpense(action === "approve" ? "Gasto aprobado correctamente." : "Gasto rechazado correctamente.", "success");
+    await refreshAdminExpenseReviewState(expenseId);
+  } catch (error) {
+    console.error("[ELARA Expenses] No se pudo revisar el gasto real.", { error });
+    setExpenseFormError("expense-review-error", formatExpenseError(error, "No se pudo completar la revision del gasto."));
+    notifyExpense(formatExpenseError(error, "No se pudo completar la revision del gasto."), "error");
+  } finally {
+    isSubmittingExpenseReview = false;
+    setExpenseReviewSubmitDisabled(false);
+  }
 }
 
 function renderExpenseReviewSummary(expense) {
-  setExpensesText("expense-review-summary-id", expense.expenseId);
-  setExpensesText("expense-review-summary-concept", expense.concept || "Sin concepto");
-  setExpensesText("expense-review-summary-amount", formatExpenseMoney(expense.amountRequested));
+  const responsible = getExpenseResponsibleLabel(expense);
+
+  setExpensesText("expense-review-summary-id", expense.humanCode || expense.expenseId);
+  setExpensesText("expense-review-summary-concept", formatExpenseCategoryLabel(expense) || expense.description || "Sin categoria");
+  setExpensesText("expense-review-summary-responsible", [responsible.primary, responsible.secondary].filter(Boolean).join(" - ") || "Sin responsable");
+  setExpensesText("expense-review-summary-amount", formatExpenseMoney(expense.amount, expense.currencyCode));
 }
 
+function setExpenseReviewSubmitDisabled(disabled) {
+  const button = getExpensesElement("expense-review-form")?.querySelector('button[type="submit"]');
+
+  if (button) {
+    button.disabled = disabled;
+  }
+}
+
+async function refreshAdminExpenseReviewState(expenseId) {
+  const client = getExpensesSupabaseClient();
+
+  await loadAdminExpenses().catch((error) => {
+    console.error("[ELARA Expenses] No se pudo refrescar el listado tras revisar el gasto.", { error });
+  });
+
+  if (!client || getExpensesElement("expense-detail-modal")?.hidden) {
+    return;
+  }
+
+  try {
+    const { data, error } = await client.rpc("get_admin_expense_detail", { p_expense_id: expenseId });
+
+    if (error) {
+      throw error;
+    }
+
+    const row = Array.isArray(data) ? data[0] : data;
+
+    if (!row) {
+      throw new Error("Expense was not found after review.");
+    }
+
+    adminExpenseDetail = normalizeAdminExpenseDetail(row);
+    selectedExpenseId = adminExpenseDetail.expenseId;
+    renderExpenseDetail(adminExpenseDetail);
+  } catch (error) {
+    console.error("[ELARA Expenses] No se pudo refrescar el detalle tras revisar el gasto.", { error });
+    notifyExpense(formatExpenseError(error, "El gasto se reviso, pero no se pudo refrescar el detalle."), "warning");
+  }
+}
 function closeExpenseReviewFlowAfterSuccess() {
   closeExpenseModal(getExpensesElement("expense-review-modal"));
   closeExpenseModal(getExpensesElement("expense-detail-modal"));
@@ -1035,8 +1504,12 @@ function ensureExpensesModals() {
                   <strong id="expense-review-summary-id">-</strong>
                 </div>
                 <div>
-                  <span>Concepto</span>
+                  <span>Categoria</span>
                   <strong id="expense-review-summary-concept">-</strong>
+                </div>
+                <div>
+                  <span>Responsable</span>
+                  <strong id="expense-review-summary-responsible">-</strong>
                 </div>
                 <div>
                   <span>Importe solicitado</span>
@@ -1190,8 +1663,7 @@ function expenseMatchesFilters(expense) {
 
 function syncExpensesChipFilters() {
   expensesFilters.statuses = getCheckedExpenseValues("status");
-  expensesFilters.recordTypes = getCheckedExpenseValues("recordType");
-  expensesFilters.categories = getCheckedExpenseValues("category");
+  expensesFilters.categoryId = getSingleExpenseFilterValue(getCheckedExpenseValues("category")) || "";
   expensesFilters.paidBy = getCheckedExpenseValues("paidBy");
 }
 
@@ -1204,24 +1676,14 @@ function clearExpensesFilters() {
   expensesPage = 1;
 
   const search = getExpensesElement("expenses-search");
-  const from = getExpensesElement("expenses-filter-from");
-  const to = getExpensesElement("expenses-filter-to");
 
   if (search) search.value = "";
-  if (from) from.value = "";
-  if (to) to.value = "";
 
   document.querySelectorAll("[data-expense-filter]").forEach((input) => {
     input.checked = false;
   });
 
-  const allExceptional = document.querySelector('[data-expense-exceptional][value=""]');
-
-  if (allExceptional) {
-    allExceptional.checked = true;
-  }
-
-  renderExpensesView();
+  void loadAdminExpenses();
 }
 
 function updateExpensesFilterSummary() {
@@ -1236,21 +1698,16 @@ function updateExpensesFilterSummary() {
 }
 
 function getExpensesActiveFilterCount() {
-  const chipCount =
-    expensesFilters.statuses.length +
-    expensesFilters.recordTypes.length +
-    expensesFilters.categories.length +
-    expensesFilters.paidBy.length;
-  const dateCount = (expensesFilters.from ? 1 : 0) + (expensesFilters.to ? 1 : 0);
-  const exceptionalCount = expensesFilters.exceptional ? 1 : 0;
   const queryCount = expensesFilters.query ? 1 : 0;
+  const statusCount = expensesFilters.statuses.length ? 1 : 0;
+  const categoryCount = expensesFilters.categoryId ? 1 : 0;
+  const responsibilityCount = expensesFilters.paidBy.length ? 1 : 0;
 
-  return chipCount + dateCount + exceptionalCount + queryCount;
+  return queryCount + statusCount + categoryCount + responsibilityCount;
 }
 
 function changeExpensesPage(direction) {
-  const total = getFilteredExpensesForView().length;
-  const totalPages = Math.max(1, Math.ceil(total / EXPENSES_PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(adminExpenseTotal / EXPENSES_PAGE_SIZE));
 
   if (direction === "prev") {
     expensesPage = Math.max(1, expensesPage - 1);
@@ -1258,7 +1715,7 @@ function changeExpensesPage(direction) {
     expensesPage = Math.min(totalPages, expensesPage + 1);
   }
 
-  renderExpensesList();
+  void loadAdminExpenses();
 }
 
 function getExpensesCoreFilters() {
@@ -1279,12 +1736,8 @@ function getDefaultExpensesFilters() {
   return {
     query: "",
     statuses: [],
-    recordTypes: [],
-    categories: [],
+    categoryId: "",
     paidBy: [],
-    from: "",
-    to: "",
-    exceptional: "",
   };
 }
 
@@ -1409,23 +1862,18 @@ function getExpenseSettlementFields(expense) {
 }
 
 function getExpenseResponsibleLabel(expense) {
-  if (expense.paidBy === "ELARA" || expense.claimantType === "ELARA" || expense.claimantName === "ELARA") {
-    return {
-      primary: "ELARA",
-      secondary: "Administraci\u00f3n",
-    };
-  }
+  const driver = formatExpenseDriverLabel(expense.driverHumanCode, expense.driverName) || formatExpenseDriverLabel(expense.advancedByDriverHumanCode, expense.advancedByDriverName);
 
-  if (expense.claimantName) {
+  if (driver) {
     return {
-      primary: expense.claimantName,
-      secondary: expense.claimantType || expense.paidBy,
+      primary: driver,
+      secondary: getExpensePaymentResponsibilityLabel(expense.paymentResponsibility),
     };
   }
 
   return {
-    primary: expense.createdByName || "Sistema",
-    secondary: expense.paidBy || expense.recordType,
+    primary: getExpensePaymentResponsibilityLabel(expense.paymentResponsibility),
+    secondary: getExpensePaymentStatusLabel(expense.paymentStatus),
   };
 }
 
@@ -1457,37 +1905,178 @@ function shouldShowExpenseCreator(expense) {
 }
 
 function getExpenseRelationLabel(expense) {
-  const vehicle = getExpenseVehicleLabel(expense.vehicleId);
-  const service = getExpenseServiceLabel(expense.serviceId);
+  const service = formatExpenseServiceLabel(expense.serviceHumanCode, expense.serviceType, expense.serviceStatus);
+  const vehicle = formatExpenseVehicleLabel(expense.vehicleHumanCode, expense.vehiclePlate, expense.vehicleLabel);
+  const supplier = expense.supplierName || expense.supplierHumanCode || "Sin proveedor";
 
-  if (service !== "Sin servicio") {
-    return { primary: service, secondary: vehicle };
+  if (service) {
+    return { primary: service, secondary: vehicle || supplier };
   }
 
-  if (vehicle !== "Sin vehiculo") {
-    return { primary: vehicle, secondary: expense.providerName || "Sin proveedor" };
+  if (vehicle) {
+    return { primary: vehicle, secondary: supplier };
   }
 
-  return { primary: expense.providerName || "Sin relacion", secondary: expense.serviceId || expense.vehicleId || "Sin referencia" };
+  return { primary: supplier, secondary: "Sin relaci\u00f3n operativa" };
 }
 
 function getExpenseStatusBadge(status) {
   const tones = {
-    "Pendiente de revisi\u00f3n": "warning",
-    "Requiere informaci\u00f3n": "info",
-    Aprobada: "info",
-    "Aprobada parcialmente": "info",
-    "Pendiente de pago": "warning",
-    "Pendiente de reembolso": "warning",
-    Pagada: "success",
-    Reembolsada: "success",
-    Rechazada: "danger",
-    Anulada: "neutral",
+    draft: "warning",
+    submitted: "info",
+    approved: "success",
+    rejected: "danger",
+    cancelled: "neutral",
   };
 
   return { tone: tones[status] || "neutral" };
 }
 
+function getExpenseStatusLabel(status) {
+  return {
+    draft: "Borrador",
+    submitted: "Enviado",
+    approved: "Aprobado",
+    rejected: "Rechazado",
+    cancelled: "Cancelado",
+  }[String(status || "").trim()] || String(status || "").trim();
+}
+
+function getExpensePaymentStatusLabel(status) {
+  return {
+    unpaid: "Pendiente",
+    partial: "Parcial",
+    paid: "Pagado",
+    cancelled: "Cancelado",
+  }[String(status || "").trim()] || String(status || "").trim();
+}
+
+function getExpenseReimbursementStatusLabel(status) {
+  return {
+    not_applicable: "No aplica",
+    pending: "Pendiente",
+    reimbursed: "Reembolsado",
+    cancelled: "Cancelado",
+  }[String(status || "").trim()] || String(status || "").trim();
+}
+
+function getExpensePaymentResponsibilityLabel(value) {
+  return {
+    elara: "Pago por ELARA",
+    user_advance: "Adelantado por usuario",
+    driver_advance: "Adelantado por conductor",
+  }[String(value || "").trim()] || String(value || "").trim();
+}
+
+function getExpensePaymentRecordStatusLabel(status) {
+  return {
+    pending: "Pendiente",
+    completed: "Completado",
+    cancelled: "Cancelado",
+    failed: "Fallido",
+    reversed: "Revertido",
+  }[String(status || "").trim()] || String(status || "").trim();
+}
+
+function getExpensePaymentMethodLabel(method) {
+  return {
+    cash: "Efectivo",
+    bank_transfer: "Transferencia",
+    card: "Tarjeta",
+    other: "Otro",
+  }[String(method || "").trim()] || String(method || "").trim();
+}
+
+function getExpenseDocumentTypeLabel(type) {
+  return {
+    invoice: "Factura",
+    receipt: "Recibo",
+    ticket: "Ticket",
+    contract: "Contrato",
+    other: "Otro",
+  }[String(type || "").trim()] || String(type || "").trim();
+}
+
+function getExpenseDocumentStatusLabel(status) {
+  return {
+    pending: "Pendiente",
+    valid: "V\u00e1lido",
+    rejected: "Rechazado",
+    replaced: "Reemplazado",
+    annulled: "Anulado",
+  }[String(status || "").trim()] || String(status || "").trim();
+}
+
+function getExpenseAllocationTypeLabel(type) {
+  return {
+    service: "Servicio",
+    vehicle: "Veh\u00edculo",
+    driver: "Conductor",
+    general: "General",
+  }[String(type || "").trim()] || String(type || "").trim();
+}
+
+function formatExpenseCategoryLabel(expense) {
+  const key = expense.categoryCode ? ` (${expense.categoryCode})` : "";
+  return expense.categoryName ? `${expense.categoryName}${key}` : expense.categoryCode;
+}
+
+function formatExpenseDriverLabel(humanCode, name) {
+  return [humanCode, name].map((value) => String(value || "").trim()).filter(Boolean).join(" - ");
+}
+
+function formatExpenseUserLabel(humanCode, name) {
+  return [humanCode, name].map((value) => String(value || "").trim()).filter(Boolean).join(" - ");
+}
+
+function formatExpenseServiceLabel(humanCode, type, status) {
+  const label = [humanCode, type].map((value) => String(value || "").trim()).filter(Boolean).join(" - ");
+  const statusLabel = status ? ` (${status})` : "";
+  return label ? `${label}${statusLabel}` : "";
+}
+
+function formatExpenseVehicleLabel(humanCode, plate, fallback) {
+  return [humanCode, plate].map((value) => String(value || "").trim()).filter(Boolean).join(" - ") || String(fallback || "").trim();
+}
+
+function formatExpenseActorDate(date, humanCode, name) {
+  if (!date) {
+    return "";
+  }
+
+  const actor = formatExpenseUserLabel(humanCode, name);
+  return actor ? `${formatExpenseDateTime(date)} - ${actor}` : formatExpenseDateTime(date);
+}
+
+function formatExpenseCashAccountLabel(name, type) {
+  return [name, type].map((value) => String(value || "").trim()).filter(Boolean).join(" - ");
+}
+
+function formatExpenseReimbursementBeneficiary(reimbursement) {
+  return formatExpenseDriverLabel(reimbursement.reimbursed_driver_human_code, reimbursement.reimbursed_driver_name) || formatExpenseUserLabel(reimbursement.reimbursed_user_human_code, reimbursement.reimbursed_user_name);
+}
+
+function formatExpenseDecimal(value) {
+  return new Intl.NumberFormat("es-ES", { minimumFractionDigits: 0, maximumFractionDigits: 4 }).format(Number(value) || 0);
+}
+
+function roundExpenseAmount(value) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? Math.round((amount + Number.EPSILON) * 100) / 100 : 0;
+}
+
+function getSingleExpenseFilterValue(values) {
+  return Array.isArray(values) && values.length ? String(values[0] || "").trim() || null : null;
+}
+
+function getExpensesSupabaseClient() {
+  return window.ElaraSupabase?.client || null;
+}
+
+function formatExpenseError(error, fallback) {
+  const message = String(error?.message || error?.details || fallback || "Error inesperado.").trim();
+  return message || fallback;
+}
 function getExpenseReviewTitle(action) {
   return {
     approve: "Aprobar solicitud",
@@ -1591,12 +2180,10 @@ function getExpenseTimestamp(value) {
   return Number.isNaN(date.getTime()) ? 0 : date.getTime();
 }
 
-function formatExpenseMoney(value) {
-  if (window.ElaraCash && typeof window.ElaraCash.formatCashMoney === "function") {
-    return window.ElaraCash.formatCashMoney(value);
-  }
+function formatExpenseMoney(value, currency = "EUR") {
+  const currencyCode = String(currency || "EUR").trim() || "EUR";
 
-  return new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" }).format(Number(value) || 0);
+  return new Intl.NumberFormat("es-ES", { style: "currency", currency: currencyCode }).format(Number(value) || 0);
 }
 
 function formatExpenseDate(value) {
