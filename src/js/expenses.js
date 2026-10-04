@@ -19,11 +19,21 @@ const EXPENSES_PAYMENT_RESPONSIBILITY_FILTERS = [
   ["user_advance", "Adelantado por usuario"],
   ["driver_advance", "Adelantado por conductor"],
 ];
+const EXPENSE_REIMBURSEMENT_METHODS = [
+  ["cash", "Efectivo"],
+  ["bank_transfer", "Transferencia"],
+  ["card", "Tarjeta"],
+  ["other", "Otro"],
+];
+const ADMIN_EXPENSE_PAYMENT_METHODS = [["cash", "Efectivo"]];
 let isExpensesInitialized = false;
 let expensesPage = 1;
 let selectedExpenseId = "";
 let pendingExpenseAction = null;
 let isSubmittingExpenseReview = false;
+let isSubmittingExpenseReimbursement = false;
+let isSubmittingExpensePayment = false;
+let isSubmittingExpenseCancellation = false;
 let expensesFilters = getDefaultExpensesFilters();
 let adminExpenseRows = [];
 let adminExpenseTotal = 0;
@@ -1109,6 +1119,9 @@ function isEmptyExpenseRelation(value) {
 
 function renderExpenseDetailActions(detail) {
   const canReview = detail?.status === "submitted";
+  const canPay = canPayAdminExpense(detail);
+  const canReimburse = canReimburseAdminExpense(detail);
+  const canCancel = canCancelAdminExpense(detail);
 
   return `
     <div class="expense-detail-actions__group expense-detail-actions__group--left">
@@ -1117,6 +1130,9 @@ function renderExpenseDetailActions(detail) {
           ? `<button class="button button--compact" type="button" data-expense-action="approve">Aprobar</button><button class="button button--compact button--danger" type="button" data-expense-action="reject">Rechazar</button>`
           : ""
       }
+      ${canPay ? `<button class="button button--compact" type="button" data-expense-action="pay">Pagar</button>` : ""}
+      ${canReimburse ? `<button class="button button--compact" type="button" data-expense-action="reimburse">Reembolsar</button>` : ""}
+      ${canCancel ? `<button class="button button--compact button--danger" type="button" data-expense-action="cancel">Cancelar</button>` : ""}
     </div>
     <div class="expense-detail-actions__group expense-detail-actions__group--right">
       <button class="button button--compact button--muted" type="button" data-expense-modal-close>Cerrar</button>
@@ -1132,6 +1148,35 @@ function handleExpenseAction(action) {
     return;
   }
 
+  if (action === "pay") {
+    if (!canPayAdminExpense(expense)) {
+      notifyExpense("Este gasto no esta pendiente de pago.", "warning");
+      return;
+    }
+
+    void openExpensePaymentModal(expense);
+    return;
+  }
+
+  if (action === "reimburse") {
+    if (!canReimburseAdminExpense(expense)) {
+      notifyExpense("Este gasto no esta pendiente de reembolso.", "warning");
+      return;
+    }
+
+    void openExpenseReimbursementModal(expense);
+    return;
+  }
+
+  if (action === "cancel") {
+    if (!canCancelAdminExpense(expense)) {
+      notifyExpense("Este gasto no se puede cancelar desde tu contexto actual.", "warning");
+      return;
+    }
+
+    openExpenseCancelModal(expense);
+    return;
+  }
   if (!["approve", "reject"].includes(action)) {
     notifyExpense("Accion de gasto no disponible.", "warning");
     return;
@@ -1255,6 +1300,367 @@ function setExpenseReviewSubmitDisabled(disabled) {
   if (button) {
     button.disabled = disabled;
   }
+}
+
+function canPayAdminExpense(expense) {
+  return Boolean(
+    expense &&
+      expense.status === "approved" &&
+      expense.paymentResponsibility === "elara" &&
+      expense.paymentStatus === "unpaid" &&
+      roundExpenseAmount(expense.pendingPaymentAmount) > 0,
+  );
+}
+
+function canReimburseAdminExpense(expense) {
+  return Boolean(
+    expense &&
+      expense.status === "approved" &&
+      expense.paymentResponsibility === "driver_advance" &&
+      expense.reimbursementStatus === "pending" &&
+      expense.reimbursable === true,
+  );
+}
+
+function canCancelAdminExpense(expense) {
+  return Boolean(expense && getExpenseActiveContext() === "superadmin" && ["draft", "submitted", "approved"].includes(expense.status));
+}
+
+async function openExpensePaymentModal(expense) {
+  const client = getExpensesSupabaseClient();
+
+  pendingExpenseAction = { type: "pay", expenseId: expense.expenseId };
+  renderExpensePaymentSummary(expense);
+  setSelectOptions("expense-payment-method", ADMIN_EXPENSE_PAYMENT_METHODS, "cash");
+  setExpenseInputValue("expense-payment-paid-at", getExpenseDateTimeLocalValue());
+  setExpenseInputValue("expense-payment-notes", "");
+  setExpenseFormError("expense-payment-error", "");
+  renderExpensePaymentCashAccountOptions([], "");
+  setExpensePaymentSubmitDisabled(true);
+  openExpenseModal("expense-payment-modal");
+
+  if (!client) {
+    setExpenseFormError("expense-payment-error", "No se pudo conectar con Supabase.");
+    notifyExpense("No se pudo conectar con Supabase.", "error");
+    return;
+  }
+
+  try {
+    const accounts = await loadExpenseReimbursementCashAccounts(expense.currencyCode);
+    renderExpensePaymentCashAccountOptions(accounts, accounts[0]?.id || "");
+    setExpensePaymentSubmitDisabled(accounts.length === 0);
+
+    if (!accounts.length) {
+      setExpenseFormError("expense-payment-error", "No hay cuentas administrativas activas compatibles con la moneda del gasto.");
+    }
+  } catch (error) {
+    console.error("[ELARA Expenses] No se pudieron cargar cuentas reales para pago de gasto.", { error });
+    setExpenseFormError("expense-payment-error", formatExpenseError(error, "No se pudieron cargar cuentas de caja."));
+    notifyExpense(formatExpenseError(error, "No se pudieron cargar cuentas de caja."), "error");
+  }
+}
+
+function renderExpensePaymentSummary(expense) {
+  const supplier = expense.supplierName || expense.supplierHumanCode || "Sin proveedor";
+
+  setExpensesText("expense-payment-summary-id", expense.humanCode || expense.expenseId);
+  setExpensesText("expense-payment-summary-category", formatExpenseCategoryLabel(expense) || "Sin categoria");
+  setExpensesText("expense-payment-summary-supplier", supplier);
+  setExpensesText("expense-payment-summary-amount", formatExpenseMoney(expense.pendingPaymentAmount, expense.currencyCode));
+  setExpensesText("expense-payment-summary-currency", expense.currencyCode || "EUR");
+}
+
+function renderExpensePaymentCashAccountOptions(accounts, selectedValue = "") {
+  const select = getExpensesElement("expense-payment-cash-account");
+
+  if (!select) {
+    return;
+  }
+
+  const options = accounts.map((account) => [account.id, formatExpenseCashAccountOptionLabel(account)]);
+  setSelectOptions("expense-payment-cash-account", [["", accounts.length ? "Selecciona una cuenta" : "Sin cuentas compatibles"], ...options], selectedValue);
+}
+
+async function submitExpensePayment(event) {
+  event.preventDefault();
+
+  if (isSubmittingExpensePayment) {
+    return;
+  }
+
+  const expenseId = pendingExpenseAction?.type === "pay" ? pendingExpenseAction.expenseId : "";
+  const cashAccountId = getExpenseInputValue("expense-payment-cash-account");
+  const method = getExpenseInputValue("expense-payment-method");
+  const paidAt = getExpenseDateTimeInputIso("expense-payment-paid-at");
+  const notes = getExpenseInputValue("expense-payment-notes");
+  const client = getExpensesSupabaseClient();
+
+  if (!expenseId) {
+    notifyExpense("No se encontro el gasto seleccionado.", "warning");
+    return;
+  }
+
+  if (!cashAccountId) {
+    setExpenseFormError("expense-payment-error", "Selecciona una cuenta de salida.");
+    notifyExpense("Selecciona una cuenta de salida.", "warning");
+    return;
+  }
+
+  if (!ADMIN_EXPENSE_PAYMENT_METHODS.some(([value]) => value === method)) {
+    setExpenseFormError("expense-payment-error", "Selecciona un metodo valido.");
+    notifyExpense("Selecciona un metodo valido.", "warning");
+    return;
+  }
+
+  if (!paidAt) {
+    setExpenseFormError("expense-payment-error", "Selecciona una fecha de pago valida.");
+    notifyExpense("Selecciona una fecha de pago valida.", "warning");
+    return;
+  }
+
+  if (!client) {
+    setExpenseFormError("expense-payment-error", "No se pudo conectar con Supabase.");
+    notifyExpense("No se pudo conectar con Supabase.", "error");
+    return;
+  }
+
+  isSubmittingExpensePayment = true;
+  setExpensePaymentSubmitDisabled(true);
+  setExpenseFormError("expense-payment-error", "");
+
+  try {
+    const { error } = await client.rpc("register_expense_payment", {
+      p_expense_id: expenseId,
+      p_cash_account_id: cashAccountId,
+      p_payment_method: "cash",
+      p_paid_at: paidAt,
+      p_notes: notes || null,
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    closeExpenseModal(getExpensesElement("expense-payment-modal"));
+    notifyExpense("Gasto pagado correctamente.", "success");
+    await refreshAdminExpenseReviewState(expenseId);
+  } catch (error) {
+    console.error("[ELARA Expenses] No se pudo pagar el gasto real.", { error });
+    setExpenseFormError("expense-payment-error", formatExpenseError(error, "No se pudo pagar el gasto."));
+    notifyExpense(formatExpenseError(error, "No se pudo pagar el gasto."), "error");
+  } finally {
+    isSubmittingExpensePayment = false;
+    setExpensePaymentSubmitDisabled(false);
+  }
+}
+
+function setExpensePaymentSubmitDisabled(disabled) {
+  const button = getExpensesElement("expense-payment-form")?.querySelector('button[type="submit"]');
+
+  if (button) {
+    button.disabled = disabled;
+  }
+}
+
+async function openExpenseReimbursementModal(expense) {
+  const client = getExpensesSupabaseClient();
+
+  pendingExpenseAction = { type: "reimburse", expenseId: expense.expenseId };
+  renderExpenseReimbursementSummary(expense);
+  setSelectOptions("expense-reimbursement-method", EXPENSE_REIMBURSEMENT_METHODS, "cash");
+  setExpenseInputValue("expense-reimbursement-reference", "");
+  setExpenseInputValue("expense-reimbursement-notes", "");
+  setExpenseFormError("expense-reimbursement-error", "");
+  renderExpenseReimbursementCashAccountOptions([], "");
+  setExpenseReimbursementSubmitDisabled(true);
+  openExpenseModal("expense-reimbursement-modal");
+
+  if (!client) {
+    setExpenseFormError("expense-reimbursement-error", "No se pudo conectar con Supabase.");
+    notifyExpense("No se pudo conectar con Supabase.", "error");
+    return;
+  }
+
+  try {
+    const accounts = await loadExpenseReimbursementCashAccounts(expense.currencyCode);
+    renderExpenseReimbursementCashAccountOptions(accounts, accounts[0]?.id || "");
+    setExpenseReimbursementSubmitDisabled(accounts.length === 0);
+
+    if (!accounts.length) {
+      setExpenseFormError("expense-reimbursement-error", "No hay cuentas administrativas activas compatibles con la moneda del gasto.");
+    }
+  } catch (error) {
+    console.error("[ELARA Expenses] No se pudieron cargar cuentas reales para reembolso.", { error });
+    setExpenseFormError("expense-reimbursement-error", formatExpenseError(error, "No se pudieron cargar cuentas de caja."));
+    notifyExpense(formatExpenseError(error, "No se pudieron cargar cuentas de caja."), "error");
+  }
+}
+
+function renderExpenseReimbursementSummary(expense) {
+  const beneficiary = formatExpenseDriverLabel(expense.advancedByDriverHumanCode, expense.advancedByDriverName) || formatExpenseDriverLabel(expense.driverHumanCode, expense.driverName) || "Conductor sin identificar";
+
+  setExpensesText("expense-reimbursement-summary-id", expense.humanCode || expense.expenseId);
+  setExpensesText("expense-reimbursement-summary-category", formatExpenseCategoryLabel(expense) || "Sin categoria");
+  setExpensesText("expense-reimbursement-summary-beneficiary", beneficiary);
+  setExpensesText("expense-reimbursement-summary-amount", formatExpenseMoney(expense.pendingReimbursementAmount || expense.amount, expense.currencyCode));
+  setExpensesText("expense-reimbursement-summary-currency", expense.currencyCode || "EUR");
+}
+
+async function loadExpenseReimbursementCashAccounts(currencyCode) {
+  const client = getExpensesSupabaseClient();
+  const currency = String(currencyCode || "EUR").trim() || "EUR";
+
+  if (!client) {
+    throw new Error("Supabase client is not available.");
+  }
+
+  const { data, error } = await client
+    .from("v_admin_cash_account_overview")
+    .select("cash_account_id,name,account_type,currency_code,status,theoretical_balance")
+    .eq("status", "active")
+    .eq("currency_code", currency)
+    .in("account_type", ["central", "administrative"])
+    .order("account_type", { ascending: true })
+    .order("name", { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return (Array.isArray(data) ? data : []).map(normalizeExpenseCashAccountOption).filter((account) => account.id);
+}
+
+function normalizeExpenseCashAccountOption(row = {}) {
+  return {
+    id: String(row.cash_account_id || "").trim(),
+    name: String(row.name || "").trim(),
+    accountType: String(row.account_type || "").trim(),
+    currencyCode: String(row.currency_code || "EUR").trim() || "EUR",
+    status: String(row.status || "").trim(),
+    balance: roundExpenseAmount(row.theoretical_balance),
+  };
+}
+
+function renderExpenseReimbursementCashAccountOptions(accounts, selectedValue = "") {
+  const select = getExpensesElement("expense-reimbursement-cash-account");
+
+  if (!select) {
+    return;
+  }
+
+  const options = accounts.map((account) => [account.id, formatExpenseCashAccountOptionLabel(account)]);
+  setSelectOptions("expense-reimbursement-cash-account", [["", accounts.length ? "Selecciona una cuenta" : "Sin cuentas compatibles"], ...options], selectedValue);
+}
+
+function formatExpenseCashAccountOptionLabel(account) {
+  const type = getExpenseCashAccountTypeLabel(account.accountType);
+  const balance = formatExpenseMoney(account.balance, account.currencyCode);
+  return [account.name || "Cuenta", type, account.currencyCode, balance].filter(Boolean).join(" - ");
+}
+
+function getExpenseCashAccountTypeLabel(type) {
+  return {
+    central: "Central",
+    administrative: "Administrativa",
+    driver: "Conductor",
+  }[String(type || "").trim()] || String(type || "").trim();
+}
+
+async function submitExpenseReimbursement(event) {
+  event.preventDefault();
+
+  if (isSubmittingExpenseReimbursement) {
+    return;
+  }
+
+  const expenseId = pendingExpenseAction?.type === "reimburse" ? pendingExpenseAction.expenseId : "";
+  const cashAccountId = getExpenseInputValue("expense-reimbursement-cash-account");
+  const method = getExpenseInputValue("expense-reimbursement-method");
+  const reference = getExpenseInputValue("expense-reimbursement-reference");
+  const notes = getExpenseInputValue("expense-reimbursement-notes");
+  const client = getExpensesSupabaseClient();
+
+  if (!expenseId) {
+    notifyExpense("No se encontro el gasto seleccionado.", "warning");
+    return;
+  }
+
+  if (!cashAccountId) {
+    setExpenseFormError("expense-reimbursement-error", "Selecciona una cuenta de salida.");
+    notifyExpense("Selecciona una cuenta de salida.", "warning");
+    return;
+  }
+
+  if (!EXPENSE_REIMBURSEMENT_METHODS.some(([value]) => value === method)) {
+    setExpenseFormError("expense-reimbursement-error", "Selecciona un metodo valido.");
+    notifyExpense("Selecciona un metodo valido.", "warning");
+    return;
+  }
+
+  if (!client) {
+    setExpenseFormError("expense-reimbursement-error", "No se pudo conectar con Supabase.");
+    notifyExpense("No se pudo conectar con Supabase.", "error");
+    return;
+  }
+
+  isSubmittingExpenseReimbursement = true;
+  setExpenseReimbursementSubmitDisabled(true);
+  setExpenseFormError("expense-reimbursement-error", "");
+
+  try {
+    const { error } = await client.rpc("reimburse_expense", {
+      p_expense_id: expenseId,
+      p_cash_account_id: cashAccountId,
+      p_method: method,
+      p_reference: reference || null,
+      p_notes: notes || null,
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    closeExpenseModal(getExpensesElement("expense-reimbursement-modal"));
+    notifyExpense("Gasto reembolsado correctamente.", "success");
+    await refreshAdminExpenseReviewState(expenseId);
+  } catch (error) {
+    console.error("[ELARA Expenses] No se pudo reembolsar el gasto real.", { error });
+    setExpenseFormError("expense-reimbursement-error", formatExpenseError(error, "No se pudo reembolsar el gasto."));
+    notifyExpense(formatExpenseError(error, "No se pudo reembolsar el gasto."), "error");
+  } finally {
+    isSubmittingExpenseReimbursement = false;
+    setExpenseReimbursementSubmitDisabled(false);
+  }
+}
+
+function setExpenseReimbursementSubmitDisabled(disabled) {
+  const button = getExpensesElement("expense-reimbursement-form")?.querySelector('button[type="submit"]');
+
+  if (button) {
+    button.disabled = disabled;
+  }
+}
+
+function getExpenseDateTimeLocalValue(date = new Date()) {
+  const value = date instanceof Date ? date : new Date(date);
+
+  if (Number.isNaN(value.getTime())) {
+    return "";
+  }
+
+  const offsetMs = value.getTimezoneOffset() * 60000;
+  return new Date(value.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
+function getExpenseDateTimeInputIso(id) {
+  const value = getExpenseInputValue(id);
+
+  if (!value) {
+    return new Date().toISOString();
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
 }
 
 async function refreshAdminExpenseReviewState(expenseId) {
@@ -1381,53 +1787,84 @@ function closeExpenseSettlementFlowAfterSuccess() {
 }
 
 function openExpenseCancelModal(expense) {
+  const responsible = expense.supplierName || expense.supplierHumanCode || formatExpenseDriverLabel(expense.advancedByDriverHumanCode, expense.advancedByDriverName) || formatExpenseUserLabel(expense.advancedByUserHumanCode, expense.advancedByUserName) || getExpensePaymentResponsibilityLabel(expense.paymentResponsibility) || "Sin responsable";
+
   pendingExpenseAction = { type: "cancel", expenseId: expense.expenseId };
-  setExpensesText("expense-cancel-summary-id", expense.expenseId);
-  setExpensesText("expense-cancel-summary-concept", expense.concept || "Sin concepto");
-  setExpensesText("expense-cancel-summary-status", expense.status || "Sin estado");
+  setExpensesText("expense-cancel-summary-id", expense.humanCode || expense.expenseId);
+  setExpensesText("expense-cancel-summary-category", formatExpenseCategoryLabel(expense) || "Sin categoria");
+  setExpensesText("expense-cancel-summary-responsible", responsible);
+  setExpensesText("expense-cancel-summary-amount", formatExpenseMoney(expense.amount, expense.currencyCode));
+  setExpensesText("expense-cancel-summary-status", getExpenseStatusLabel(expense.status) || expense.status || "Sin estado");
   setExpenseInputValue("expense-cancel-reason", "");
   setExpenseFormError("expense-cancel-error", "");
+  setExpenseCancellationSubmitDisabled(false);
   openExpenseModal("expense-cancel-modal");
   getExpensesElement("expense-cancel-reason")?.focus();
 }
 
-function submitExpenseCancel(event) {
+async function submitExpenseCancel(event) {
   event.preventDefault();
 
-  const expense = getExpenseById(pendingExpenseAction?.expenseId);
-  const reason = getExpenseInputValue("expense-cancel-reason");
+  if (isSubmittingExpenseCancellation) {
+    return;
+  }
 
-  if (!expense) {
+  const expenseId = pendingExpenseAction?.type === "cancel" ? pendingExpenseAction.expenseId : "";
+  const reason = getExpenseInputValue("expense-cancel-reason").trim();
+  const client = getExpensesSupabaseClient();
+
+  if (!expenseId) {
     notifyExpense("No se encontro el gasto seleccionado.", "warning");
     return;
   }
 
   if (!reason) {
-    setExpenseFormError("expense-cancel-error", "El motivo de anulacion es obligatorio.");
-    notifyExpense("El motivo de anulacion es obligatorio.", "warning");
+    setExpenseFormError("expense-cancel-error", "El motivo de cancelaci\u00f3n es obligatorio.");
+    notifyExpense("El motivo de cancelaci\u00f3n es obligatorio.", "warning");
     return;
   }
 
-  const result = window.ElaraExpensesCore.cancelExpense(expense.expenseId, reason, getExpenseCurrentUser());
-
-  if (!result.ok) {
-    setExpenseFormError("expense-cancel-error", result.error);
-    notifyExpense(result.error, "error");
+  if (!client) {
+    setExpenseFormError("expense-cancel-error", "No se pudo conectar con Supabase.");
+    notifyExpense("No se pudo conectar con Supabase.", "error");
     return;
   }
 
-  addExpenseActivity("EXPENSE_CANCELLED", "Gasto anulado", `${result.data.expenseId} fue anulado.`, result.data);
-  renderExpensesView();
-  closeExpenseCancelFlowAfterSuccess();
-  notifyExpense("Gasto anulado.", "success");
+  isSubmittingExpenseCancellation = true;
+  setExpenseCancellationSubmitDisabled(true);
+  setExpenseFormError("expense-cancel-error", "");
+
+  try {
+    const { error } = await client.rpc("cancel_expense", {
+      p_expense_id: expenseId,
+      p_reason: reason,
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    closeExpenseModal(getExpensesElement("expense-cancel-modal"));
+    notifyExpense("Gasto cancelado correctamente.", "success");
+    await refreshAdminExpenseReviewState(expenseId);
+  } catch (error) {
+    console.error("[ELARA Expenses] No se pudo cancelar el gasto real.", { error });
+    const message = formatExpenseError(error, "No se pudo cancelar el gasto.");
+    setExpenseFormError("expense-cancel-error", message);
+    notifyExpense(message, "error");
+  } finally {
+    isSubmittingExpenseCancellation = false;
+    setExpenseCancellationSubmitDisabled(false);
+  }
 }
 
-function closeExpenseCancelFlowAfterSuccess() {
-  closeExpenseModal(getExpensesElement("expense-cancel-modal"));
-  closeExpenseModal(getExpensesElement("expense-detail-modal"));
-  selectedExpenseId = "";
-}
+function setExpenseCancellationSubmitDisabled(disabled) {
+  const button = getExpensesElement("expense-cancel-form")?.querySelector('button[type="submit"]');
 
+  if (button) {
+    button.disabled = disabled;
+  }
+}
 function ensureExpensesModals() {
   if (getExpensesElement("expense-detail-modal")) {
     return;
@@ -1569,12 +2006,106 @@ function ensureExpensesModals() {
         </section>
       </div>
 
+      <div class="modal-backdrop" id="expense-reimbursement-modal" data-expense-modal="true" role="dialog" aria-modal="true" aria-labelledby="expense-reimbursement-title" hidden>
+        <section class="modal modal--summary modal--expense-settlement">
+          <header class="modal__header">
+            <div>
+              <p class="panel__eyebrow">Caja</p>
+              <h2 id="expense-reimbursement-title">Reembolsar gasto</h2>
+            </div>
+            <button class="button button--compact button--muted" type="button" data-expense-modal-close>Cerrar</button>
+          </header>
+          <form class="expense-form expense-settlement-form" id="expense-reimbursement-form" novalidate>
+            <div class="modal__body modal__body--summary expense-settlement-form__body">
+              <div class="expense-settlement-summary" aria-label="Resumen del reembolso">
+                <div>
+                  <span>C&oacute;digo gasto</span>
+                  <strong id="expense-reimbursement-summary-id">-</strong>
+                </div>
+                <div>
+                  <span>Categor&iacute;a</span>
+                  <strong id="expense-reimbursement-summary-category">-</strong>
+                </div>
+                <div>
+                  <span>Conductor beneficiario</span>
+                  <strong id="expense-reimbursement-summary-beneficiary">-</strong>
+                </div>
+                <div>
+                  <span>Importe a reembolsar</span>
+                  <strong id="expense-reimbursement-summary-amount">-</strong>
+                </div>
+                <div>
+                  <span>Moneda</span>
+                  <strong id="expense-reimbursement-summary-currency">-</strong>
+                </div>
+              </div>
+              <label class="field"><span>Cuenta de salida *</span><select id="expense-reimbursement-cash-account" required></select></label>
+              <label class="field"><span>M&eacute;todo *</span><select id="expense-reimbursement-method" required></select></label>
+              <label class="field"><span>Referencia</span><input id="expense-reimbursement-reference" type="text" maxlength="200" /></label>
+              <label class="field field--compact-textarea"><span>Notas</span><textarea id="expense-reimbursement-notes" rows="3" maxlength="1000"></textarea></label>
+              <p class="form-error" id="expense-reimbursement-error" hidden></p>
+            </div>
+            <div class="modal__actions expense-settlement-form__actions">
+              <button class="button button--compact button--muted" type="button" data-expense-modal-close>Cancelar</button>
+              <button class="button button--compact" type="submit">Confirmar reembolso</button>
+            </div>
+          </form>
+        </section>
+      </div>
+
+      <div class="modal-backdrop" id="expense-payment-modal" data-expense-modal="true" role="dialog" aria-modal="true" aria-labelledby="expense-payment-title" hidden>
+        <section class="modal modal--summary modal--expense-settlement">
+          <header class="modal__header">
+            <div>
+              <p class="panel__eyebrow">Caja</p>
+              <h2 id="expense-payment-title">Pagar gasto</h2>
+            </div>
+            <button class="button button--compact button--muted" type="button" data-expense-modal-close>Cerrar</button>
+          </header>
+          <form class="expense-form expense-settlement-form" id="expense-payment-form" novalidate>
+            <div class="modal__body modal__body--summary expense-settlement-form__body">
+              <div class="expense-settlement-summary" aria-label="Resumen del pago">
+                <div>
+                  <span>C&oacute;digo gasto</span>
+                  <strong id="expense-payment-summary-id">-</strong>
+                </div>
+                <div>
+                  <span>Categor&iacute;a</span>
+                  <strong id="expense-payment-summary-category">-</strong>
+                </div>
+                <div>
+                  <span>Proveedor</span>
+                  <strong id="expense-payment-summary-supplier">-</strong>
+                </div>
+                <div>
+                  <span>Importe pendiente</span>
+                  <strong id="expense-payment-summary-amount">-</strong>
+                </div>
+                <div>
+                  <span>Moneda</span>
+                  <strong id="expense-payment-summary-currency">-</strong>
+                </div>
+              </div>
+              <label class="field"><span>Cuenta de salida *</span><select id="expense-payment-cash-account" required></select></label>
+              <label class="field"><span>M&eacute;todo *</span><select id="expense-payment-method" required></select></label>
+              <label class="field"><span>Fecha de pago *</span><input id="expense-payment-paid-at" type="datetime-local" required /></label>
+              <label class="field field--compact-textarea"><span>Notas</span><textarea id="expense-payment-notes" rows="3" maxlength="1000"></textarea></label>
+              <p class="form-error" id="expense-payment-error" hidden></p>
+            </div>
+            <div class="modal__actions expense-settlement-form__actions">
+              <button class="button button--compact button--muted" type="button" data-expense-modal-close>Cancelar</button>
+              <button class="button button--compact" type="submit">Confirmar pago</button>
+            </div>
+          </form>
+        </section>
+      </div>
+
       <div class="modal-backdrop" id="expense-cancel-modal" data-expense-modal="true" role="dialog" aria-modal="true" aria-labelledby="expense-cancel-title" hidden>
         <section class="modal modal--summary modal--expense-cancel">
           <header class="modal__header">
             <div>
               <p class="panel__eyebrow">GASTOS</p>
-              <h2 id="expense-cancel-title">Anular gasto</h2>
+              <h2 id="expense-cancel-title">Cancelar gasto</h2>
             </div>
             <button class="button button--compact button--muted" type="button" data-expense-modal-close>Cerrar</button>
           </header>
@@ -1582,34 +2113,43 @@ function ensureExpensesModals() {
             <div class="modal__body modal__body--summary expense-cancel-form__body">
               <div class="expense-cancel-summary" aria-label="Resumen del gasto">
                 <div>
-                  <span>ID</span>
+                  <span>C&oacute;digo gasto</span>
                   <strong id="expense-cancel-summary-id">-</strong>
                 </div>
                 <div>
-                  <span>Concepto</span>
-                  <strong id="expense-cancel-summary-concept">-</strong>
+                  <span>Categor&iacute;a</span>
+                  <strong id="expense-cancel-summary-category">-</strong>
+                </div>
+                <div>
+                  <span>Responsable / proveedor</span>
+                  <strong id="expense-cancel-summary-responsible">-</strong>
+                </div>
+                <div>
+                  <span>Importe</span>
+                  <strong id="expense-cancel-summary-amount">-</strong>
                 </div>
                 <div>
                   <span>Estado actual</span>
                   <strong id="expense-cancel-summary-status">-</strong>
                 </div>
               </div>
-              <p class="modal__hint expense-cancel-note">El registro conservar&aacute; su trazabilidad y no ser&aacute; eliminado.</p>
-              <label class="field field--compact-textarea"><span>Motivo de anulaci&oacute;n *</span><textarea id="expense-cancel-reason" rows="3" required></textarea></label>
+              <p class="modal__hint expense-cancel-note">La cancelaci&oacute;n no revierte pagos, reembolsos ni movimientos de caja.</p>
+              <label class="field field--compact-textarea"><span>Motivo de cancelaci&oacute;n *</span><textarea id="expense-cancel-reason" rows="3" required></textarea></label>
               <p class="form-error" id="expense-cancel-error" hidden></p>
             </div>
             <div class="modal__actions expense-cancel-form__actions">
               <button class="button button--compact button--muted" type="button" data-expense-modal-close>Cancelar</button>
-              <button class="button button--compact button--danger" type="submit">Confirmar anulaci&oacute;n</button>
+              <button class="button button--compact button--danger" type="submit">Confirmar cancelaci&oacute;n</button>
             </div>
           </form>
         </section>
-      </div>
-    `,
+      </div>    `,
   );
 
   getExpensesElement("expense-new-form")?.addEventListener("submit", submitNewExpense);
   getExpensesElement("expense-review-form")?.addEventListener("submit", submitExpenseReview);
+  getExpensesElement("expense-reimbursement-form")?.addEventListener("submit", submitExpenseReimbursement);
+  getExpensesElement("expense-payment-form")?.addEventListener("submit", submitExpensePayment);
   getExpensesElement("expense-settlement-form")?.addEventListener("submit", submitExpenseSettlement);
   getExpensesElement("expense-cancel-form")?.addEventListener("submit", submitExpenseCancel);
 }
@@ -2075,7 +2615,44 @@ function getExpensesSupabaseClient() {
 
 function formatExpenseError(error, fallback) {
   const message = String(error?.message || error?.details || fallback || "Error inesperado.").trim();
-  return message || fallback;
+  const translatedMessage = translateKnownExpenseError(error, fallback);
+  return translatedMessage || message || fallback;
+}
+
+function translateKnownExpenseError(error, fallback) {
+  const parts = [error?.message, error?.details, error?.hint, fallback]
+    .map((part) => String(part || "").trim())
+    .filter(Boolean);
+  const normalized = parts.join(" ").toLowerCase();
+
+  if (!normalized) {
+    return "";
+  }
+
+  if (normalized.includes("completed payment")) {
+    return "El gasto tiene un pago completado y no puede cancelarse sin una reversa expl\u00edcita del pago.";
+  }
+
+  if (normalized.includes("completed reimbursement")) {
+    return "El gasto tiene un reembolso completado y no puede cancelarse sin una reversa expl\u00edcita.";
+  }
+
+  if (normalized.includes("active settlement")) {
+    return "El gasto est\u00e1 incluido en una liquidaci\u00f3n activa y no puede cancelarse.";
+  }
+
+  if (normalized.includes("cannot be cancelled from status")) {
+    return "Este estado no permite cancelar el gasto.";
+  }
+
+  const mentionsCancellation = normalized.includes("cancel") || normalized.includes("cancellation");
+  const mentionsReason = normalized.includes("reason");
+  const reasonIsMissing = normalized.includes("required") || normalized.includes("empty");
+  if (mentionsCancellation && mentionsReason && reasonIsMissing) {
+    return "Indica un motivo de cancelaci\u00f3n.";
+  }
+
+  return "";
 }
 function getExpenseReviewTitle(action) {
   return {
