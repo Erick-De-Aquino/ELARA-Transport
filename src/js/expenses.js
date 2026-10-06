@@ -2629,6 +2629,10 @@ function translateKnownExpenseError(error, fallback) {
     return "";
   }
 
+  if (normalized.includes("insufficient cash account balance")) {
+    return "Saldo insuficiente en la cuenta de caja seleccionada.";
+  }
+
   if (normalized.includes("completed payment")) {
     return "El gasto tiene un pago completado y no puede cancelarse sin una reversa expl\u00edcita del pago.";
   }
