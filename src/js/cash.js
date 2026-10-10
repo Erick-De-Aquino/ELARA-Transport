@@ -37,7 +37,7 @@ function showCash() {
 
   cashSetText("page-eyebrow", "Econom\u00eda");
   cashSetText("page-title", "Caja");
-  cashSetText("page-summary", "Controla efectivo recibido, rendiciones y arqueos desde una \u00fanica fuente mock.");
+  cashSetText("page-summary", "Control de efectivo, rendiciones y movimientos de caja.");
   cashSetText("primary-action", "");
   cashSetModalTarget("primary-action", "");
   setElementVisibility("primary-action", false);
@@ -625,6 +625,12 @@ function renderCashSummary() {
 }
 
 function renderCashMovements() {
+  if (getCashCurrentUser()?.supabaseUserId) {
+    void renderAdminCashMovementsReal();
+    return;
+  }
+
+  ++adminCashMovementRequestIdReal;
   const container = cashGetElement("cash-movements-list");
 
   if (!container) {
@@ -2536,6 +2542,8 @@ let adminCashRemittanceHistoryRequestIdReal = 0;
 let pendingAdminCashRemittanceActionReal = null;
 let isAdminCashRemittanceActionRunningReal = false;
 let isAdminCashRemittanceClickBridgeReady = false;
+let adminCashMovementRequestIdReal = 0;
+let adminCashMovementAccountIdReal = "";
 let adminCashDiscrepancyRowsReal = [];
 let adminCashDiscrepancyTotalReal = 0;
 let adminCashDiscrepancyDetailReal = null;
@@ -2546,6 +2554,126 @@ let isAdminCashDiscrepancyActionRunningReal = false;
 
 function getAdminCashSupabaseClient() {
   return window.ElaraSupabase?.client || null;
+}
+
+async function renderAdminCashMovementsReal() {
+  const container = cashGetElement("cash-movements-list");
+  if (!container) {
+    return;
+  }
+
+  const requestId = ++adminCashMovementRequestIdReal;
+  const userId = getCashCurrentUser()?.supabaseUserId;
+  const context = getCashActiveContext();
+  const isCurrent = () => requestId === adminCashMovementRequestIdReal && getCashCurrentUser()?.supabaseUserId === userId && getCashActiveContext() === context;
+  const client = getAdminCashSupabaseClient();
+  container.innerHTML = '<p class="service-assignment-empty">Cargando movimientos reales...</p>';
+
+  try {
+    if (!client || !["superadmin", "administrativo"].includes(getCashActiveContext())) {
+      throw new Error("An authenticated administrative session is required to read cash movements.");
+    }
+
+    const { data: accounts, error: accountError } = await client
+      .from("v_admin_cash_account_overview")
+      .select("cash_account_id,name,currency_code")
+      .eq("account_type", "central")
+      .eq("status", "active")
+      .order("name", { ascending: true });
+    if (!isCurrent()) {
+      return;
+    }
+    if (accountError) {
+      throw accountError;
+    }
+    if (!Array.isArray(accounts) || !accounts.length) {
+      container.innerHTML = '<p class="service-assignment-empty">No hay una cuenta central activa.</p>';
+      return;
+    }
+
+    const account = accounts.length === 1
+      ? accounts[0]
+      : accounts.find((item) => item.cash_account_id === adminCashMovementAccountIdReal);
+    const selector = accounts.length > 1
+      ? `<label class="field"><span>Cuenta central</span><select data-cash-central-account>
+          <option value="">Selecciona una cuenta central</option>
+          ${accounts.map((item) => `<option value="${escapeCashHtml(item.cash_account_id)}" ${item.cash_account_id === account?.cash_account_id ? "selected" : ""}>${escapeCashHtml(item.name)} (${escapeCashHtml(item.currency_code)})</option>`).join("")}
+        </select></label>`
+      : "";
+    container.innerHTML = `${selector}<div class="cash-list" data-cash-real-movement-rows><p class="service-assignment-empty">${account ? "Cargando movimientos..." : "Selecciona la cuenta cuyos movimientos quieres consultar."}</p></div>`;
+    container.querySelector("[data-cash-central-account]")?.addEventListener("change", (event) => {
+      adminCashMovementAccountIdReal = event.target.value;
+      void renderAdminCashMovementsReal();
+    });
+    if (!account) {
+      return;
+    }
+
+    const { data, error } = await client.rpc("get_admin_cash_movements", {
+      p_cash_account_id: account.cash_account_id,
+      p_limit: 50,
+      p_offset: 0,
+    });
+    if (!isCurrent()) {
+      return;
+    }
+    if (error) {
+      throw error;
+    }
+
+    const rows = Array.isArray(data) ? data : [];
+    const list = container.querySelector("[data-cash-real-movement-rows]");
+    if (!list) {
+      return;
+    }
+    if (!rows.length) {
+      list.innerHTML = '<p class="service-assignment-empty">Sin movimientos reales en esta cuenta central.</p>';
+      return;
+    }
+
+    const total = Number(rows[0].total_count) || rows.length;
+    list.innerHTML = `<p class="service-assignment-empty">${escapeCashHtml(account.name)}: mostrando ${rows.length} de ${total} movimientos reales${total > rows.length ? " (los 50 m\u00e1s recientes)" : ""}.</p>`
+      + rows.map(renderAdminCashMovementRowReal).join("");
+  } catch (error) {
+    if (!isCurrent()) {
+      return;
+    }
+    console.error("[ELARA Cash] No se pudieron cargar los movimientos reales.", { error });
+    container.innerHTML = '<p class="service-assignment-empty">No se pudieron cargar los movimientos reales de Caja Central.</p>';
+  }
+}
+
+function renderAdminCashMovementRowReal(row) {
+  const categories = {
+    reversal: "Reversa de movimiento",
+    manual_adjustment: "Ajuste de caja",
+    count_adjustment: "Ajuste por arqueo",
+    opening_balance: "Saldo inicial",
+    remittance_received: "Rendici\u00f3n de efectivo",
+    remittance_sent: "Rendici\u00f3n enviada",
+  };
+  const sources = {
+    expense_payment: "Pago de gasto",
+    expense_reimbursement: "Reembolso de gasto",
+    service_payment: "Cobro de servicio",
+    settlement_payment: "Pago de liquidaci\u00f3n",
+  };
+  const rawTitle = row.movement_category === "other" ? row.source_type : row.movement_category;
+  const title = categories[row.movement_category] || sources[row.source_type]
+    || String(rawTitle || row.source_type || "Movimiento de caja").replace(/_/g, " ");
+  const isOutflow = row.movement_type === "outflow";
+  const reference = [row.human_code, row.remittance_human_code,
+    row.original_movement_human_code ? `Reversa de ${row.original_movement_human_code}` : ""].filter(Boolean).join(" - ");
+
+  return `<article class="cash-row">
+    <div>
+      <strong>${escapeCashHtml(title)}</strong>
+      <span>${escapeCashHtml(formatCashDateTime(row.occurred_at))} \u00B7 ${escapeCashHtml(row.actor_name || row.created_by_human_code || "Sin actor registrado")}</span>
+      <small>${escapeCashHtml(reference)}</small>
+      ${row.description ? `<small>${escapeCashHtml(row.description)}</small>` : ""}
+    </div>
+    <strong class="cash-row__amount cash-row__amount--${isOutflow ? "out" : "in"}">${isOutflow ? "-" : "+"}${escapeCashHtml(formatAdminCashMoney(row.amount, row.currency_code))}</strong>
+  </article>`;
 }
 
 function isCashUuid(value) {
@@ -3754,13 +3882,13 @@ function openAdminCashRemittanceActionConfirmation(action) {
     let differenceText = "No se registrar\u00e1 diferencia.";
 
     if (difference < 0) {
-      differenceText = `Se registrar\u00e1 un faltante de ${formatAdminCashMoney(Math.abs(difference), detail.currencyCode)} y quedar\u00e1 en revisi\u00f3n.`;
+      differenceText = `Se registrar\u00e1 un faltante de ${formatAdminCashMoney(Math.abs(difference), detail.currencyCode)} y la discrepancia quedar\u00e1 en revisi\u00f3n.`;
     } else if (difference > 0) {
-      differenceText = `Se registrar\u00e1 un excedente de ${formatAdminCashMoney(difference, detail.currencyCode)} y quedar\u00e1 en revisi\u00f3n.`;
+      differenceText = `Se registrar\u00e1 un excedente de ${formatAdminCashMoney(difference, detail.currencyCode)} y la discrepancia quedar\u00e1 en revisi\u00f3n.`;
     }
 
     pendingAdminCashRemittanceActionReal = { type: "verify", remittanceId: detail.remittanceId, verifiedAmount };
-    openAdminCashRemittanceConfirmModal("Verificar rendici\u00f3n", `Se verificar\u00e1 ${detail.humanCode || "la rendici\u00f3n"} por ${formatAdminCashMoney(verifiedAmount, detail.currencyCode)}. ${differenceText}`);
+    openAdminCashRemittanceConfirmModal("Verificar rendici\u00f3n", `Se solicitar\u00e1 verificar ${detail.humanCode || "la rendici\u00f3n"} por ${formatAdminCashMoney(verifiedAmount, detail.currencyCode)}. ${differenceText}`);
   }
 }
 
@@ -3808,14 +3936,42 @@ async function executePendingAdminCashRemittanceAction() {
     const rpcArgs = action.type === "receive"
       ? { p_remittance_id: action.remittanceId }
       : { p_remittance_id: action.remittanceId, p_verified_amount: action.verifiedAmount };
-    const { error } = await client.rpc(rpcName, rpcArgs);
+    const { data, error } = await client.rpc(rpcName, rpcArgs);
 
     if (error) {
       throw error;
     }
 
+    let notificationMessage = "Rendici\u00f3n recibida correctamente.";
+    let notificationType = "success";
+
+    if (action.type === "verify") {
+      const row = Array.isArray(data) ? data[0] : data;
+
+      if (!row || row.remittance_id !== action.remittanceId || !["verified", "received"].includes(row.status)) {
+        throw Object.assign(new Error("No se pudo confirmar el estado de la rendici\u00f3n devuelto por el servidor."), { response: data });
+      }
+
+      const pendingReview = ["open", "under_review"].includes(row.discrepancy_status);
+      notificationMessage = row.status === "verified"
+        ? "Rendici\u00f3n verificada correctamente."
+        : pendingReview
+          ? "La rendici\u00f3n qued\u00f3 pendiente de revisi\u00f3n por una diferencia en el importe."
+          : "La rendici\u00f3n permanece recibida; no se complet\u00f3 la verificaci\u00f3n.";
+      notificationType = row.status === "verified" ? "success" : "warning";
+
+      const difference = Number(row.difference_amount);
+      if (row.difference_amount != null && Number.isFinite(difference) && difference !== 0 && row.currency_code) {
+        notificationMessage += ` ${formatAdminCashDiscrepancyDifference(difference, row.currency_code)}.`;
+      }
+      if (Object.prototype.hasOwnProperty.call(ADMIN_CASH_DISCREPANCY_STATUS_LABELS_REAL, row.discrepancy_status)) {
+        notificationMessage += ` Discrepancia: ${getAdminCashDiscrepancyStatusLabel(row.discrepancy_status)}.`;
+      }
+    }
+
     closeAdminCashRemittanceConfirmModal();
-    notifyCash(action.type === "receive" ? "Rendici\u00f3n recibida correctamente." : "Rendici\u00f3n verificada correctamente.", "success");
+    notifyCash(notificationMessage, notificationType);
+    renderCashMovements();
     void renderCashRemittanceHistory();
     await openCashRemittanceDetail(action.remittanceId, { keepOpen: true });
   } catch (error) {

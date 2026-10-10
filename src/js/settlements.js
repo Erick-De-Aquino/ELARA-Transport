@@ -1,7 +1,7 @@
 ﻿/*
   Proyecto Atlas / ELARA Transport
   Archivo: settlements.js
-  Responsabilidad: interfaz administrativa mock del modulo Liquidaciones.
+  Responsabilidad: lectura administrativa real de Liquidaciones y UI legacy fuera del modo real.
 */
 
 "use strict";
@@ -28,6 +28,10 @@ function initSettlements() {
 }
 
 function showSettlements() {
+  if (isRealSettlementMode()) {
+    configureRealSettlementFilters();
+    setSettlementsText("page-summary", "Consulta de liquidaciones en modo solo lectura.");
+  }
   if (!canSettlementAction("settlements:view")) {
     showSettlementsUnavailable("No tienes acceso a Liquidaciones.");
     return;
@@ -35,12 +39,13 @@ function showSettlements() {
 
   setSettlementsText("page-eyebrow", "FINANZAS");
   setSettlementsText("page-title", "Liquidaciones");
-  setSettlementsText("page-summary", "Calcula, revisa y aprueba los importes correspondientes a choferes y colaboradores.");
+  setSettlementsText("page-summary", isRealSettlementMode() ? "Consulta de liquidaciones en modo solo lectura." : "Calcula, revisa y aprueba los importes correspondientes a choferes y colaboradores.");
   configureSettlementsPrimaryAction();
   renderSettlementsView();
 }
 
 function renderSettlementsView() {
+  if (isRealSettlementMode()) { void loadRealSettlements(); return; }
   populateSettlementDriverFilters();
   updateSettlementsFilterSummary();
   renderSettlementsSummary();
@@ -173,6 +178,12 @@ function bindSettlementsEvents() {
   getSettlementsElement("settlements-search")?.addEventListener("input", (event) => {
     settlementsFilters.query = event.target.value.trim();
     settlementsPage = 1;
+    if (isRealSettlementMode()) {
+      clearTimeout(realSettlementSearchTimer);
+      realSettlementsState.listRequest += 1;
+      realSettlementSearchTimer = setTimeout(() => void loadRealSettlements(), 250);
+      return;
+    }
     renderSettlementsView();
   });
 
@@ -190,6 +201,13 @@ function bindSettlementsEvents() {
   document.addEventListener("click", handleSettlementsDocumentClick);
   document.addEventListener("keydown", handleSettlementsDocumentKeydown);
   window.addEventListener("elara:settlements-updated", handleSettlementsDataUpdated);
+  window.addEventListener("elara:auth-session-updated", () => {
+    if (realSettlementsState.scope !== realSettlementScope()) {
+      invalidateRealSettlements();
+      realSettlementsState.scope = "";
+      if (isRealSettlementMode() && isSettlementsViewActive()) showSettlements();
+    }
+  });
 }
 
 function handleSettlementsDocumentChange(event) {
@@ -232,6 +250,15 @@ function handleSettlementsDocumentChange(event) {
 }
 
 function handleSettlementsDocumentClick(event) {
+  if (isRealSettlementMode()) {
+    const retry = event.target.closest("[data-settlements-retry]");
+    if (retry) { void loadRealSettlements(); return; }
+    const retryDetail = event.target.closest("[data-settlement-detail-retry]");
+    if (retryDetail) { void openRealSettlementDetail(retryDetail.dataset.settlementDetailRetry); return; }
+    if (event.target.closest("#primary-action, [data-settlement-config-open], [data-settlement-action]")) {
+      event.preventDefault(); return;
+    }
+  }
   const primaryAction = event.target.closest("#primary-action");
 
   if (primaryAction && isSettlementsViewActive() && canSettlementAction("settlements:create")) {
@@ -303,6 +330,7 @@ function handleSettlementsDocumentKeydown(event) {
 }
 
 function handleSettlementsDataUpdated() {
+  if (isRealSettlementMode()) { if (isSettlementsViewActive()) void loadRealSettlements(); return; }
   if (!isSettlementsViewActive()) {
     return;
   }
@@ -318,6 +346,12 @@ function handleSettlementsDataUpdated() {
 }
 
 function configureSettlementsPrimaryAction() {
+  if (isRealSettlementMode()) {
+    const primary = getSettlementsElement("primary-action");
+    if (primary) primary.hidden = true;
+    document.querySelectorAll("[data-settlement-config-open]").forEach((button) => { button.hidden = true; });
+    return;
+  }
   const primaryAction = getSettlementsElement("primary-action");
   const configAction = document.querySelector("[data-settlement-config-open]");
 
@@ -336,6 +370,7 @@ function configureSettlementsPrimaryAction() {
 }
 
 function showSettlementsUnavailable(message) {
+  invalidateRealSettlements();
   setSettlementsText("page-eyebrow", "FINANZAS");
   setSettlementsText("page-title", "Liquidaciones");
   setSettlementsText("page-summary", message);
@@ -352,6 +387,7 @@ function showSettlementsUnavailable(message) {
 }
 
 function openSettlementNewModal() {
+  if (getSettlementCurrentUser()?.supabaseUserId) return;
   if (!canSettlementAction("settlements:create")) {
     notifySettlement("No tienes permiso para generar liquidaciones.", "error");
     return;
@@ -368,6 +404,7 @@ function openSettlementNewModal() {
 }
 
 function submitSettlementNew(event) {
+  if (getSettlementCurrentUser()?.supabaseUserId) { event.preventDefault(); return; }
   event.preventDefault();
 
   if (!currentSettlementPreview?.driverId) {
@@ -460,6 +497,7 @@ function renderSettlementPreview() {
 }
 
 function openSettlementDetailModal(settlementId) {
+  if (isRealSettlementMode()) { void openRealSettlementDetail(settlementId); return; }
   const settlement = getSettlementUiById(settlementId);
 
   if (!settlement) {
@@ -473,6 +511,7 @@ function openSettlementDetailModal(settlementId) {
 }
 
 function renderSettlementDetail(settlementId) {
+  if (isRealSettlementMode()) return;
   const settlement = getSettlementUiById(settlementId);
   const container = getSettlementsElement("settlement-detail-content");
   const actions = getSettlementsElement("settlement-detail-actions");
@@ -655,6 +694,7 @@ function renderSettlementDetailActions(settlement) {
 }
 
 function handleSettlementAction(action) {
+  if (getSettlementCurrentUser()?.supabaseUserId) return;
   const settlement = getSettlementUiById(selectedSettlementId);
 
   if (!settlement) {
@@ -706,6 +746,7 @@ function handleSettlementAction(action) {
 }
 
 function openSettlementActionModal(action, settlement) {
+  if (getSettlementCurrentUser()?.supabaseUserId) return;
   pendingSettlementAction = { type: action, settlementId: settlement.settlementId };
   const isApproval = action === "approve";
   const title = { approve: "Aprobar liquidación", return: "Devolver a revisión", cancel: "Anular liquidación" }[action];
@@ -733,6 +774,7 @@ function openSettlementActionModal(action, settlement) {
 }
 
 function submitSettlementAction(event) {
+  if (getSettlementCurrentUser()?.supabaseUserId) { event.preventDefault(); return; }
   event.preventDefault();
 
   const settlement = getSettlementUiById(pendingSettlementAction?.settlementId);
@@ -767,6 +809,7 @@ function submitSettlementAction(event) {
 }
 
 function openSettlementPaymentModal(settlement) {
+  if (getSettlementCurrentUser()?.supabaseUserId) return;
   pendingSettlementAction = { type: "pay", settlementId: settlement.settlementId };
   const user = getSettlementCurrentUser() || {};
   const collaborator = getSettlementUiCollaboratorById(settlement.driverId);
@@ -784,6 +827,7 @@ function openSettlementPaymentModal(settlement) {
 }
 
 function submitSettlementPayment(event) {
+  if (getSettlementCurrentUser()?.supabaseUserId) { event.preventDefault(); return; }
   event.preventDefault();
 
   const settlement = getSettlementUiById(pendingSettlementAction?.settlementId);
@@ -823,6 +867,7 @@ function submitSettlementPayment(event) {
 }
 
 function openSettlementPaymentAnnulModal(settlement) {
+  if (getSettlementCurrentUser()?.supabaseUserId) return;
   pendingSettlementAction = { type: "annul-payment", settlementId: settlement.settlementId };
   const collaborator = getSettlementUiCollaboratorById(settlement.driverId);
 
@@ -836,6 +881,7 @@ function openSettlementPaymentAnnulModal(settlement) {
 }
 
 function submitSettlementPaymentAnnul(event) {
+  if (getSettlementCurrentUser()?.supabaseUserId) { event.preventDefault(); return; }
   event.preventDefault();
 
   const settlement = getSettlementUiById(pendingSettlementAction?.settlementId);
@@ -883,6 +929,7 @@ function getSettlementPendingActionErrorTarget() {
 }
 
 function openSettlementConfigModal() {
+  if (getSettlementCurrentUser()?.supabaseUserId) return;
   if (!canSettlementAction("settlements:configureGlobalPercentage")) {
     notifySettlement("No tienes permiso para configurar liquidaciones.", "error");
     return;
@@ -951,6 +998,7 @@ function updateSettlementConfigRows() {
 }
 
 function submitSettlementConfig(event) {
+  if (getSettlementCurrentUser()?.supabaseUserId) { event.preventDefault(); return; }
   event.preventDefault();
 
   const currentUser = getSettlementCurrentUser();
@@ -1123,7 +1171,7 @@ function syncSettlementChipFilters() {
 }
 
 function getCheckedSettlementValues(filterName) {
-  return Array.from(document.querySelectorAll(`[data-settlement-filter="${filterName}"]:checked`)).map((input) => input.value);
+  return Array.from(document.querySelectorAll(`[data-settlement-filter="${filterName}"]:checked`)).map((input) => input.value).filter(Boolean);
 }
 
 function clearSettlementsFilters() {
@@ -1136,6 +1184,7 @@ function clearSettlementsFilters() {
   document.querySelectorAll("[data-settlement-filter]").forEach((input) => {
     input.checked = false;
   });
+  if (isRealSettlementMode()) document.querySelectorAll('[data-settlement-filter][value=""]').forEach((input) => { input.checked = true; });
   const allCollection = document.querySelector('[data-settlement-collection][value=""]');
   if (allCollection) allCollection.checked = true;
   renderSettlementsView();
@@ -1153,6 +1202,12 @@ function updateSettlementsFilterSummary() {
 }
 
 function changeSettlementsPage(direction) {
+  if (isRealSettlementMode()) {
+    if (realSettlementsState.loading) return;
+    const pages = Math.max(1, Math.ceil(realSettlementsState.total / SETTLEMENTS_PAGE_SIZE));
+    settlementsPage = direction === "prev" ? Math.max(1, settlementsPage - 1) : Math.min(pages, settlementsPage + 1);
+    void loadRealSettlements(); return;
+  }
   const total = getFilteredSettlementsForView().length;
   const totalPages = Math.max(1, Math.ceil(total / SETTLEMENTS_PAGE_SIZE));
 
@@ -1492,6 +1547,10 @@ function openSettlementModal(id) {
 }
 
 function closeSettlementModal(modal) {
+  if (modal?.id === "settlement-detail-modal" && isRealSettlementMode()) {
+    realSettlementsState.detailRequest += 1;
+    selectedSettlementId = "";
+  }
   if (!modal) return;
   modal.hidden = true;
   if (modal.id !== "settlement-detail-modal") {
@@ -1550,12 +1609,12 @@ function notifySettlement(message, type = "info") {
   }
 }
 
-function formatSettlementUiMoney(value) {
-  if (window.ElaraCash?.formatCashMoney) {
+function formatSettlementUiMoney(value, currencyCode = "EUR") {
+  if (currencyCode === "EUR" && window.ElaraCash?.formatCashMoney) {
     return window.ElaraCash.formatCashMoney(value);
   }
 
-  return new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" }).format(Number(value) || 0);
+  return new Intl.NumberFormat("es-ES", { style: "currency", currency: currencyCode }).format(Number(value) || 0);
 }
 
 function formatSettlementUiDate(value) {
@@ -1611,3 +1670,219 @@ window.ElaraSettlements = {
   showSettlements,
 };
 
+
+// Administrative read-only branch. No legacy dataset or mutation is used here.
+const REAL_SETTLEMENT_STATUS = { draft: "Borrador", generated: "Generada", submitted: "Pendiente de aprobaci\u00f3n", approved: "Aprobada", rejected: "Rechazada", cancelled: "Anulada" };
+const REAL_SETTLEMENT_PAYMENT = { unpaid: "Pendiente de pago", partial: "Pago parcial", paid: "Pagada", cancelled: "Pago cancelado" };
+const REAL_SETTLEMENT_TYPE = { internal_driver: "Conductor interno", external_collaborator: "Colaborador externo" };
+const REAL_SETTLEMENT_FREQUENCY = { monthly: "Mensual", weekly: "Semanal" };
+let realSettlementSearchTimer;
+const realSettlementsState = { scope: "", listRequest: 0, detailRequest: 0, rows: [], total: 0, loading: false, drivers: [], driverScope: "" };
+
+function isRealSettlementMode() {
+  return Boolean(getSettlementCurrentUser()?.supabaseUserId && ["administrativo", "superadmin"].includes(getSettlementActiveContext()));
+}
+function realSettlementScope() {
+  return isRealSettlementMode() ? getSettlementCurrentUser().supabaseUserId + ":" + getSettlementActiveContext() : "";
+}
+function invalidateRealSettlements() {
+  clearTimeout(realSettlementSearchTimer);
+  realSettlementsState.listRequest += 1;
+  realSettlementsState.detailRequest += 1;
+  realSettlementsState.rows = [];
+  realSettlementsState.drivers = [];
+  realSettlementsState.driverScope = "";
+  setSettlementSelectOptions("settlements-filter-driver", [["", "Todos los conductores"]], "");
+  realSettlementsState.total = 0;
+  realSettlementsState.loading = false;
+  selectedSettlementId = "";
+  ["settlements-list", "settlements-summary", "settlement-detail-content", "settlement-detail-actions"].forEach((id) => {
+    const element = getSettlementsElement(id);
+    if (element) element.innerHTML = "";
+  });
+  const pagination = getSettlementsElement("settlements-pagination");
+  if (pagination) { pagination.innerHTML = ""; pagination.hidden = true; }
+  document.querySelectorAll('[data-settlement-config-open]').forEach((button) => { button.hidden = true; });
+  document.querySelectorAll('[data-settlement-modal="true"]').forEach((modal) => { modal.hidden = true; });
+}
+function configureRealSettlementFilters() {
+  const scope = realSettlementScope();
+  if (realSettlementsState.scope === scope) return;
+  invalidateRealSettlements();
+  realSettlementsState.scope = scope;
+  settlementsFilters = getDefaultSettlementsFilters();
+  settlementsPage = 1;
+  ["settlements-search", "settlements-filter-from", "settlements-filter-to"].forEach((id) => setSettlementInputValue(id, ""));
+  const chips = (entries, attribute, name) => entries.map(([value, label]) => '<label class="filter-chip"><input type="radio" name="' + name + '" ' + attribute + ' value="' + escapeSettlementHtml(value) + '"' + (!value ? ' checked' : '') + ' /><span>' + escapeSettlementHtml(label) + '</span></label>').join("");
+  const status = getSettlementsElement("settlements-status-filters");
+  if (status) status.innerHTML = chips([["", "Todos"], ...Object.entries(REAL_SETTLEMENT_STATUS)], 'data-settlement-filter="status"', "settlements-real-status");
+  const typeGroup = document.querySelector('[data-settlement-filter="driverType"]')?.closest(".customer-filter__group");
+  if (typeGroup) typeGroup.innerHTML = '<strong>Tipo</strong>' + chips([["", "Todos"], ...Object.entries(REAL_SETTLEMENT_TYPE)], 'data-settlement-filter="driverType"', "settlements-real-type");
+  const paymentGroup = document.querySelector("[data-settlement-collection]")?.closest(".customer-filter__group");
+  if (paymentGroup) paymentGroup.innerHTML = '<strong>Estado de pago</strong>' + chips([["", "Todos"], ...Object.entries(REAL_SETTLEMENT_PAYMENT)], "data-settlement-collection", "settlements-real-payment");
+  const header = document.querySelector("#liquidaciones .settlements-list-header");
+  if (header) header.innerHTML = ["Liquidaci\u00f3n", "Persona", "Bruto y deducciones", "Base de c\u00e1lculo", "Porcentaje", "Importes", "Estado / Pago", "Detalle"].map((label) => "<span>" + label + "</span>").join("");
+}
+async function loadRealSettlementDrivers(client, scope) {
+  if (realSettlementsState.driverScope === scope) return;
+  const rows = [];
+  for (let offset = 0; ; offset += 200) {
+    const { data, error } = await client.from("drivers").select("id,human_code,driver_type,person:persons!drivers_person_id_fkey(first_name,last_name)").order("human_code").range(offset, offset + 199);
+    if (error) throw error;
+    if (realSettlementScope() !== scope) return;
+    rows.push(...(Array.isArray(data) ? data : []));
+    if (!data || data.length < 200) break;
+  }
+  realSettlementsState.drivers = rows;
+  realSettlementsState.driverScope = scope;
+  setSettlementSelectOptions("settlements-filter-driver", [["", "Todos los conductores"], ...rows.map((row) => [row.id, [row.human_code, [row.person?.first_name, row.person?.last_name].filter(Boolean).join(" ")].filter(Boolean).join(" - ")])], settlementsFilters.driverId);
+}
+function realSettlementMessage(message, retry = false) {
+  const list = getSettlementsElement("settlements-list");
+  if (list) list.innerHTML = '<p class="settlements-empty" role="status">' + escapeSettlementHtml(message) + '</p>' + (retry ? '<button class="button button--compact button--muted" type="button" data-settlements-retry>Reintentar</button>' : "");
+  const pagination = getSettlementsElement("settlements-pagination");
+  if (pagination) { pagination.hidden = true; pagination.innerHTML = ""; }
+}
+async function loadRealSettlements() {
+  if (!isRealSettlementMode()) return;
+  clearTimeout(realSettlementSearchTimer);
+  configureRealSettlementFilters();
+  configureSettlementsPrimaryAction();
+  updateSettlementsFilterSummary();
+  const scope = realSettlementScope();
+  const request = ++realSettlementsState.listRequest;
+  const client = window.ElaraSupabase?.client;
+  realSettlementsState.loading = true;
+  realSettlementsState.rows = [];
+  realSettlementsState.total = 0;
+  const summary = getSettlementsElement("settlements-summary");
+  if (summary) summary.innerHTML = "";
+  realSettlementMessage("Cargando liquidaciones...");
+  try {
+    if (!client) throw new Error("El cliente Supabase no est\u00e1 disponible.");
+    await loadRealSettlementDrivers(client, scope);
+    if (request !== realSettlementsState.listRequest || scope !== realSettlementScope()) return;
+    const { data, error } = await client.rpc("get_admin_settlements", {
+      p_status: settlementsFilters.statuses[0] || null,
+      p_payment_status: settlementsFilters.collection || null,
+      p_driver_id: settlementsFilters.driverId || null,
+      p_driver_type: settlementsFilters.driverTypes[0] || null,
+      p_period_from: settlementsFilters.from || null,
+      p_period_to: settlementsFilters.to || null,
+      p_search: settlementsFilters.query || null,
+      p_limit: SETTLEMENTS_PAGE_SIZE,
+      p_offset: (settlementsPage - 1) * SETTLEMENTS_PAGE_SIZE,
+    });
+    if (request !== realSettlementsState.listRequest || scope !== realSettlementScope()) return;
+    if (error) throw error;
+    const rows = Array.isArray(data) ? data : [];
+    // An empty page has no window count; retry page one after concurrent removals.
+    if (!rows.length && settlementsPage > 1) { settlementsPage = 1; void loadRealSettlements(); return; }
+    realSettlementsState.rows = rows;
+    realSettlementsState.total = Number(rows[0]?.total_count) || 0;
+    realSettlementsState.loading = false;
+    renderRealSettlementSummary();
+    if (!rows.length) { realSettlementMessage("No hay liquidaciones que coincidan con los filtros."); return; }
+    const list = getSettlementsElement("settlements-list");
+    if (list) list.innerHTML = rows.map(renderRealSettlementRow).join("");
+    const pagination = getSettlementsElement("settlements-pagination");
+    if (pagination) renderSettlementsPagination(pagination, realSettlementsState.total, Math.ceil(realSettlementsState.total / SETTLEMENTS_PAGE_SIZE));
+  } catch (error) {
+    if (request !== realSettlementsState.listRequest || scope !== realSettlementScope()) return;
+    realSettlementsState.loading = false;
+    console.error("[ELARA Settlements] No se pudo cargar el listado real.", { error });
+    realSettlementMessage("No se pudieron cargar las liquidaciones.", true);
+    notifySettlement("No se pudieron cargar las liquidaciones.", "error");
+  }
+}
+function realSettlementMoney(value, row) { return formatSettlementUiMoney(value, row.currency_code || "EUR"); }
+function realSettlementBadge(raw, payment = false) {
+  const label = (payment ? REAL_SETTLEMENT_PAYMENT : REAL_SETTLEMENT_STATUS)[raw] || raw || "-";
+  const tone = ["paid", "approved"].includes(raw) ? "success" : ["cancelled", "rejected"].includes(raw) ? "danger" : "info";
+  return '<span class="expense-status-badge expense-status-badge--' + tone + '">' + escapeSettlementHtml(label) + '</span>';
+}
+function renderRealSettlementSummary() {
+  const container = getSettlementsElement("settlements-summary");
+  if (!container) return;
+  const rows = realSettlementsState.rows;
+  const metrics = [["Resultados del filtro", realSettlementsState.total], ["En esta p\u00e1gina", rows.length], ["Generadas - p\u00e1gina", rows.filter((r) => r.status === "generated").length], ["Aprobadas - p\u00e1gina", rows.filter((r) => r.status === "approved").length], ["Pagadas - p\u00e1gina", rows.filter((r) => r.payment_status === "paid").length], ["Servicios - p\u00e1gina", rows.reduce((n, r) => n + (Number(r.service_item_count) || 0), 0)]];
+  const currencies = [...new Set(rows.map((r) => r.currency_code))];
+  metrics.push(["Pendiente - p\u00e1gina", currencies.map((currency) => formatSettlementUiMoney(rows.filter((r) => r.currency_code === currency).reduce((n, r) => n + (Number(r.pending_amount) || 0), 0), currency)).join(" - ") || "-"]);
+  container.innerHTML = metrics.map(([label, value]) => '<article class="summary-card summary-card--neutral"><span>' + escapeSettlementHtml(label) + '</span><strong>' + escapeSettlementHtml(value) + '</strong></article>').join("");
+}
+function renderRealSettlementRow(row) {
+  const text = escapeSettlementHtml;
+  const money = (value) => text(realSettlementMoney(value, row));
+  return '<article class="settlements-row settlements-list-grid">' +
+    '<div class="settlements-row__main"><strong>' + text(row.human_code) + '</strong><small>' + text(formatSettlementUiDate(row.period_start)) + ' - ' + text(formatSettlementUiDate(row.period_end)) + '</small><small>' + text(REAL_SETTLEMENT_FREQUENCY[row.frequency_snapshot] || row.frequency_snapshot) + ' - ' + text(row.currency_code) + '</small></div>' +
+    '<div class="settlements-row__stack"><strong>' + text(row.driver_name) + '</strong><small>' + text(row.driver_human_code) + '</small><small>' + text(REAL_SETTLEMENT_TYPE[row.driver_type_snapshot] || row.driver_type_snapshot) + '</small></div>' +
+    '<div class="settlements-row__stack"><strong>Bruto ' + money(row.gross_eligible_amount) + '</strong><small>Deducciones ' + money(row.expense_deduction_amount) + '</small><small>Ajustes ' + money(row.adjustment_amount) + '</small></div>' +
+    '<strong>' + money(row.calculation_base_amount) + '</strong><span>' + text(row.driver_percentage) + ' % conductor</span>' +
+    '<div class="settlements-row__stack"><strong>Conductor ' + money(row.driver_amount) + '</strong><small>Pagado ' + money(row.paid_amount) + '</small><small>Pendiente ' + money(row.pending_amount) + '</small></div>' +
+    '<div class="settlements-row__stack"><small>Estado</small>' + realSettlementBadge(row.status) + '<small>Pago</small>' + realSettlementBadge(row.payment_status, true) + '</div>' +
+    '<div class="settlements-row__actions"><button class="button button--compact button--muted" type="button" data-settlement-detail="' + text(row.settlement_id) + '">Detalle</button></div></article>';
+}
+async function openRealSettlementDetail(id) {
+  if (!isRealSettlementMode()) return;
+  const scope = realSettlementScope();
+  const request = ++realSettlementsState.detailRequest;
+  selectedSettlementId = id;
+  setSettlementsText("settlement-detail-id", "Liquidaci\u00f3n");
+  setSettlementsText("settlement-detail-status", "Cargando...");
+  const content = getSettlementsElement("settlement-detail-content");
+  const actions = getSettlementsElement("settlement-detail-actions");
+  if (actions) { actions.innerHTML = ""; actions.hidden = true; }
+  if (content) content.innerHTML = '<p role="status">Cargando detalle...</p>';
+  openSettlementModal("settlement-detail-modal");
+  try {
+    const client = window.ElaraSupabase?.client;
+    if (!client) throw new Error("El cliente Supabase no est\u00e1 disponible.");
+    const { data, error } = await client.rpc("get_admin_settlement_detail", { p_settlement_id: id });
+    if (request !== realSettlementsState.detailRequest || scope !== realSettlementScope() || selectedSettlementId !== id) return;
+    if (error) throw error;
+    const row = Array.isArray(data) ? data[0] : null;
+    if (!row) throw new Error("No se encontr\u00f3 la liquidaci\u00f3n.");
+    setSettlementsText("settlement-detail-id", row.human_code);
+    setSettlementsText("settlement-detail-status", REAL_SETTLEMENT_STATUS[row.status] || row.status);
+    if (content) content.innerHTML = renderRealSettlementDetail(row);
+  } catch (error) {
+    if (request !== realSettlementsState.detailRequest || scope !== realSettlementScope() || selectedSettlementId !== id) return;
+    console.error("[ELARA Settlements] No se pudo cargar el detalle real.", { error });
+    setSettlementsText("settlement-detail-status", "Error de carga");
+    if (content) content.innerHTML = '<p role="status">No se pudo cargar el detalle.</p><button class="button button--compact button--muted" type="button" data-settlement-detail-retry="' + escapeSettlementHtml(id) + '">Reintentar</button>';
+    notifySettlement("No se pudo cargar el detalle.", "error");
+  }
+}
+function renderRealSettlementDetail(row) {
+  const money = (value) => realSettlementMoney(value, row);
+  const section = renderSettlementDetailSection;
+  const actor = (value) => value?.name || value?.human_code || value?.id || "-";
+  const itemTypes = { service_income: "Ingreso de servicio", expense_deduction: "Deducci\u00f3n de gasto", positive_adjustment: "Ajuste positivo", negative_adjustment: "Ajuste negativo", other: "Otro" };
+  const items = (Array.isArray(row.items) ? row.items : []).map((item) => section(itemTypes[item.item_type] || item.item_type, [
+    ["Referencia", item.service_human_code || item.expense_human_code || item.source_reference], ["Descripci\u00f3n", item.description],
+    ["Bruto", money(item.gross_amount)], ["Elegible", money(item.eligible_amount)], ["Deducci\u00f3n", money(item.deduction_amount)], ["Ajuste", money(item.adjustment_amount)],
+    ["Porcentaje conductor", item.driver_percentage_snapshot + " %"], ["Porcentaje ELARA", item.elara_percentage_snapshot + " %"],
+    ["Importe conductor", money(item.driver_amount_snapshot)], ["Importe ELARA", money(item.elara_amount_snapshot)],
+  ])).join("");
+  const methods = { cash: "Efectivo", bank_transfer: "Transferencia", card: "Tarjeta", other: "Otro" };
+  const paymentStatuses = { pending: "Pendiente", completed: "Completado", failed: "Fallido", cancelled: "Cancelado", reversed: "Revertido" };
+  const payments = (Array.isArray(row.payments) ? row.payments : []).map((payment) => section(payment.human_code || "Pago", [
+    ["Importe", formatSettlementUiMoney(payment.amount, payment.currency_code || row.currency_code)], ["Estado", paymentStatuses[payment.payment_status] || payment.payment_status],
+    ["M\u00e9todo", methods[payment.payment_method] || payment.payment_method], ["Cuenta", payment.cash_account_name || payment.cash_account_id],
+    ["Fecha", payment.paid_at ? formatSettlementUiDateTime(payment.paid_at) : "-"], ["Notas", payment.notes], ["Actor", actor(payment.created_by_actor)],
+  ])).join("");
+  const history = (Array.isArray(row.history) ? row.history : []).map((entry) => section("Transici\u00f3n", [
+    ["Desde", REAL_SETTLEMENT_STATUS[entry.from_status] || entry.from_status || "Inicio"], ["Hasta", REAL_SETTLEMENT_STATUS[entry.to_status] || entry.to_status],
+    ["Fecha", formatSettlementUiDateTime(entry.changed_at)], ["Actor", actor(entry.changed_by_actor)], ["Motivo", entry.reason],
+  ])).join("");
+  return section("Resumen", [["C\u00f3digo", row.human_code], ["Conductor", [row.driver_human_code, row.driver_name].filter(Boolean).join(" - ")],
+    ["Tipo", REAL_SETTLEMENT_TYPE[row.driver_type_snapshot] || row.driver_type_snapshot], ["Periodo", formatSettlementUiDate(row.period_start) + " - " + formatSettlementUiDate(row.period_end)],
+    ["Frecuencia", REAL_SETTLEMENT_FREQUENCY[row.frequency_snapshot] || row.frequency_snapshot], ["M\u00e9todo de c\u00e1lculo", row.calculation_method_snapshot === "driver_share" ? "Participaci\u00f3n del conductor" : row.calculation_method_snapshot === "elara_commission" ? "Comisi\u00f3n ELARA" : row.calculation_method_snapshot],
+    ["Estado", REAL_SETTLEMENT_STATUS[row.status] || row.status], ["Pago", REAL_SETTLEMENT_PAYMENT[row.payment_status] || row.payment_status], ["Moneda", row.currency_code]]) +
+    section("C\u00e1lculo", [["Bruto elegible", money(row.gross_eligible_amount)], ["Deducciones", money(row.expense_deduction_amount)], ["Ajustes", money(row.adjustment_amount)], ["Base de c\u00e1lculo", money(row.calculation_base_amount)],
+      ["Porcentaje conductor", row.driver_percentage + " %"], ["Porcentaje ELARA", row.elara_percentage + " %"], ["Importe conductor", money(row.driver_amount)], ["Importe ELARA", money(row.elara_amount)], ["Pagado", money(row.paid_amount)], ["Pendiente", money(row.pending_amount)]]) +
+    '<section class="settlement-detail-section"><h3 class="modal__section-title">Items</h3>' + (items || '<p>No hay items registrados.</p>') + '</section>' +
+    '<section class="settlement-detail-section"><h3 class="modal__section-title">Pagos</h3>' + (payments || '<p>No hay pagos registrados.</p>') + '</section>' +
+    '<section class="settlement-detail-section"><h3 class="modal__section-title">Historial</h3>' + (history || '<p>No hay historial registrado.</p>') + '</section>' +
+    section("Notas", [["Notas", row.notes], ["Notas internas", row.internal_notes]]);
+}
