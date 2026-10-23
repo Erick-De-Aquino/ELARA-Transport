@@ -17,6 +17,9 @@ let pendingSettlementAction = null;
 let currentSettlementPreview = null;
 
 function initSettlements() {
+  // Operational view owns its read-only controls; do not initialize demo handlers.
+  return;
+
   if (isSettlementsInitialized) {
     return;
   }
@@ -28,6 +31,8 @@ function initSettlements() {
 }
 
 function showSettlements() {
+  return showOperationalSettlements();
+
   if (isRealSettlementMode()) {
     configureRealSettlementFilters();
     setSettlementsText("page-summary", "Consulta de liquidaciones en modo solo lectura.");
@@ -1885,4 +1890,14 @@ function renderRealSettlementDetail(row) {
     '<section class="settlement-detail-section"><h3 class="modal__section-title">Pagos</h3>' + (payments || '<p>No hay pagos registrados.</p>') + '</section>' +
     '<section class="settlement-detail-section"><h3 class="modal__section-title">Historial</h3>' + (history || '<p>No hay historial registrado.</p>') + '</section>' +
     section("Notas", [["Notas", row.notes], ["Notas internas", row.internal_notes]]);
+}
+
+// Read-only operational route. Legacy renderer below/above is retained for demo dependencies.
+function showOperationalSettlements() {
+  const op = window.ElaraOperationalData;
+  if (!op) throw new Error('Lectura operativa no disponible.');
+  return op.show('liquidaciones', {title: 'Liquidaciones', load: () => op.readRpc('get_admin_settlements'),
+columns: [['Liquidación','human_code'],['Conductor','driver_name'],['Tipo','driver_type_snapshot'],['Desde','period_start'],['Hasta','period_end'],['Estado','status'],['Pago','payment_status'],['Pendiente','pending_amount'],['Moneda','currency_code']],
+summary: rows=>'Pendiente global del filtro: '+op.money(rows,'pending_amount'),
+detail: async r=> { const d=await op.readDetail('get_admin_settlement_detail','p_settlement_id',r.settlement_id); return op.fields(d.settlement||d,[['UUID','settlement_id'],['Estado','status'],['Notas','notes'],['Pagado','paid_amount'],['Pendiente','pending_amount'],['Moneda','currency_code']]); }});
 }

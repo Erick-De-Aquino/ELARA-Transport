@@ -103,6 +103,9 @@ let isCollaboratorServicesUpdatedListenerRegistered = false;
 // =========================
 
 function initCollaborators() {
+  // Operational view owns its read-only controls; do not initialize demo handlers.
+  return;
+
   normalizeCollaboratorsData();
   reconcileCollaboratorOperationalStatuses();
   normalizeVehicleAssignments();
@@ -139,6 +142,8 @@ function refreshOpenCollaboratorNextServiceFromServicesUpdate() {
 }
 
 function showCollaborators() {
+  return showOperationalCollaborators();
+
   reconcileCollaboratorOperationalStatuses();
   setText("page-eyebrow", "M\u00f3dulo Conductores");
   setText("page-title", "Conductores");
@@ -480,6 +485,8 @@ function initVehicleAssignmentConfirmationControls() {
 // =========================
 
 function updateCollaboratorAdministrativeStatus(collaboratorId, nextStatus) {
+  return window.ElaraOperationalData.blocked();
+
   const collaborator = getCollaboratorById(collaboratorId);
 
   if (!collaborator || !administrativeStatuses.includes(nextStatus)) {
@@ -528,6 +535,8 @@ function exitCollaboratorEditMode() {
 }
 
 function saveCollaboratorDetailEdit() {
+  return window.ElaraOperationalData.blocked();
+
   const collaborator = getCollaboratorById(collaboratorDetailCollaboratorId);
 
   if (!collaborator) {
@@ -964,6 +973,8 @@ function renderVehicleAssignmentItem(vehicle, collaborator) {
 }
 
 function confirmVehicleAssignment(vehicleId) {
+  return window.ElaraOperationalData.blocked();
+
   const collaborator = getCollaboratorById(vehicleAssignmentCollaboratorId);
   const vehicle = getVehicleById(vehicleId);
 
@@ -1021,6 +1032,8 @@ function confirmRemoveCollaboratorVehicle() {
 }
 
 function assignVehicleToCollaborator(collaborator, vehicle, assignedCollaborator) {
+  return window.ElaraOperationalData.blocked();
+
   const previousVehicleId = getCollaboratorVehicleId(collaborator);
   const hadPreviousVehicle = Boolean(previousVehicleId);
   const wasAssignedToOther = Boolean(assignedCollaborator && assignedCollaborator.id !== collaborator.id);
@@ -1173,6 +1186,8 @@ function initNewCollaboratorForm() {
 }
 
 function createNewCollaboratorFromForm() {
+  return window.ElaraOperationalData.blocked();
+
   const collaboratorData = getNewCollaboratorFormData();
   const validationMessage = getNewCollaboratorValidationMessage(collaboratorData);
 
@@ -2421,3 +2436,14 @@ window.ElaraCollaborators = {
   refreshCollaborators,
   showCollaborators,
 };
+
+// Read-only operational route. Legacy renderer below/above is retained for demo dependencies.
+async function showOperationalCollaborators() {
+  const op = window.ElaraOperationalData;
+  if (!op) throw new Error('Lectura operativa no disponible.');
+  await op.show('colaboradores', {title: 'Conductores', load: async () => op.getCollection('drivers'),
+notice: 'Alta y edición de estado, licencia y observaciones. Vínculos explícitos; sin Auth ni acceso al portal.',
+columns: [['Código','human_code'],['Conductor',r=>op.personName(r.person_id)],['Tipo','driver_type'],['Estado','administrative_status'],['Disponibilidad',r=>op.display(r.availability_status||r.availability_preference)]],
+detail: async r => { const [assignments,links]=await Promise.all([op.related('driver_vehicle_assignments','driver_id',r.id),op.related('user_driver_links','driver_id',r.id)]); return await window.ElaraCatalogAdmin.detailActions('drivers',r) + op.fields(r,[['UUID','id'],['Tipo','driver_type'],['Estado','administrative_status'],['Disponibilidad','availability_preference'],['Permiso: vencimiento','license_expiration']])+op.tableHtml(assignments,[['Vehículo UUID','vehicle_id'],['Inicio','started_at'],['Fin','ended_at'],['Estado','status']])+op.tableHtml(links,[['Usuario UUID','app_user_id'],['Estado','status']]); }});
+  return window.ElaraCatalogAdmin.attach('drivers', showOperationalCollaborators);
+}

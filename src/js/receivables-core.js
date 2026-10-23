@@ -6,7 +6,7 @@
 
 "use strict";
 
-const receivablesData = window.ElaraReceivablesMock || {
+const receivablesData = {
   settings: { currency: "EUR" },
   receivables: [],
   payments: [],
@@ -23,7 +23,7 @@ const RECEIVABLE_PAID_COLLECTION_STATUSES = ["Cobrado", "Pagado"];
 let isReconcilingReceivables = false;
 
 function ensureReceivablesData() {
-  window.ElaraReceivablesMock = receivablesData;
+  // Demo state is private and is never used by the operational route.
   receivablesData.settings = {
     currency: "EUR",
     ...(receivablesData.settings || {}),
@@ -39,6 +39,8 @@ function ensureReceivablesData() {
 }
 
 function reconcileReceivablesFromServices(session = {}) {
+  return {created: 0, updated: 0, omitted: 0, warnings: [], skippedOperationalReadOnly: true};
+
   if (isReconcilingReceivables) {
     return {
       created: 0,
@@ -117,6 +119,7 @@ function reconcileReceivablesFromServices(session = {}) {
 }
 
 function getAllReceivables(filters = {}) {
+  return window.ElaraOperationalData.getCollection("receivables").map(row => ({...row, id: row.receivable_id, serviceId: row.service_id, customerId: row.customer_id}));
   ensureReceivablesData();
 
   return receivablesData.receivables
@@ -241,12 +244,16 @@ function canViewReceivables(session = {}) {
 }
 
 function canCollectReceivable(receivable = {}, session = {}) {
+  return false;
+
   const user = getReceivableSessionUser(session);
 
   return Boolean(canReceivablePerform(user, "receivables:collect") && isUserSessionActive(user) && receivable?.status === "Pendiente");
 }
 
 function canAnnulReceivablePayment(payment = {}, session = {}) {
+  return false;
+
   const user = getReceivableSessionUser(session);
 
   return Boolean(
@@ -258,6 +265,8 @@ function canAnnulReceivablePayment(payment = {}, session = {}) {
 }
 
 function registerReceivablePayment(receivableId, payload = {}, session = {}) {
+  return createReceivableResult(false, null, "Cobro y anulación no disponibles en operación real.");
+
   ensureReceivablesData();
 
   const receivable = getReceivableById(receivableId);
@@ -363,6 +372,8 @@ function registerReceivablePayment(receivableId, payload = {}, session = {}) {
 }
 
 function annulReceivablePayment(paymentId, reason = "", session = {}) {
+  return createReceivableResult(false, null, "Cobro y anulación no disponibles en operación real.");
+
   ensureReceivablesData();
 
   const payment = getReceivablePayment(paymentId);

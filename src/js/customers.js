@@ -39,6 +39,9 @@ let hasWarnedCustomerNextServiceLegacyFallback = false;
 // =========================
 
 function initCustomers() {
+  // Operational view owns its read-only controls; do not initialize demo handlers.
+  return;
+
   initCustomerServicesUpdatedListener();
   renderCustomersSummary();
   renderCustomersList();
@@ -110,6 +113,8 @@ function updateCustomerServiceCountInContainer(container, customer) {
 }
 
 function showCustomers() {
+  return showOperationalCustomers();
+
   setText("page-eyebrow", "Módulo Clientes");
   setText("page-title", "Clientes");
   setText("page-summary", "Gestiona personas, empresas, datos de contacto y relación operativa con ELARA.");
@@ -493,6 +498,8 @@ function confirmNewCustomerTypeChange() {
 }
 
 function createNewCustomer() {
+  return window.ElaraOperationalData.blocked();
+
   const customerData = getNewCustomerFormData();
   const validationMessage = validateNewCustomerForm(customerData);
 
@@ -982,6 +989,8 @@ function exitCustomerEditMode() {
 }
 
 function saveCustomerDetailEdit() {
+  return window.ElaraOperationalData.blocked();
+
   const customer = getCustomerDetailCustomer();
 
   if (!customer) {
@@ -1460,6 +1469,8 @@ function closeCustomerLifecycleConfirmation() {
 }
 
 function confirmCustomerLifecycleAction() {
+  return window.ElaraOperationalData.blocked();
+
   if (pendingCustomerStatusAction === "block") {
     blockCustomerFromDetail();
     return;
@@ -2609,3 +2620,14 @@ window.ElaraCustomers = {
   isCustomerBlockedForNewService,
   updateCustomerLifecycleFromServices,
 };
+
+// Read-only operational route. Legacy renderer below/above is retained for demo dependencies.
+async function showOperationalCustomers() {
+  const op = window.ElaraOperationalData;
+  if (!op) throw new Error('Lectura operativa no disponible.');
+  await op.show('clientes', {title: 'Clientes', load: async () => op.getCollection('customers'),
+notice: 'Alta individual y activar/inactivar mediante contratos administrativos. Edición general y bloqueo no disponibles.',
+columns: [['Código','human_code'],['Cliente',r=>op.customerName(r)],['Tipo','customer_type'],['Estado','status']],
+detail: async r => { const entity=op.getCollection(r.customer_type==='company'?'companies':'persons').find(x=>x.id===(r.company_id||r.person_id))||{}; const contacts=r.company_id?await op.related('company_contacts','company_id',r.company_id):[]; return await window.ElaraCatalogAdmin.detailActions('customers',r) + op.fields(r,[['UUID','id'],['Código','human_code'],['Tipo','customer_type'],['Estado','status'],['Notas','internal_notes']])+op.fields(entity,[['Nombre','first_name'],['Apellidos','last_name'],['Razón social','legal_name'],['Nombre comercial','trade_name'],['Teléfono','phone'],['Email','contact_email']])+op.tableHtml(contacts,[['Contacto',c=>op.personName(c.person_id)],['Función','role_label'],['Estado','status']]); }});
+  return window.ElaraCatalogAdmin.attach('customers', showOperationalCustomers);
+}

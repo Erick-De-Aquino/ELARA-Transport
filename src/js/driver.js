@@ -582,6 +582,7 @@ function handleDriverSettlementAuthSessionUpdated() {
   selectedDriverSettlementId = "";
 }
 async function showDriverServices() {
+  if (!await window.ElaraOperationalData.checkDriverScope('mis-servicios')) return;
   setDriverActiveMode(false);
   isDriverActiveServiceVisible = false;
 
@@ -683,6 +684,7 @@ function isDriverProfileViewVisible() {
 }
 
 async function showDriverHistory() {
+  if (!await window.ElaraOperationalData.checkDriverScope('historial')) return;
   setDriverActiveMode(false);
 
   if (!refreshDriverProfile()) {
@@ -700,6 +702,7 @@ async function showDriverHistory() {
 }
 
 async function showDriverFinances() {
+  if (!await window.ElaraOperationalData.checkDriverScope('mis-finanzas')) return;
   setDriverActiveMode(false);
 
   if (!refreshDriverProfile()) {
@@ -718,6 +721,7 @@ async function showDriverFinances() {
 }
 
 async function showDriverExpenses() {
+  if (!await window.ElaraOperationalData.checkDriverScope('mis-gastos')) return;
   setDriverActiveMode(false);
 
   if (!refreshDriverProfile()) {
@@ -738,6 +742,7 @@ async function showDriverExpenses() {
 }
 
 async function showDriverSettlements() {
+  if (!await window.ElaraOperationalData.checkDriverScope('mis-liquidaciones')) return;
   setDriverActiveMode(false);
 
   if (!refreshDriverProfile()) {
@@ -1499,7 +1504,7 @@ async function fetchDriverExpenseRows() {
     throw error;
   }
 
-  return Array.isArray(data) ? data : [];
+  return (Array.isArray(data) ? data : []).filter(window.ElaraOperationalData.isOperationalRecord);
 }
 
 async function loadDriverExpenseCategories(options = {}) {
@@ -1756,7 +1761,7 @@ async function fetchDriverSettlementSummaryRows() {
     throw error;
   }
 
-  return Array.isArray(data) ? data : [];
+  return (Array.isArray(data) ? data : []).filter(window.ElaraOperationalData.isOperationalRecord);
 }
 
 function adaptDriverSettlementSummaryRow(row) {
@@ -9829,7 +9834,7 @@ async function fetchDriverServiceOverview() {
     throw error;
   }
 
-  return Array.isArray(data) ? data : [];
+  return (Array.isArray(data) ? data : []).filter(window.ElaraOperationalData.isOperationalRecord);
 }
 
 function adaptDriverServiceOverviewRow(row) {
@@ -10024,6 +10029,10 @@ function normalizeDriverCode(value) {
   return String(value || "").trim().toLowerCase();
 }
 function loadServices() {
+  if (isRealDriverAuthUser(getDriverAuthenticatedUser())) {
+    isDriverUsingCentralServices = false;
+    return driverServicesLoadState.status === "loaded" ? driverServicesLoadState.services.slice() : [];
+  }
   if (window.ElaraServices && typeof window.ElaraServices.reconcileExpiredServices === "function") {
     window.ElaraServices.reconcileExpiredServices();
   }

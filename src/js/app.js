@@ -38,6 +38,7 @@ function startAuthenticatedApp() {
 }
 
 function stopAuthenticatedApp() {
+  window.ElaraOperationalData?.reset();
   const nav = document.getElementById("sidebar-nav");
 
   if (nav) {

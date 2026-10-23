@@ -42,6 +42,9 @@ let adminExpenseDetail = null;
 let adminExpenseRequestId = 0;
 let isExpensesLoading = false;
 function initExpenses() {
+  // Operational view owns its read-only controls; do not initialize demo handlers.
+  return;
+
   if (isExpensesInitialized) {
     return;
   }
@@ -53,6 +56,8 @@ function initExpenses() {
 }
 
 function showExpenses() {
+  return showOperationalExpenses();
+
   if (!canExpenseAction("expenses.viewAll")) {
     showExpensesUnavailable("No tienes acceso a Gastos.");
     return;
@@ -2924,3 +2929,13 @@ window.ElaraExpenses = {
   initExpenses,
   showExpenses,
 };
+
+// Read-only operational route. Legacy renderer below/above is retained for demo dependencies.
+function showOperationalExpenses() {
+  const op = window.ElaraOperationalData;
+  if (!op) throw new Error('Lectura operativa no disponible.');
+  return op.show('gastos', {title: 'Gastos', load: () => op.readRpc('get_admin_expenses'),
+columns: [['Gasto','human_code'],['Fecha','expense_date'],['Concepto','description'],['Conductor','driver_name'],['Estado','status'],['Importe','amount'],['Pendiente de reembolso','pending_reimbursement_amount'],['Moneda','currency_code']],
+summary: rows=>'Pendiente de pago global: '+op.money(rows,'pending_payment_amount')+' · Pendiente de reembolso global: '+op.money(rows,'pending_reimbursement_amount'),
+detail: async r=> { const d=await op.readDetail('get_admin_expense_detail','p_expense_id',r.expense_id); return op.fields(d.expense||d,[['UUID','expense_id'],['Concepto','description'],['Notas','notes'],['Estado','status'],['Pago','payment_status'],['Reembolso','reimbursement_status']]); }});
+}

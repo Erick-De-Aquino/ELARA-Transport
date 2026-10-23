@@ -44,6 +44,9 @@ let vehicleDetailVehicleId = "";
 // =========================
 
 function initVehicles() {
+  // Operational view owns its read-only controls; do not initialize demo handlers.
+  return;
+
   renderVehiclesSummary();
   renderVehiclesList();
   initVehiclesFilters();
@@ -59,6 +62,8 @@ function refreshVehicles() {
 }
 
 function showVehicles() {
+  return showOperationalVehicles();
+
   setText("page-eyebrow", "Módulo Vehículos");
   setText("page-title", "Veh\u00edculos");
   setText("page-summary", "Gestiona flota, documentaci\u00f3n, kilometraje, estado operativo y asignaciones.");
@@ -538,6 +543,8 @@ function renderVehiclePersonAssignmentItem(person, vehicle) {
 }
 
 function confirmVehiclePersonAssignment(personId) {
+  return window.ElaraOperationalData.blocked();
+
   const vehicle = getVehicleById(vehiclePersonAssignmentVehicleId);
   const person = getPersonById(personId);
 
@@ -825,6 +832,8 @@ function getVehicleEditInitialData(vehicle) {
 }
 
 function saveVehicleDetailEdit() {
+  return window.ElaraOperationalData.blocked();
+
   const vehicle = getVehicleDetailVehicle();
 
   if (!vehicle) {
@@ -1148,6 +1157,8 @@ function openModal(modalId) {
 }
 
 function createNewVehicleFromForm() {
+  return window.ElaraOperationalData.blocked();
+
   const vehicleData = getNewVehicleFormData();
   const validationMessage = getNewVehicleValidationMessage(vehicleData);
 
@@ -1290,6 +1301,8 @@ function buildNewVehicleDocuments(vehicleData) {
 }
 
 function assignVehicleToPerson(vehicle, person, currentPerson) {
+  return window.ElaraOperationalData.blocked();
+
   try {
     const previousVehicleId = getPersonVehicleId(person);
     const hadCurrentPerson = Boolean(currentPerson && currentPerson.id !== person.id);
@@ -1907,3 +1920,14 @@ window.ElaraVehicles = {
   refreshVehicles,
   showVehicles,
 };
+
+// Read-only operational route. Legacy renderer below/above is retained for demo dependencies.
+async function showOperationalVehicles() {
+  const op = window.ElaraOperationalData;
+  if (!op) throw new Error('Lectura operativa no disponible.');
+  await op.show('vehiculos', {title: 'Vehículos', load: async () => op.getCollection('vehicles'),
+notice: 'Alta de vehículo propio, inactivación, metadatos documentales y vínculos explícitos. El estado manual no garantiza elegibilidad. Sin upload físico.',
+columns: [['Código','human_code'],['Matrícula','plate_normalized'],['Marca','brand'],['Modelo','model'],['Estado manual','manual_operational_status'],['Disponibilidad',()=> 'Requiere validación operativa']],
+detail: async r => { const [assignments,docs,incidents]=await Promise.all([op.related('driver_vehicle_assignments','vehicle_id',r.id),op.related('vehicle_documents','vehicle_id',r.id),op.related('vehicle_technical_incidents','vehicle_id',r.id)]); return await window.ElaraCatalogAdmin.detailActions('vehicles',r) + op.fields(r,[['UUID','id'],['Matrícula','plate_normalized'],['Estado manual','manual_operational_status'],['Propiedad','ownership_type']])+op.tableHtml(assignments,[['Conductor UUID','driver_id'],['Inicio','started_at'],['Fin','ended_at'],['Estado','status']])+op.tableHtml(docs,[['Documento UUID','id'],['Tipo','document_type_key'],['Estado','status'],['Emisión','issued_at'],['Vencimiento','expires_at'],['Referencia','reference_number'],['Reemplazado el','replaced_at'],['Documento sucesor','replaced_by_document_id']])+op.tableHtml(incidents,[['Incidencia UUID','id'],['Estado','status'],['Descripción','description']]); }});
+  return window.ElaraCatalogAdmin.attach('vehicles', showOperationalVehicles);
+}

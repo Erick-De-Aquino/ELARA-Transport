@@ -50,6 +50,8 @@ function initUsers() {
 }
 
 function showUsers() {
+  return window.ElaraOperationalData.unavailableView('usuarios', 'Usuarios');
+
   setText("page-eyebrow", "Administraci\u00f3n");
   setText("page-title", "Usuarios");
   setText("page-summary", "Gesti\u00f3n de accesos, roles y estado de cuenta.");
@@ -503,6 +505,8 @@ function closeUserDetailModal() {
 }
 
 function saveUserDetailEdit() {
+  return window.ElaraOperationalData.blocked();
+
   const user = getSelectedUser();
 
   if (!user) {
@@ -798,6 +802,8 @@ function getNewUserFormData() {
 }
 
 function saveNewUser() {
+  return window.ElaraOperationalData.blocked();
+
   if (!canCreateUsers()) {
     notifyUsersAction("No tienes permiso para crear usuarios.", "error");
     return;

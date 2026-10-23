@@ -181,6 +181,9 @@ let isServicesUpdatedListenerRegistered = false;
 // =========================
 
 function initServices() {
+  // Operational view owns its read-only controls; do not initialize demo handlers.
+  return;
+
   initServicesUpdatedListener();
   ensureServiceFinancialSettings();
   reconcileAllServiceFinancials();
@@ -461,6 +464,8 @@ function refreshServicesFromReceivablesUpdate() {
 }
 
 function showServices() {
+  return showOperationalServices();
+
   showActiveServicesView();
   return;
   setText("page-eyebrow", "Módulo Servicios");
@@ -721,6 +726,8 @@ function getClosedServices() {
 }
 
 function reconcileExpiredServices({ emitEvent = true } = {}) {
+  // Operational status is authoritative in Supabase; never reconcile demo services.
+  return [];
   const todayStart = getServiceLocalDayStart(new Date());
   const expiredServices = servicesData.services.filter((service) => isServiceExpiredWithoutCompletion(service, todayStart));
 
@@ -750,6 +757,7 @@ function reconcileExpiredServices({ emitEvent = true } = {}) {
 }
 
 function reconcileInProgressServicesWithoutPortalAccess() {
+  return [];
   const affectedServices = servicesData.services.filter(isInProgressServiceWithoutActivePortalAccess);
 
   if (!affectedServices.length) {
@@ -884,6 +892,8 @@ function getServiceDateParts(rawDate) {
 }
 
 function markServiceAsExpiredNotCompleted(service, closedAt) {
+  return false;
+
   service.previousServiceStatus = service.status || "";
   service.previousAssignmentStatus = service.assignmentStatus || "";
   service.status = "No realizado";
@@ -1662,52 +1672,7 @@ function shouldPauseServiceAssignmentForPortalAccess(action) {
 }
 
 function assignServiceCollaborator(collaboratorId) {
-  const service = getCurrentServiceAssignmentService();
-  const collaborator = getServiceCollaboratorById(collaboratorId);
-  const vehicle = collaborator ? getServiceAssignmentVehicle(collaborator) : null;
-
-  if (!canServiceAssignmentBeChanged(service)) {
-    notifyServiceAssignmentChangeBlocked(service);
-    serviceAssignmentState.pendingAction = null;
-    renderServiceAssignmentModal();
-    return;
-  }
-
-  if (!service || !collaborator || !vehicle || !isServiceCollaboratorAdministrativelyAssignable(collaborator) || !isServiceAssignmentVehicleAssignable(vehicle)) {
-    notifyNewService("No se pudo completar la asignación del servicio.", "error");
-    serviceAssignmentState.pendingAction = null;
-    renderServiceAssignmentModal();
-    return;
-  }
-
-  const wasAssigned = isServiceAssigned(service);
-  const wasRejectedWithoutAssignment = isServiceRejectedWithoutAssignment(service);
-  const isPreviousRejector = isServicePreviousRejectorCandidate(service, collaborator);
-
-  service.collaboratorId = collaborator.id;
-  service.vehicleId = vehicle.id;
-  service.collaborator = collaborator.name;
-  service.vehicle = getServiceAssignmentVehicleText(vehicle);
-  service.plate = getServiceAssignmentVehiclePlate(vehicle);
-  service.assignmentStatus = "Pendiente";
-  service.action = "Ver";
-  service.requiresReassignment = false;
-
-  if (wasRejectedWithoutAssignment) {
-    service.reassignedAt = new Date().toISOString();
-
-    if (isPreviousRejector) {
-      service.reassignedToPreviousRejector = true;
-    }
-  }
-
-  serviceAssignmentState.pendingAction = null;
-  renderServicesList();
-  refreshCurrentServiceDetailIfOpen(service);
-  closeServiceModal(getElement("service-assignment-modal"));
-  registerServiceAssignmentActivity(service, collaborator, wasAssigned || wasRejectedWithoutAssignment);
-  emitServiceUpdatedEvent(wasAssigned || wasRejectedWithoutAssignment ? "reassigned" : "assigned", service);
-  notifyNewService(wasAssigned ? "El servicio se reasignó correctamente." : "El servicio se asignó correctamente.", "success");
+  return document.getElementById('service-admin-form')?.requestSubmit();
 }
 
 function removeServiceAssignment() {
@@ -2572,6 +2537,8 @@ function openServiceFinancialModal(modalId) {
 }
 
 function registerServicePayment(event) {
+  return window.ElaraOperationalData.blocked();
+
   event.preventDefault();
 
   const service = getCurrentServiceDetailService();
@@ -2928,54 +2895,8 @@ function exitServiceDetailCancelMode() {
 }
 
 function confirmServiceAdministrativeCancellation(event) {
-  event.preventDefault();
-
-  const service = getCurrentServiceDetailService();
-  const reasonCode = getInputValue("service-detail-cancel-reason-code");
-  const reason = getServiceCancellationReasonLabel(reasonCode);
-  const reasonDetails = getInputValue("service-detail-cancel-reason-details");
-
-  clearServiceDetailCancelValidation();
-
-  if (!service || !isServiceEligibleForAdministrativeCancellation(service)) {
-    return;
-  }
-
-  if (!reasonCode || !reason) {
-    markServiceDetailCancelInvalid(["service-detail-cancel-reason-code"], "Selecciona un motivo de cancelación.");
-    notifyNewService("Selecciona un motivo de cancelación.", "error");
-    return;
-  }
-
-  if (reasonCode === "OTHER" && !reasonDetails) {
-    markServiceDetailCancelInvalid(["service-detail-cancel-reason-details"], "Introduce el detalle breve.");
-    notifyNewService("Introduce el detalle breve.", "error");
-    return;
-  }
-
-  if (reasonCode === "OTHER" && reasonDetails.length > 100) {
-    markServiceDetailCancelInvalid(["service-detail-cancel-reason-details"], "El detalle breve no puede superar 100 caracteres.");
-    notifyNewService("El detalle breve no puede superar 100 caracteres.", "error");
-    return;
-  }
-
-  if (reasonCode !== "OTHER") {
-    setInputValue("service-detail-cancel-reason-details", "");
-  }
-
-  cancelServiceFromAdministration(service, {
-    reasonCode,
-    reason,
-    reasonDetails: reasonCode === "OTHER" ? reasonDetails : "",
-  });
-  serviceDetailState.cancelMode = false;
-  serviceDetailState.editMode = false;
-  renderServicesList();
-  renderServicesHistoryList();
-  renderServiceDetailModal(service);
-  emitServiceUpdatedEvent("cancelled", service);
-  registerServiceCancellationActivity(service);
-  notifyNewService("El servicio se canceló correctamente.", "success");
+  event?.preventDefault();
+  return document.getElementById('service-admin-form')?.requestSubmit();
 }
 
 function exitServiceDetailEditMode() {
@@ -2992,37 +2913,8 @@ function exitServiceDetailEditMode() {
 }
 
 function saveServiceDetailEdit(event) {
-  event.preventDefault();
-
-  const service = getCurrentServiceDetailService();
-
-  if (!service || isServiceCanceled(service)) {
-    return;
-  }
-
-  const formData = getServiceDetailEditFormData();
-  const validation = validateServiceDetailEditForm(formData, service);
-  const previousCollaboratorId = service.collaboratorId || "";
-
-  clearServiceDetailEditValidation();
-
-  if (!validation.valid) {
-    markServiceDetailEditInvalid(validation.fields, validation.message);
-    notifyNewService(validation.message, "error");
-    return;
-  }
-
-  updateServiceFromDetailEdit(service, formData);
-  serviceDetailState.editMode = false;
-  serviceDetailState.typeChangeConfirmed = false;
-  serviceDetailState.originalSpecificValues = getServiceTypeSpecificValues(service);
-  emitServiceUpdatedEvent("edited", service, {
-    collaboratorId: service.collaboratorId || "",
-    previousCollaboratorId,
-  });
-  renderServicesList();
-  renderServiceDetailModal(service);
-  notifyNewService("Los cambios del servicio se guardaron correctamente.", "success");
+  event?.preventDefault();
+  return document.getElementById('service-admin-form')?.requestSubmit();
 }
 
 function populateServiceDetailEditForm(service) {
@@ -4995,33 +4887,7 @@ function getSelectedPaymentMethod() {
 }
 
 function createNewServiceFromModal() {
-  const serviceData = getNewServiceDraftData();
-  const validationMessage = getNewServiceValidationMessage(serviceData);
-
-  if (validationMessage) {
-    notifyNewService(validationMessage, "warning");
-    return;
-  }
-
-  if (shouldPauseNewServiceCreationForPortalAccess()) {
-    return;
-  }
-
-  const service = buildNewMockService(serviceData);
-
-  servicesData.services.unshift(service);
-  renderServicesSummary();
-  renderServicesList();
-  if (newServiceDraft.assignment) {
-    const collaborator = getServiceCollaboratorById(newServiceDraft.assignment.collaboratorId);
-
-    if (collaborator) {
-      registerServiceAssignmentActivity(service, collaborator, false);
-    }
-  }
-  emitServiceUpdatedEvent("created", service);
-  notifyNewService("Servicio creado en mock.", "success");
-  closeServiceModal(getElement("new-service-modal"));
+  return document.getElementById('service-admin-form')?.requestSubmit();
 }
 
 function getNewServiceValidationMessage(serviceData) {
@@ -5310,6 +5176,8 @@ function validateServiceCustomerCreation(customerData) {
 }
 
 function createAndSelectServiceCustomer() {
+  return window.ElaraOperationalData.blocked();
+
   const customerApi = getServiceCustomerApi();
 
   if (!customerApi) {
@@ -5940,3 +5808,249 @@ window.ElaraServices = {
   reconcileServicePaymentStatus,
   showServices,
 };
+
+// Read-only operational route. Legacy renderer below/above is retained for demo dependencies.
+async function showOperationalServices() {
+  const op = window.ElaraOperationalData;
+  if (!op) throw new Error('Lectura operativa no disponible.');
+  await op.show('servicios', {title: 'Servicios', load: () => op.readAll('v_admin_service_overview','service_id'),
+notice: 'Crear, editar fecha/notas, asignar, reasignar y cancelar usan contratos remotos. Cobros y finalización administrativa no disponibles.',
+columns: [['Servicio','human_code'],['Fecha','scheduled_start_at'],['Cliente','customer_display_name'],['Estado','operational_status'],['Conductor',r=>op.display(r.driver_display_name)],['Matrícula',r=>op.display(r.plate_normalized)],['Pendiente','pending_amount'],['Moneda','currency_code']],
+summary: rows=>'Pendiente global del filtro: '+op.money(rows,'pending_amount'), detail: async row =>
+  await op.serviceDetail(row) + serviceAdminActions(row)});
+  const view = document.getElementById('servicios');
+  if (!view || view.hidden) return;
+  const panel = view.querySelector('[data-operational-panel]');
+  if (!panel) return;
+  if (panel.querySelector('[role="alert"]')) return false;
+  const toolbar = document.createElement('div');
+  toolbar.innerHTML = '<button type="button" class="button button--primary" data-service-admin-action="create">Nuevo servicio</button>';
+  panel.prepend(toolbar);
+  const summary = document.getElementById('page-summary');
+  if (summary) summary.textContent = 'Servicios reales · QA/legacy excluido · Cobros y finalización administrativa deshabilitados';
+  view.onclick = event => {
+    const button = event.target.closest('[data-service-admin-action]');
+    if (button) void serviceAdminOpen(button.dataset.serviceAdminAction, button.dataset.serviceId || '');
+  };
+  return true;
+}
+
+// Administrative writes are deliberately isolated from the legacy demo handlers.
+const SERVICE_ADMIN_RPCS = Object.freeze({create: 'create_service', update: 'update_service',
+  assign: 'assign_service', reassign: 'reassign_service', cancel: 'cancel_service'});
+let serviceAdminBusy = false;
+let serviceAdminSubmitting = false;
+let serviceAdminDialogRequest = 0;
+const serviceAdminEscape = value => String(value ?? '').replace(/[&<>"']/g,
+  c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
+
+function serviceAdminActions(row) {
+  const editable = ['pending', 'confirmed'].includes(row.operational_status);
+  const button = (action, text) => `<button type="button" class="button button--secondary" data-service-admin-action="${action}" data-service-id="${serviceAdminEscape(row.service_id)}" ${editable ? '' : 'disabled'}>${text}</button>`;
+  return `<div class="modal__actions">${button('update','Editar fecha/notas')}${button('assign','Asignar')}${button('reassign','Reasignar')}${button('cancel','Cancelar servicio')}
+    <button type="button" disabled>Cobro no disponible</button><button type="button" disabled>Finalización: requiere flujo de conductor</button></div>`;
+}
+
+function serviceAdminLocalDate(value) {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (v, size = 2) => String(v).padStart(size, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(),3)}`;
+}
+
+async function serviceAdminContext(action, serviceId) {
+  const op = window.ElaraOperationalData;
+  if (!SERVICE_ADMIN_RPCS[action]) throw new Error('Acción no autorizada.');
+  if (!['administrativo','superadmin'].includes(window.ElaraAuth?.getActiveContext?.())) throw new Error('Se requiere contexto administrativo.');
+  await op.loadIdentity();
+  const service = action === 'create' ? null : op.getCollection('services').find(r => r.id === serviceId);
+  if (action !== 'create' && !service) throw new Error('Servicio no operativo o no accesible.');
+  if (service && !['pending','confirmed'].includes(service.operational_status)) throw new Error('El estado remoto no permite esta acción administrativa.');
+  const [links, assignments] = await Promise.all([
+    ['assign','reassign'].includes(action) ? op.readAll('driver_vehicle_assignments') : [],
+    service ? op.related('service_assignments','service_id',service.id) : [],
+  ]);
+  return {service, customers: op.getCollection('customers').filter(r => ['new','active'].includes(r.status)),
+    drivers: op.getCollection('drivers').filter(r => r.administrative_status === 'active'),
+    vehicles: op.getCollection('vehicles').filter(r => !r.inactive_at),
+    links: links.filter(r => r.status === 'active' && op.isOperationalRecord(r)), assignments,
+    initialSchedule: service ? serviceAdminLocalDate(service.scheduled_start_at) : ''};
+}
+
+function serviceAdminArgs(action, values, context) {
+  const op = window.ElaraOperationalData;
+  const text = key => String(values[key] ?? '').trim();
+  const optional = key => text(key) || null;
+  const date = value => {
+    const d = new Date(value);
+    if (!value || Number.isNaN(d.getTime())) throw new Error('Fecha y hora no válidas.');
+    return d.toISOString();
+  };
+  if (!SERVICE_ADMIN_RPCS[action]) throw new Error('Acción no autorizada.');
+  if (op.isQaRecord({notes: values.notes, internal_notes: values.internalNotes})) throw new Error('No se permiten etiquetas QA en este flujo operativo.');
+  if (action === 'create') {
+    if (!context.customers.some(r => r.id === values.customerId)) throw new Error('Selecciona un cliente operativo activo.');
+    if (!text('serviceType') || !text('origin') || !text('destination')) throw new Error('Completa tipo, origen y destino.');
+    if (text('phone') && !text('passenger')) throw new Error('Indica el nombre del pasajero para guardar su teléfono.');
+    return {p_customer_id: values.customerId, p_service_type: text('serviceType'),
+      p_scheduled_start_at: date(values.schedule), p_origin_label: text('origin'), p_origin_address: optional('originAddress'),
+      p_destination_label: text('destination'), p_destination_address: optional('destinationAddress'),
+      p_passenger_display_name: optional('passenger'), p_passenger_phone: optional('phone'), p_notes: optional('notes')};
+  }
+  const service = context.service;
+  if (!service || !op.isOperationalRecord(service) || !['pending','confirmed'].includes(service.operational_status)) throw new Error('Servicio no operativo o estado incompatible.');
+  if (action === 'update') {
+    const reschedule = Boolean(values.schedule && values.schedule !== context.initialSchedule);
+    if (reschedule && service.operational_status === 'confirmed' && context.assignments.some(r => r.assignment_status === 'accepted' && !r.ended_at)) {
+      throw new Error('El servicio confirmado y aceptado no admite cambio de fecha.');
+    }
+    return {p_service_id: service.id, p_scheduled_start_at: reschedule ? date(values.schedule) : null,
+      p_notes: values.notes === undefined ? null : String(values.notes),
+      p_internal_notes: values.internalNotes === undefined ? null : String(values.internalNotes)};
+  }
+  if (action === 'cancel') {
+    if (!text('reasonCode')) throw new Error('Selecciona un motivo de cancelación.');
+    return {p_service_id: service.id, p_reason_code: text('reasonCode'), p_reason_details: optional('reason')};
+  }
+  if (!context.drivers.some(r => r.id === values.driverId) || !context.vehicles.some(r => r.id === values.vehicleId) ||
+      !context.links.some(r => r.driver_id === values.driverId && r.vehicle_id === values.vehicleId)) {
+    throw new Error('Selecciona un conductor y vehículo operativos con vínculo activo.');
+  }
+  const exception = values.priorityException === true;
+  if ((action === 'reassign' || exception) && !text('reason')) throw new Error('Esta acción requiere un motivo.');
+  const args = {p_service_id: service.id, p_driver_id: values.driverId, p_vehicle_id: values.vehicleId};
+  return action === 'reassign' ? {...args, p_reason: text('reason'), p_internal_priority_exception: exception}
+    : {...args, p_internal_priority_exception: exception, p_priority_exception_reason: optional('reason')};
+}
+
+async function serviceAdminExecute(action, values, serviceId = '') {
+  if (serviceAdminBusy) throw new Error('Ya hay una escritura en curso.');
+  serviceAdminBusy = true;
+  try {
+    const context = await serviceAdminContext(action, serviceId);
+    const args = serviceAdminArgs(action, values, context);
+    let response;
+    try { response = await window.ElaraSupabase.client.rpc(SERVICE_ADMIN_RPCS[action], args); }
+    catch (error) {
+      const failure = new Error(error?.message || 'Transporte interrumpido.');
+      failure.remoteCommitted = true;
+      throw failure;
+    }
+    const {data, error} = response;
+    if (error) {
+      const failure = new Error([error.message, error.details, error.hint].filter(Boolean).join(' · ') || 'La operación remota falló.');
+      failure.code = error.code;
+      // An interrupted transport does not prove that the server rolled back.
+      failure.remoteCommitted = !error.code;
+      throw failure;
+    }
+    const created = action === 'create' ? (Array.isArray(data) ? data[0] : data) : null;
+    if (action === 'create' ? !created?.service_id || !created?.human_code : typeof data !== 'string' || !data) {
+      const failure = new Error('Respuesta remota inesperada. Comprueba el listado antes de reintentar; la operación podría haberse confirmado.');
+      failure.remoteCommitted = true;
+      throw failure;
+    }
+    return {serviceId: created?.service_id || serviceId, humanCode: created?.human_code || context.service?.human_code,
+      returnedId: action === 'create' ? created.service_id : data};
+  } finally { serviceAdminBusy = false; }
+}
+
+function serviceAdminFields(action, context) {
+  const op = window.ElaraOperationalData, esc = serviceAdminEscape;
+  const input = (name, label, type = 'text', value = '', required = false, disabled = false) =>
+    `<label class="form-field">${label}<input name="${name}" type="${type}" value="${esc(value)}" ${type === 'datetime-local' ? 'step="0.001"' : ''} ${required ? 'required' : ''} ${disabled ? 'disabled' : ''}></label>`;
+  const area = (name, label, value = '') => `<label class="form-field">${label}<textarea name="${name}">${esc(value)}</textarea></label>`;
+  const select = (name, label, options) => `<label class="form-field">${label}<select name="${name}" required><option value="">Selecciona…</option>${options.map(([value,text]) => `<option value="${esc(value)}">${esc(text)}</option>`).join('')}</select></label>`;
+  if (action === 'create') return select('customerId','Cliente operativo',context.customers.map(r => [r.id,op.customerName(r)])) +
+    select('serviceType','Tipo',[['transfer','Punto a punto'],['airport','Aeropuerto'],['full_day','Full Day'],['pets','Mascotas'],['long_distance','Larga distancia']]) +
+    input('schedule','Fecha y hora (zona horaria de este navegador)','datetime-local','',true) +
+    input('origin','Origen','text','',true) + input('originAddress','Dirección de origen') +
+    input('destination','Destino','text','',true) + input('destinationAddress','Dirección de destino') +
+    input('passenger','Nombre de pasajero') + input('phone','Teléfono de pasajero','tel') + area('notes','Notas') +
+    '<fieldset disabled><legend>No disponibles en creación</legend><label>Precio<input placeholder="Sin habilitación financiera"></label><label>Paradas intermedias<input placeholder="No admitidas por este contrato"></label><label>Asignación inmediata<input placeholder="Crear primero y asignar después"></label></fieldset>';
+  if (action === 'update') {
+    const locked = context.service.operational_status === 'confirmed' && context.assignments.some(r => r.assignment_status === 'accepted' && !r.ended_at);
+    return input('schedule','Fecha y hora (zona horaria de este navegador)','datetime-local',context.initialSchedule,false,locked) +
+      (locked ? '<p>La asignación aceptada impide reprogramar. Se pueden editar las notas.</p>' : '') +
+      area('notes','Notas',context.service.notes) + area('internalNotes','Notas internas',context.service.internal_notes) +
+      '<fieldset disabled><legend>Fuera del contrato de edición</legend><label>Cliente, tipo, ruta, pasajero y precio<input placeholder="No editables mediante update_service"></label></fieldset>';
+  }
+  if (action === 'cancel') return select('reasonCode','Motivo',SERVICE_CANCELLATION_REASONS.map(r => [r.code,r.label])) + area('reason','Detalles de la cancelación');
+  const drivers = context.drivers.filter(d => context.links.some(l => l.driver_id === d.id && context.vehicles.some(v => v.id === l.vehicle_id)));
+  return select('driverId','Conductor operativo',drivers.map(d => [d.id,op.personName(d.person_id)])) +
+    select('vehicleId','Vehículo con vínculo activo',[]) +
+    '<label><input type="checkbox" name="priorityException">Solicitar excepción de prioridad interna</label>' + area('reason',action === 'reassign' ? 'Motivo obligatorio de reasignación' : 'Motivo obligatorio si se solicita excepción');
+}
+
+async function serviceAdminOpen(action, serviceId = '') {
+  if (serviceAdminBusy || serviceAdminSubmitting) return;
+  const ticket = ++serviceAdminDialogRequest;
+  const modal = document.getElementById(action === 'create' ? 'new-service-modal' : 'service-assignment-modal');
+  const titleId = action === 'create' ? 'new-service-modal-title' : 'service-assignment-title';
+  const titles = {create:'Nuevo servicio',update:'Editar fecha y notas',assign:'Asignar servicio',reassign:'Reasignar servicio',cancel:'Confirmar cancelación'};
+  if (!modal || !titles[action]) return;
+  modal.hidden = false;
+  modal.innerHTML = `<section class="modal"><header class="modal__header"><h2 id="${titleId}">${titles[action]}</h2><button type="button" data-service-admin-close>Cerrar</button></header><div class="modal__body" role="status">Cargando opciones operativas…</div></section>`;
+  modal.onclick = event => {
+    if (event.target.closest('[data-service-admin-close]') && !serviceAdminBusy && !serviceAdminSubmitting) { ++serviceAdminDialogRequest; modal.hidden = true; }
+  };
+  try {
+    const context = await serviceAdminContext(action,serviceId);
+    if (ticket !== serviceAdminDialogRequest || modal.hidden) return;
+    const body = modal.querySelector('.modal__body');
+    body.removeAttribute('role');
+    body.innerHTML = `<form id="service-admin-form">${serviceAdminFields(action,context)}<p>Solo se guardan los campos de este formulario. Cobros y finalización administrativa deshabilitados.</p><p data-service-admin-result role="status" aria-live="polite"></p><div class="modal__actions"><button class="button button--primary" type="submit">${titles[action]}</button><button type="button" data-service-admin-close>Volver sin guardar</button></div></form>`;
+    const form = body.querySelector('form');
+    if (action === 'create' && !context.customers.length) {
+      form.querySelector('[type="submit"]').disabled = true;
+      form.querySelector('[data-service-admin-result]').textContent = 'No hay clientes operativos activos. No se crean catálogos desde este flujo.';
+    }
+    if (['assign','reassign'].includes(action)) form.elements.driverId.onchange = () => {
+      const vehicles = context.vehicles.filter(v => context.links.some(l => l.driver_id === form.elements.driverId.value && l.vehicle_id === v.id));
+      form.elements.vehicleId.innerHTML = '<option value="">Selecciona…</option>' + vehicles.map(v => `<option value="${serviceAdminEscape(v.id)}">${serviceAdminEscape(v.plate_normalized)} · ${serviceAdminEscape(v.brand)} ${serviceAdminEscape(v.model)}</option>`).join('');
+    };
+    form.onsubmit = event => { event.preventDefault(); void serviceAdminSubmit(form,action,serviceId,modal); };
+    form.querySelector('input,select,textarea')?.focus();
+  } catch (error) {
+    if (ticket === serviceAdminDialogRequest) modal.querySelector('.modal__body').textContent = error.message;
+  }
+}
+
+async function serviceAdminSubmit(form, action, serviceId, modal) {
+  if (serviceAdminBusy || serviceAdminSubmitting || !form.reportValidity()) return;
+  serviceAdminSubmitting = true;
+  const values = Object.fromEntries(new FormData(form));
+  values.priorityException = form.elements.priorityException?.checked === true;
+  const result = form.querySelector('[data-service-admin-result]');
+  const controls = [...modal.querySelectorAll('input,select,textarea,button')].map(el => [el,el.disabled]);
+  controls.forEach(([el]) => { el.disabled = true; });
+  form.setAttribute('aria-busy','true');
+  result.textContent = 'Esperando confirmación remota…';
+  let committed = false;
+  try {
+    const written = await serviceAdminExecute(action,values,serviceId);
+    committed = true;
+    result.textContent = `Operación confirmada: ${written.humanCode} · ${written.serviceId}. Recargando…`;
+    // Fresh sources, never optimistic array changes. The next dashboard navigation reloads too.
+    const op = window.ElaraOperationalData;
+    await op.loadIdentity();
+    await Promise.all([op.readAll('v_admin_service_overview','service_id'),
+      op.related('service_assignments','service_id',written.serviceId),
+      op.related('service_status_history','service_id',written.serviceId)]);
+    if (!op.getCollection('services').some(r => r.id === written.serviceId)) throw new Error('El servicio confirmado no está disponible en la colección operativa.');
+    if (!document.getElementById('servicios')?.hidden && !await showOperationalServices()) throw new Error('No se pudo actualizar el listado remoto.');
+    modal.hidden = true;
+    window.ElaraNotifications?.showToast(`Operación remota confirmada: ${written.humanCode}`, 'success');
+  } catch (error) {
+    const uncertain = committed || error.remoteCommitted;
+    result.textContent = uncertain ? `No reintentes la escritura: puede estar confirmada. Actualiza y revisa el servicio. ${error.message}` : `${error.code ? error.code + ': ' : ''}${error.message}`;
+    if (uncertain) form.querySelector('[type="submit"]').dataset.keepDisabled = 'true';
+  } finally {
+    serviceAdminSubmitting = false;
+    form.removeAttribute('aria-busy');
+    controls.forEach(([el,wasDisabled]) => { el.disabled = wasDisabled || el.dataset.keepDisabled === 'true'; });
+  }
+}
+
+window.ElaraServiceAdmin = Object.freeze({buildArgs:serviceAdminArgs, execute:serviceAdminExecute,
+  actions:serviceAdminActions, fields:serviceAdminFields});

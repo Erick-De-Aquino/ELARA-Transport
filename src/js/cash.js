@@ -30,6 +30,8 @@ let cashDiscrepancyPage = 1;
 let cashDiscrepancyFilters = getDefaultCashDiscrepancyFilters();
 
 function showCash() {
+  return showOperationalCash();
+
   if (!canViewCash()) {
     showCashUnavailable("No tienes acceso a Caja.");
     return;
@@ -4066,3 +4068,14 @@ ensureFinanceData();
 
 
 
+
+// Read-only operational route. Legacy renderer below/above is retained for demo dependencies.
+function showOperationalCash() {
+  const op = window.ElaraOperationalData;
+  if (!op) throw new Error('Lectura operativa no disponible.');
+  return op.show('caja', {title: 'Caja', load: async () => { const [movements,remittances,discrepancies] = await Promise.all([op.readRpc('get_admin_cash_movements'),op.readRpc('get_admin_cash_remittances'),op.readRpc('get_admin_cash_discrepancies')]); return [...movements.map(r=>({...r,kind:'Movimiento'})),...remittances.map(r=>({...r,kind:'Remesa'})),...discrepancies.map(r=>({...r,kind:'Diferencia'}))]; },
+notice: 'Saldo operativo: No disponible. No se utiliza el saldo agregado sin depurar ni datos mock. Las operaciones de caja permanecen deshabilitadas en esta vista.',
+columns: [['Clase','kind'],['Código','human_code'],['Cuenta','cash_account_name'],['Fecha','occurred_at'],['Tipo',r=>r.movement_type||r.status],['Origen','source_type'],['Concepto','description'],['Importe',r=>r.amount??r.declared_amount??r.difference_amount],['Moneda','currency_code']],
+summary: rows=>'Entradas globales: '+op.money(rows.filter(r=>r.movement_type==='inflow'),'amount')+' · Salidas globales: '+op.money(rows.filter(r=>r.movement_type==='outflow'),'amount'),
+detail: async r=> { if(r.kind==='Remesa') { const d=await op.readDetail('get_admin_cash_remittance_detail','p_remittance_id',r.remittance_id); return op.fields(d,[['Remesa','human_code'],['Estado','status'],['Conductor','driver_name'],['Declarado','declared_amount'],['Verificado','verified_amount'],['Moneda','currency_code']]); } if(r.kind==='Diferencia') { const d=await op.readDetail('get_admin_cash_discrepancy_detail','p_discrepancy_id',r.discrepancy_id); return op.fields(d,[['Diferencia','human_code'],['Estado','status'],['Esperado','expected_amount'],['Real','actual_amount'],['Diferencia','difference_amount'],['Moneda','currency_code']]); } return op.fields(r,[['UUID','cash_movement_id'],['Cuenta UUID','cash_account_id'],['Origen UUID','source_id'],['Remesa','remittance_human_code'],['Concepto','description']]); }});
+}

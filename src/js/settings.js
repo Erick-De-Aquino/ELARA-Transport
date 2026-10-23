@@ -139,6 +139,8 @@ function initSettings() {
 }
 
 function showSettings() {
+  return window.ElaraOperationalData.unavailableView('configuracion', 'Configuración');
+
   settingsSetText("page-eyebrow", "Administraci\u00f3n");
   settingsSetText("page-title", "Configuraci\u00f3n");
   settingsSetText("page-summary", "Par\u00e1metros generales del sistema ELARA.");
@@ -394,6 +396,8 @@ function cancelSettingsEdit(cardKey) {
 }
 
 function saveSettingsCard(cardKey, form) {
+  return window.ElaraOperationalData.blocked();
+
   const card = settingsManagedCards[cardKey];
 
   if (!card) {

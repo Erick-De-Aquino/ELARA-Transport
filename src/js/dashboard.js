@@ -44,6 +44,9 @@ let isDashboardServicesUpdatedListenerRegistered = false;
 // =========================
 
 function initDashboard() {
+  // Operational view owns its read-only controls; do not initialize demo handlers.
+  return;
+
   initDashboardAlertControls();
   initDashboardIncidentControls();
   initDashboardActivityLogControls();
@@ -62,6 +65,8 @@ function initDashboardServicesUpdatedControls() {
 }
 
 function showDashboard() {
+  return showOperationalDashboard();
+
   renderDashboard();
   setText("page-eyebrow", "Centro de operaciones");
   setText("page-title", `Buenos días, ${dashboardData.administratorName}`);
@@ -1987,3 +1992,13 @@ window.ElaraDashboard = {
   initDashboard,
   showDashboard,
 };
+
+// Read-only operational route. Legacy renderer below/above is retained for demo dependencies.
+function showOperationalDashboard() {
+  const op = window.ElaraOperationalData;
+  if (!op) throw new Error('Lectura operativa no disponible.');
+  return op.show('dashboard', {title: 'Dashboard', load: () => op.readAll('v_admin_service_overview','service_id'),
+notice: 'Métricas reales. Incidencias, actividad y saldos financieros no disponibles en este diferencial.',
+columns: [['Servicio','human_code'],['Fecha','scheduled_start_at'],['Cliente','customer_display_name'],['Estado','operational_status'],['Conductor',r=>op.display(r.driver_display_name)]],
+summary: rows=>'Clientes: '+op.getCollection('customers').length+' · Conductores: '+op.getCollection('drivers').length+' · Vehículos: '+op.getCollection('vehicles').length+' · Servicios en curso: '+rows.filter(r=>r.operational_status==='in_progress').length});
+}
