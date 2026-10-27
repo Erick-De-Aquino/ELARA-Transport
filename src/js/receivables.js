@@ -908,8 +908,8 @@ function showOperationalReceivables() {
   const op = window.ElaraOperationalData;
   if (!op) throw new Error('Lectura operativa no disponible.');
   return op.show('cuentas-por-cobrar', {title: 'Cuentas por cobrar', collection: 'receivables', load: () => op.readAll('v_admin_receivable_overview','receivable_id'),
-notice: 'Lectura real. Cobro pendiente de habilitación contractual. Anulación no disponible.',
+notice: 'Cobro administrativo en efectivo, completo o parcial. Anulación no disponible.',
 columns: [['CxC','human_code'],['Servicio','service_human_code'],['Cliente','customer_display_name'],['Estado','status'],['Original','original_amount'],['Cobrado','collected_amount'],['Pendiente','pending_amount'],['Moneda','currency_code']],
 summary: rows=>'Original global: '+op.money(rows,'original_amount')+' · Pendiente global: '+op.money(rows,'pending_amount'),
-detail: async r=>op.fields(r,[['UUID','receivable_id'],['Apertura','opened_at'],['Vencimiento','due_at'],['Cierre','closed_at'],['Último pago','last_payment_code'],['Fecha Último pago','last_payment_at']])});
+detail: async r=>op.fields(r,[['UUID','receivable_id'],['Apertura','opened_at'],['Vencimiento','due_at'],['Cierre','closed_at'],['Último pago','last_payment_code'],['Fecha Último pago','last_payment_at']])+(['open','overdue','partial'].includes(r.status)?`<button type="button" class="button button--secondary" data-financial-kind="receivable" data-financial-id="${r.service_id}" data-receivable-id="${r.receivable_id}">Registrar cobro en efectivo</button>`:'')});
 }

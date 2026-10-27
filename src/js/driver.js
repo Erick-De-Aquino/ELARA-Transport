@@ -5507,6 +5507,7 @@ function renderHistoryExpandedDetail(service) {
       ${isReporting ? renderHistoryIncidentForm(service) : ""}
 
       <div class="driver-history-card__actions">
+        ${service.isRealDriverService && service.operationalStatus === "completed" ? `<button type="button" class="button button--secondary" data-financial-kind="driver" data-financial-id="${escapeHtml(service.centralServiceId)}">Consultar / reintentar cierre financiero</button>` : ""}
         ${renderDriverHistoryReportAction(service, isReporting)}
         <button class="button button--secondary driver-button" type="button" data-driver-action="history-close" data-service-id="${service.id}">Cerrar</button>
       </div>
@@ -6147,6 +6148,10 @@ async function advanceRealDriverServiceProgress(serviceId, targetStage) {
 
   if (advancingRealDriverServiceIds.has(service.id)) {
     return;
+  }
+
+  if (expectedStage === "finished") {
+    return window.ElaraFinancialClose.open("driver", serviceUuid);
   }
 
   advancingRealDriverServiceIds.add(service.id);
@@ -10853,7 +10858,18 @@ function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (character) => replacements[character]);
 }
 
+async function refreshDriverFinancialClose({ finance = false } = {}) {
+  driverServices = await loadDriverServices({ force: true });
+  renderDriverServices();
+  renderDriverHistory();
+  if (finance) {
+    const state = await loadDriverCashFinances({ force: true });
+    if (state.summaryError || state.remittancesError) throw new Error("Lectura financiera pendiente de actualizar.");
+  }
+}
+
 window.ElaraDriver = {
+  refreshFinancialClose: refreshDriverFinancialClose,
   initDriver,
   showDriverFinances,
   showDriverExpenses,

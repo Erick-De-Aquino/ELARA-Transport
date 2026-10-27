@@ -16,6 +16,17 @@ function setup(client = {}) {
   return {op: context.window.ElaraOperationalData, context};
 }
 
+test("cash discrepancies use their own identity even when they share a remittance", async () => {
+  const records = [{discrepancy_id:"discrepancy-a",remittance_id:"shared-remittance",total_count:2},
+    {discrepancy_id:"discrepancy-b",remittance_id:"shared-remittance",total_count:2}];
+  const {op}=setup({rpc:async()=>({data:records,error:null})});
+  assert.deepEqual(Array.from(await op.readRpc("get_admin_cash_discrepancies")),records);
+  op.indexRecords({discrepancies:[{...records[0],metadata:{qa_fixture:true}},records[1]],remittances:[{remittance_id:"shared-remittance"}]});
+  assert.equal(op.isOperationalRecord(records[0]),false);
+  assert.equal(op.isOperationalRecord(records[1]),true);
+  assert.equal(op.isOperationalRecord({remittance_id:"shared-remittance"}),true);
+});
+
 test("structured QA marks, not names, codes, creator or calculation version", () => {
   const {op} = setup();
   for (const row of [

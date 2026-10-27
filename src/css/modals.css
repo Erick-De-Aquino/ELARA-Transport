@@ -8,6 +8,32 @@
    MODALES BASE
 ========================= */
 
+/* Cash close must remain usable on narrow screens without scrolling behind the modal. */
+.financial-close-modal {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.financial-close-modal .modal__body {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px;
+}
+
+.financial-close-modal form,
+.financial-close-modal label {
+  display: grid;
+  gap: 10px;
+}
+
+.financial-close-modal input,
+.financial-close-modal select,
+.financial-close-modal textarea {
+  width: 100%;
+  max-width: 100%;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;

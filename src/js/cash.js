@@ -4074,8 +4074,81 @@ function showOperationalCash() {
   const op = window.ElaraOperationalData;
   if (!op) throw new Error('Lectura operativa no disponible.');
   return op.show('caja', {title: 'Caja', load: async () => { const [movements,remittances,discrepancies] = await Promise.all([op.readRpc('get_admin_cash_movements'),op.readRpc('get_admin_cash_remittances'),op.readRpc('get_admin_cash_discrepancies')]); return [...movements.map(r=>({...r,kind:'Movimiento'})),...remittances.map(r=>({...r,kind:'Remesa'})),...discrepancies.map(r=>({...r,kind:'Diferencia'}))]; },
-notice: 'Saldo operativo: No disponible. No se utiliza el saldo agregado sin depurar ni datos mock. Las operaciones de caja permanecen deshabilitadas en esta vista.',
+pageSummary:'Recepción y verificación de rendiciones · Efectivo del conductor y central separados',
+notice: 'Efectivo driver y central separados. Abre una rendición presentada para recibirla y una recibida para verificarla. Los saldos derivados incluyen únicamente movimientos operativos.',
+rowActions:r=>r.kind==='Remesa'?`<button type="button" class="button button--secondary" data-cash-remittance-review="${window.ElaraCashRemittance.escape(r.remittance_id)}">Revisar rendición</button>`:'',
 columns: [['Clase','kind'],['Código','human_code'],['Cuenta','cash_account_name'],['Fecha','occurred_at'],['Tipo',r=>r.movement_type||r.status],['Origen','source_type'],['Concepto','description'],['Importe',r=>r.amount??r.declared_amount??r.difference_amount],['Moneda','currency_code']],
-summary: rows=>'Entradas globales: '+op.money(rows.filter(r=>r.movement_type==='inflow'),'amount')+' · Salidas globales: '+op.money(rows.filter(r=>r.movement_type==='outflow'),'amount'),
+summary: ()=>window.ElaraCashRemittance.balances(op.getCollection('caja')),
 detail: async r=> { if(r.kind==='Remesa') { const d=await op.readDetail('get_admin_cash_remittance_detail','p_remittance_id',r.remittance_id); return op.fields(d,[['Remesa','human_code'],['Estado','status'],['Conductor','driver_name'],['Declarado','declared_amount'],['Verificado','verified_amount'],['Moneda','currency_code']]); } if(r.kind==='Diferencia') { const d=await op.readDetail('get_admin_cash_discrepancy_detail','p_discrepancy_id',r.discrepancy_id); return op.fields(d,[['Diferencia','human_code'],['Estado','status'],['Esperado','expected_amount'],['Real','actual_amount'],['Diferencia','difference_amount'],['Moneda','currency_code']]); } return op.fields(r,[['UUID','cash_movement_id'],['Cuenta UUID','cash_account_id'],['Origen UUID','source_id'],['Remesa','remittance_human_code'],['Concepto','description']]); }});
 }
+
+// Administrative remittances: real read/write contracts only; legacy/demo controls stay inactive.
+window.ElaraCashRemittance = (() => {
+  let busy=false,modal=null;
+  const escape=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const op=()=>window.ElaraOperationalData;
+  const actor=()=>window.ElaraAuth?.getCurrentUser?.()?.supabaseUserId||window.ElaraAuth?.getCurrentUser?.()?.id;
+  function authorize(expected=actor()){
+    if(!expected||actor()!==expected||!['administrativo','superadmin'].includes(window.ElaraAuth?.getActiveContext?.()))throw Error('Se requiere una sesión administrativa vigente.');
+  }
+  const read=id=>op().readDetail('get_admin_cash_remittance_detail','p_remittance_id',id);
+  function balances(rows){
+    const movements=rows.filter(r=>r.kind==='Movimiento');
+    return ['driver','central','administrative'].map(type=>{
+      const accounts=op().getCollection('cash_accounts').filter(a=>a.account_type===type);
+      const currencies=new Set(accounts.map(a=>a.currency_code));
+      if(currencies.size!==1)return `${type}: saldo no disponible (cuentas/monedas)`;
+      const ids=new Set(accounts.map(a=>a.id)),selected=movements.filter(m=>ids.has(m.cash_account_id));
+      if(accounts.some(a=>!Number.isFinite(Number(a.opening_balance)))||selected.some(m=>!Number.isFinite(Number(m.amount))))return `${type}: saldo no disponible`;
+      const amount=accounts.reduce((n,a)=>n+Number(a.opening_balance),0)+selected.reduce((n,m)=>n+(m.movement_type==='inflow'?1:-1)*Number(m.amount),0);
+      return `${type}: saldo operativo ${new Intl.NumberFormat('es-ES',{style:'currency',currency:[...currencies][0]}).format(amount)}`;
+    }).join(' · ');
+  }
+  async function refresh(){
+    // The operational route reloads identity/accounts and all three cash RPCs itself.
+    await showOperationalCash();
+    if(document.getElementById('caja')?.querySelector('[data-operational-panel] [role="alert"]'))throw Error('Lectura de Caja pendiente de actualizar.');
+  }
+  async function execute(action,id,amount){
+    if(busy)throw Error('Hay una rendición en curso.');busy=true;const expected=actor();
+    try{
+      authorize(expected);if(!['receive','verify'].includes(action))throw Error('Acción no disponible.');
+      const before=await read(id);authorize(expected);
+      const target=action==='receive'?'received':'verified';
+      if(before.status===target||(action==='receive'&&before.status==='verified')){
+        if(action==='verify'&&Number(before.verified_amount)!==Number(amount))throw Error('La rendición ya fue verificada con otro importe. Revisa el resultado remoto.');
+        return {detail:before,replayed:true};
+      }
+      if(before.status!==(action==='receive'?'submitted':'received'))throw Error('El estado remoto no permite esta acción.');
+      if(action==='verify'&&(!Number.isFinite(Number(amount))||Number(amount)<=0||Math.abs(Number(amount)*100-Math.round(Number(amount)*100))>1e-7))throw Error('Importe verificado positivo con máximo dos decimales.');
+      const args=action==='receive'?{p_remittance_id:id}:{p_remittance_id:id,p_verified_amount:Number(amount)};
+      let response;
+      try{response=await window.ElaraSupabase.client.rpc(action==='receive'?'receive_cash_remittance':'verify_cash_remittance',args);if(response?.error)throw response.error;}
+      catch(error){const current=await read(id);authorize(expected);if(current.status===target&&(action==='receive'||Number(current.verified_amount)===Number(amount)))return {detail:current,replayed:true};throw Error(error.message||'Resultado incierto. Revisar estado de la rendición antes de continuar.');}
+      authorize(expected);const current=await read(id);authorize(expected);
+      if(current.status!==target)throw Error('Verificación pendiente de revisión: consulta discrepancias y fuentes. No se confirma traslado a central.');
+      return {detail:current,replayed:false};
+    }finally{busy=false;}
+  }
+  async function open(id){
+    if(busy)return;authorize();const expected=actor();
+    if(modal)modal.remove();const element=document.createElement('div');element.className='modal-backdrop';modal=element;
+    element.innerHTML='<section class="modal financial-close-modal" role="dialog" aria-modal="true" aria-labelledby="cash-remittance-title"><header class="modal__header"><h2 id="cash-remittance-title">Rendición de efectivo</h2><button type="button" data-remittance-close>Cerrar</button></header><div class="modal__body" role="status">Consultando rendición remota…</div></section>';
+    document.body.append(element);element.querySelector('[data-remittance-close]').onclick=()=>{if(!busy){element.remove();if(modal===element)modal=null;}};
+    try{
+      const d=await read(id);authorize(expected);if(!element.isConnected)return;
+      const body=element.querySelector('.modal__body');
+      body.innerHTML=op().fields(d,[['Código','human_code'],['Estado','status'],['Conductor','driver_name'],['Declarado','declared_amount'],['Verificado','verified_amount'],['Moneda','currency_code'],['Custodia origen','source_cash_account_name'],['Destino central','destination_cash_account_name']])+(['submitted','received'].includes(d.status)?`<form data-remittance-form>${d.status==='received'?'<label>Importe contado y verificado<input name="amount" type="number" min="0.01" step="0.01" required></label>':'<p>Confirmar recepción física de esta rendición. La recepción todavía no mueve efectivo a central.</p>'}<p role="status" aria-live="polite"></p><button type="submit">${d.status==='submitted'?'Recibir rendición':'Verificar y trasladar efectivo a central'}</button></form>`:'<p>Sin acciones disponibles para este estado.</p>');
+      const form=body.querySelector('form');if(!form)return;
+      form.onsubmit=async event=>{event.preventDefault();if(busy)return;const status=form.querySelector('[role="status"]'),buttons=[...element.querySelectorAll('button')];buttons.forEach(b=>b.disabled=true);
+        try{authorize(expected);const result=await execute(d.status==='submitted'?'receive':'verify',id,form.elements.amount?.value);status.textContent=`Confirmado desde backend: ${result.detail.status}.`;
+          // Confirmed mutations are never retried to repair a failed refresh.
+          try{await refresh();await open(id);}catch(_){status.textContent+=' Actualización pendiente: cierra y vuelve a revisar la rendición; no repitas a ciegas.';}
+        }catch(error){status.textContent=error.message;}
+        finally{buttons.forEach(b=>b.disabled=false);}
+      };
+    }catch(error){if(element.isConnected)element.querySelector('.modal__body').textContent=error.message;}
+  }
+  document.addEventListener('click',event=>{const b=event.target.closest?.('[data-cash-remittance-review]');if(b)void open(b.dataset.cashRemittanceReview).catch(e=>window.ElaraNotifications?.showToast(e.message,'error'));});
+  return Object.freeze({execute,open,refresh,balances,escape});
+})();

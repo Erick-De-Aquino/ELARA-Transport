@@ -5813,9 +5813,20 @@ window.ElaraServices = {
 async function showOperationalServices() {
   const op = window.ElaraOperationalData;
   if (!op) throw new Error('Lectura operativa no disponible.');
-  await op.show('servicios', {title: 'Servicios', load: () => op.readAll('v_admin_service_overview','service_id'),
-notice: 'Crear, editar fecha/notas, asignar, reasignar y cancelar usan contratos remotos. Cobros y finalización administrativa no disponibles.',
-columns: [['Servicio','human_code'],['Fecha','scheduled_start_at'],['Cliente','customer_display_name'],['Estado','operational_status'],['Conductor',r=>op.display(r.driver_display_name)],['Matrícula',r=>op.display(r.plate_normalized)],['Pendiente','pending_amount'],['Moneda','currency_code']],
+  await op.show('servicios', {title: 'Servicios', load: async () => {
+    const rows=await op.readAll('v_admin_service_overview','service_id');
+    return Promise.all(rows.map(async row=>{
+      if(row.operational_status!=='completed'||!op.isOperationalRecord(row))return row;
+      try{const c=await window.ElaraFinancialClose.context(row.service_id);return {...row,financial_close:c.financial_close,
+        financial_close_label:c.financial_close==='pending'?'Cierre financiero pendiente':c.no_charge?'Sin importe a cobrar · resuelto':'Cierre financiero resuelto'};}
+      catch(_){return {...row,financial_close_label:'Revisión necesaria: lectura no disponible'};}
+    }));
+  },
+filters:[{label:'Cierre financiero',value:r=>r.financial_close==='pending'?'Cierre financiero pendiente':r.financial_close==='resolved'?'Cierre financiero resuelto':r.financial_close_label||''}],
+pageSummary:'Servicios reales · QA/legacy excluido · Efectivo 0050 · Finalización administrativa deshabilitada',
+rowActions:r=>r.operational_status==='completed'?`<button type="button" class="button button--secondary" data-financial-kind="admin" data-financial-id="${serviceAdminEscape(r.service_id)}">Revisar cierre</button>`:'',
+notice: 'Contratos remotos. Cierre financiero en efectivo para servicios completados; finalización operativa a cargo del conductor.',
+columns: [['Servicio','human_code'],['Fecha','scheduled_start_at'],['Cliente','customer_display_name'],['Estado','operational_status'],['Cierre financiero',r=>r.financial_close_label||'No completado'],['Conductor',r=>op.display(r.driver_display_name)],['Matrícula',r=>op.display(r.plate_normalized)],['Pendiente','pending_amount'],['Moneda','currency_code']],
 summary: rows=>'Pendiente global del filtro: '+op.money(rows,'pending_amount'), detail: async row =>
   await op.serviceDetail(row) + serviceAdminActions(row)});
   const view = document.getElementById('servicios');
@@ -5827,7 +5838,7 @@ summary: rows=>'Pendiente global del filtro: '+op.money(rows,'pending_amount'), 
   toolbar.innerHTML = '<button type="button" class="button button--primary" data-service-admin-action="create">Nuevo servicio</button>';
   panel.prepend(toolbar);
   const summary = document.getElementById('page-summary');
-  if (summary) summary.textContent = 'Servicios reales · QA/legacy excluido · Cobros y finalización administrativa deshabilitados';
+  if (summary) summary.textContent = 'Servicios reales · QA/legacy excluido · Efectivo 0050 · Finalización administrativa deshabilitada';
   view.onclick = event => {
     const button = event.target.closest('[data-service-admin-action]');
     if (button) void serviceAdminOpen(button.dataset.serviceAdminAction, button.dataset.serviceId || '');
@@ -5848,7 +5859,9 @@ function serviceAdminActions(row) {
   const editable = ['pending', 'confirmed'].includes(row.operational_status);
   const button = (action, text) => `<button type="button" class="button button--secondary" data-service-admin-action="${action}" data-service-id="${serviceAdminEscape(row.service_id)}" ${editable ? '' : 'disabled'}>${text}</button>`;
   return `<div class="modal__actions">${button('update','Editar fecha/notas')}${button('assign','Asignar')}${button('reassign','Reasignar')}${button('cancel','Cancelar servicio')}
-    <button type="button" disabled>Cobro no disponible</button><button type="button" disabled>Finalización: requiere flujo de conductor</button></div>`;
+    ${row.operational_status==='completed'?`<button type="button" data-financial-kind="admin" data-financial-id="${serviceAdminEscape(row.service_id)}">Consultar / registrar cierre financiero</button>`:'<button type="button" disabled>Cobro no disponible</button>'}
+    ${!['cancelled','no_show','not_performed'].includes(row.operational_status)?`<button type="button" data-financial-kind="pricing" data-financial-id="${serviceAdminEscape(row.service_id)}">Finalizar precio</button>`:''}
+    <button type="button" disabled>Finalización: requiere flujo de conductor</button></div>`;
 }
 
 function serviceAdminLocalDate(value) {

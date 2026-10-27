@@ -21,7 +21,7 @@ window.ElaraOperationalData = (() => {
     "service_id", "service_financial_id", "service_payment_id", "payment_id", "receivable_id",
     "settlement_id", "expense_id", "cash_account_id", "actor_driver_id", "remittance_id",
     "source_cash_account_id", "destination_cash_account_id", "original_movement_id", "cash_count_id"];
-  const idKeys = ["id", "receivable_id", "settlement_id", "expense_id", "cash_movement_id", "remittance_id", "discrepancy_id", "service_id"];
+  const idKeys = ["id", "receivable_id", "settlement_id", "expense_id", "discrepancy_id", "cash_movement_id", "remittance_id", "service_id"];
   let qaIds = new Set();
   let excludedIds = new Set(legacyIds);
   let collections = {};
@@ -177,9 +177,9 @@ window.ElaraOperationalData = (() => {
     const panel = panelFor(viewId);
     panel.textContent = message;
   }
-  function tableHtml(rows, columns, details) {
-    return `<div style="overflow-x:auto"><table class="data-table"><thead><tr>${columns.map(([label]) => `<th scope="col">${escape(label)}</th>`).join("")}${details ? "<th>Detalle</th>" : ""}</tr></thead><tbody>${rows.map((row, i) =>
-      `<tr>${columns.map(([, get]) => `<td>${escape(display(typeof get === "function" ? get(row) : row[get]))}</td>`).join("")}${details ? `<td><button type="button" class="button button--secondary" data-operational-detail="${i}">Ver</button></td>` : ""}</tr>`).join("")}</tbody></table></div>`;
+  function tableHtml(rows, columns, details, rowActions) {
+    return `<div style="overflow-x:auto"><table class="data-table"><thead><tr>${columns.map(([label]) => `<th scope="col">${escape(label)}</th>`).join("")}${details ? "<th>Detalle</th>" : ""}${rowActions ? '<th>Acciones</th>' : ''}</tr></thead><tbody>${rows.map((row, i) =>
+      `<tr>${columns.map(([, get]) => `<td>${escape(display(typeof get === "function" ? get(row) : row[get]))}</td>`).join("")}${details ? `<td><button type="button" class="button button--secondary" data-operational-detail="${i}">Ver</button></td>` : ""}${rowActions ? `<td>${rowActions(row)}</td>` : ''}</tr>`).join("")}</tbody></table></div>`;
   }
   const display = (v) => v === null || v === undefined || v === "" ? "No disponible" : v;
   function money(rows, field) {
@@ -191,6 +191,7 @@ window.ElaraOperationalData = (() => {
   }
   async function show(viewId, spec) {
     header(spec.title);
+    if(spec.pageSummary){const summary=document.getElementById('page-summary');if(summary)summary.textContent=spec.pageSummary;}
     const panel = panelFor(viewId);
     const ticket = ++request, token = generation;
     panel.innerHTML = '<p role="status">Cargando datos reales…</p>';
@@ -205,7 +206,7 @@ window.ElaraOperationalData = (() => {
       const rows = loaded.filter(isOperationalRecord);
       collections[spec.collection || viewId] = rows;
       let query = "", page = 1;
-      const filters = [
+      const filters = [...(spec.filters || []),
         {label: "Estado", value: (r) => r.status || r.operational_status || r.administrative_status || ""},
         {label: "Conductor", value: (r) => r.driver_id || "", text: (r) => r.driver_name || r.driver_display_name ||
           personName(getCollection("drivers").find((d) => d.id === r.driver_id)?.person_id)},
@@ -229,7 +230,7 @@ window.ElaraOperationalData = (() => {
         const visible = filtered.slice((page - 1) * 25, page * 25);
         panel.querySelector("[data-operational-summary]").textContent = `Resultados operativos del filtro: ${filtered.length}. ${spec.summary ? spec.summary(filtered) : ""}`;
         const results = panel.querySelector("[data-operational-results]");
-        results.innerHTML = visible.length ? tableHtml(visible, spec.columns, Boolean(spec.detail)) : '<p role="status">No hay registros operativos para este filtro.</p>';
+        results.innerHTML = visible.length ? tableHtml(visible, spec.columns, Boolean(spec.detail), spec.rowActions) : '<p role="status">No hay registros operativos para este filtro.</p>';
         panel.querySelector("[data-operational-page]").textContent = `Página ${page} de ${Math.ceil(filtered.length / 25) || 1}`;
         panel.querySelector("[data-operational-prev]").disabled = page === 1;
         panel.querySelector("[data-operational-next]").disabled = page * 25 >= filtered.length;
