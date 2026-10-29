@@ -38,6 +38,7 @@ function startAuthenticatedApp() {
 }
 
 function stopAuthenticatedApp() {
+  window.ElaraAdminControls?.reset();
   window.ElaraFinancialClose?.reset();
   window.ElaraOperationalData?.reset();
   const nav = document.getElementById("sidebar-nav");

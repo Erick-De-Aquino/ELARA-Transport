@@ -4070,16 +4070,18 @@ ensureFinanceData();
 
 
 // Read-only operational route. Legacy renderer below/above is retained for demo dependencies.
-function showOperationalCash() {
+async function showOperationalCash() {
   const op = window.ElaraOperationalData;
   if (!op) throw new Error('Lectura operativa no disponible.');
-  return op.show('caja', {title: 'Caja', load: async () => { const [movements,remittances,discrepancies] = await Promise.all([op.readRpc('get_admin_cash_movements'),op.readRpc('get_admin_cash_remittances'),op.readRpc('get_admin_cash_discrepancies')]); return [...movements.map(r=>({...r,kind:'Movimiento'})),...remittances.map(r=>({...r,kind:'Remesa'})),...discrepancies.map(r=>({...r,kind:'Diferencia'}))]; },
+  const result = await op.show('caja', {title: 'Caja', load: async () => { const [movements,remittances,discrepancies] = await Promise.all([op.readRpc('get_admin_cash_movements'),op.readRpc('get_admin_cash_remittances'),op.readRpc('get_admin_cash_discrepancies')]); return [...movements.map(r=>({...r,kind:'Movimiento'})),...remittances.map(r=>({...r,kind:'Remesa'})),...discrepancies.map(r=>({...r,kind:'Diferencia'}))]; },
 pageSummary:'Recepción y verificación de rendiciones · Efectivo del conductor y central separados',
 notice: 'Efectivo driver y central separados. Abre una rendición presentada para recibirla y una recibida para verificarla. Los saldos derivados incluyen únicamente movimientos operativos.',
 rowActions:r=>r.kind==='Remesa'?`<button type="button" class="button button--secondary" data-cash-remittance-review="${window.ElaraCashRemittance.escape(r.remittance_id)}">Revisar rendición</button>`:'',
 columns: [['Clase','kind'],['Código','human_code'],['Cuenta','cash_account_name'],['Fecha','occurred_at'],['Tipo',r=>r.movement_type||r.status],['Origen','source_type'],['Concepto','description'],['Importe',r=>r.amount??r.declared_amount??r.difference_amount],['Moneda','currency_code']],
 summary: ()=>window.ElaraCashRemittance.balances(op.getCollection('caja')),
 detail: async r=> { if(r.kind==='Remesa') { const d=await op.readDetail('get_admin_cash_remittance_detail','p_remittance_id',r.remittance_id); return op.fields(d,[['Remesa','human_code'],['Estado','status'],['Conductor','driver_name'],['Declarado','declared_amount'],['Verificado','verified_amount'],['Moneda','currency_code']]); } if(r.kind==='Diferencia') { const d=await op.readDetail('get_admin_cash_discrepancy_detail','p_discrepancy_id',r.discrepancy_id); return op.fields(d,[['Diferencia','human_code'],['Estado','status'],['Esperado','expected_amount'],['Real','actual_amount'],['Diferencia','difference_amount'],['Moneda','currency_code']]); } return op.fields(r,[['UUID','cash_movement_id'],['Cuenta UUID','cash_account_id'],['Origen UUID','source_id'],['Remesa','remittance_human_code'],['Concepto','description']]); }});
+  window.ElaraAdminControls?.attachCash();
+  return result;
 }
 
 // Administrative remittances: real read/write contracts only; legacy/demo controls stay inactive.

@@ -193,7 +193,7 @@ window.ElaraCatalogAdmin = (() => {
   }
   async function detailActions(module,r) {
     const links=module==='customers'?[]:(await op().readAll('driver_vehicle_assignments')).filter(op().isOperationalRecord);
-    return `<div class="modal__actions">${actions(module,r,links)}${module==='drivers' && r.administrative_status==='active' ? `<button type="button" class="button button--secondary" data-financial-kind="provision" data-financial-id="${esc(r.id)}">Preparar cuenta de efectivo del conductor</button>` : ''}</div>`;
+    return `<div class="modal__actions">${actions(module,r,links)}${module==='drivers' && r.administrative_status==='active' ? `<button type="button" class="button button--secondary" data-financial-kind="provision" data-financial-id="${esc(r.id)}">Preparar cuenta de efectivo del conductor</button>` : ''}${module==='drivers' ? await window.ElaraAdminControls?.driverActions(r.id)||'' : ''}</div>`;
   }
   function attach(module,reload) {
     loaders[module]=reload;
