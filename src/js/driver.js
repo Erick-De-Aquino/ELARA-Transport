@@ -879,6 +879,13 @@ function bindDriverEvents() {
   document.addEventListener("click", (event) => {
     const modalClose = event.target.closest("[data-modal-close]");
 
+    const driverServiceDetailModal = event.target.closest("#driver-service-detail-modal");
+
+    if (driverServiceDetailModal && (modalClose || event.target === driverServiceDetailModal)) {
+      closeModal(driverServiceDetailModal);
+      return;
+    }
+
     if (modalClose && modalClose.closest("#driver-route-change-modal")) {
       discardRouteChangeDraft();
     }
