@@ -16,6 +16,7 @@ const AUTH_CONTEXT_LABELS = {
 const INACTIVE_ACCOUNT_MESSAGE = "Tu cuenta esta inactiva. Contacta con administracion.";
 const AUTH_INITIALIZATION_ERROR_MESSAGE = "No se pudo iniciar tu sesion de ELARA. Contacta con administracion.";
 
+const appSessionInitializations = new Map();
 let activeUser = null;
 let activeAuthSession = null;
 let activeAppSession = null;
@@ -111,7 +112,7 @@ async function signInAndInitializeAppSession(email, password) {
   try {
     return await initializeAuthenticatedAppSession(data.session, data.user);
   } catch (error) {
-    await signOutSilently();
+    await handleAppSessionFailure(error);
     clearAuthenticatedState();
     throw markAuthStage(error, "app-session");
   }
@@ -142,7 +143,7 @@ async function restoreExistingSession() {
     return restoredUser;
   } catch (error) {
     logAuthError("restore", error);
-    await signOutSilently();
+    await handleAppSessionFailure(error);
     clearAuthenticatedState();
     showLoginError(getLoginErrorMessage(error));
     renderAuthState();
@@ -153,9 +154,38 @@ async function restoreExistingSession() {
   }
 }
 
-async function initializeAuthenticatedAppSession(authSession, authUser) {
+function initializeAuthenticatedAppSession(authSession, authUser) {
+  let sessionId;
+  try {
+    const payload = authSession.access_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    sessionId = JSON.parse(window.atob(payload)).session_id;
+  } catch (_) { /* Missing identity must not share another session's initialization. */ }
+  if (!sessionId || !authUser?.id || authSession.user?.id !== authUser.id) {
+    return Promise.reject(markAuthStage(Object.assign(new Error("Invalid Auth session identity."), {code:"28000"}), "app-session"));
+  }
+  const key = `${authUser.id}/${sessionId}`;
+  if (appSessionInitializations.has(key)) return appSessionInitializations.get(key);
+  const pending = performAuthenticatedAppSessionInitialization(authSession, authUser)
+    .finally(() => { if (appSessionInitializations.get(key) === pending) appSessionInitializations.delete(key); });
+  appSessionInitializations.set(key, pending);
+  return pending;
+}
+
+async function handleAppSessionFailure(error) {
+  // Keep application access closed without revoking valid Auth on transient failures.
+  if (["28000", "42501"].includes(error?.code)) {
+    try { await getOptionalSupabaseClient()?.auth.signOut({scope:"local"}); }
+    catch (signOutError) { logAuthError("local-sign-out", signOutError); }
+  }
+}
+
+async function performAuthenticatedAppSessionInitialization(authSession, authUser) {
   const supabaseClient = getSupabaseClient();
-  const { data, error } = await supabaseClient.rpc("initialize_app_session");
+  let { data, error } = await supabaseClient.rpc("initialize_app_session");
+  // Recover the old deployment's missing-row race only, never an ownership collision.
+  if (error?.code === "23505" && /app_sessions_supabase_session_id_unique/.test(error.message || "")) {
+    ({ data, error } = await supabaseClient.rpc("initialize_app_session"));
+  }
 
   if (error) {
     throw markAuthStage(error, "app-session");
@@ -445,7 +475,7 @@ async function refreshAuthenticatedAppSession(session, reason) {
     emitAuthSessionUpdatedEvent(reason || "auth-session-refreshed");
   } catch (error) {
     logAuthError(reason || "auth-session-refresh", error);
-    await signOutSilently();
+    await handleAppSessionFailure(error);
     clearAuthenticatedState();
     renderAuthState();
     showLoginError(getLoginErrorMessage(error));
