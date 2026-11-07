@@ -5786,6 +5786,15 @@ function renderDriverCollectionBlock(service) {
 }
 
 function getDriverServiceCollectionInfo(service) {
+  if (service?.isRealDriverService) {
+    return {
+      visible: false,
+      statAmount: service.finalPrice ? formatDriverFinalPrice(service.finalPrice) : "Sin precio",
+      statLabel: service.finalPrice ? "Precio definitivo" : "Administraci\u00f3n",
+      lines: [],
+    };
+  }
+
   const summary = getDriverServiceFinancialSummary(service);
   const visible = isDriverCollectionInfoVisible(service);
 
@@ -9846,7 +9855,40 @@ async function fetchDriverServiceOverview() {
     throw error;
   }
 
-  return (Array.isArray(data) ? data : []).filter(window.ElaraOperationalData.isOperationalRecord);
+  const rows = (Array.isArray(data) ? data : []).filter(window.ElaraOperationalData.isOperationalRecord);
+  return Promise.all(rows.map(async (row) => ({
+    ...row,
+    finalPrice: await fetchDriverServiceFinalPrice(row),
+  })));
+}
+
+async function fetchDriverServiceFinalPrice(row) {
+  // 0050 authorizes this read against the current conductor's accepted assignment.
+  if (normalizeDriverCode(row.assignment_status) !== "accepted" || row.ended_at ||
+      !["pending", "confirmed", "in_progress"].includes(normalizeDriverCode(row.operational_status))) {
+    return null;
+  }
+  try {
+    const { data, error } = await window.ElaraSupabase.client.rpc("get_service_financial_close_context", {
+      p_service_id: row.service_id,
+    });
+    if (error || data?.service_id !== row.service_id || data.pricing_status !== "finalized") return null;
+    const rawAmount = data.total_amount;
+    if ((typeof rawAmount !== "number" && typeof rawAmount !== "string") || String(rawAmount).trim() === "") return null;
+    const totalAmount = Number(rawAmount);
+    if (!Number.isFinite(totalAmount) || totalAmount < 0 || !/^[A-Z]{3}$/.test(data.currency_code || "")) return null;
+    // Do not retain payments, receipts or any other financial context in the overview.
+    return { totalAmount, currencyCode: data.currency_code };
+  } catch (_) {
+    // A failed price read must not invent an amount or hide the operational service.
+    return null;
+  }
+}
+
+function formatDriverFinalPrice(price) {
+  return new Intl.NumberFormat("es-ES", {
+    style: "currency", currency: price.currencyCode, minimumFractionDigits: 2, maximumFractionDigits: 2,
+  }).format(price.totalAmount);
 }
 
 function adaptDriverServiceOverviewRow(row) {
@@ -9879,7 +9921,8 @@ function adaptDriverServiceOverviewRow(row) {
     plate: row?.plate_normalized || "",
     status,
     displayStatus,
-    estimatedPrice: "Sin importe",
+    estimatedPrice: row?.finalPrice ? formatDriverFinalPrice(row.finalPrice) : "Sin importe",
+    finalPrice: row?.finalPrice || null,
     isNewAssignment: status === "asignado",
     changeLog: [],
     closedAt: row?.closed_at || row?.ended_at || "",
