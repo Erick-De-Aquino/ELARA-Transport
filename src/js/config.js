@@ -8,8 +8,10 @@
 
 (function initElaraConfig() {
   const localHostnames = ["127.0.0.1", "localhost"];
-  const isLocalEnvironment = localHostnames.includes(window.location.hostname);
-  const supabaseEnvironment = isLocalEnvironment ? "local" : "remote";
+  const isLocalFrontend = localHostnames.includes(window.location.hostname);
+  const useLocalSupabase = isLocalFrontend &&
+    new URLSearchParams(window.location.search).get("supabase") === "local";
+  const supabaseEnvironment = useLocalSupabase ? "local" : "remote";
   const supabaseConfigs = Object.freeze({
     local: Object.freeze({
       url: "http://127.0.0.1:54421",
@@ -34,7 +36,8 @@
           autoRefreshToken: true,
           detectSessionInUrl: true,
           persistSession: true,
-          storageKey: "elara.transport.auth",
+          // Loopback skips the old shared key; production keeps its sessions.
+          storageKey: isLocalFrontend ? `elara.transport.auth.${supabaseEnvironment}` : "elara.transport.auth",
         }),
       }),
     }),

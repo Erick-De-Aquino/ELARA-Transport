@@ -160,7 +160,8 @@
                 <div class="panel__header">
                   <div>
                     <p class="panel__eyebrow">Seguimiento</p>
-                    <h2 id="recent-activity-heading">Actividad reciente</h2>
+                    <h2 id="recent-activity-heading">Actividad de servicios</h2>
+                    <p>Cambios de estado registrados; cobertura parcial.</p>
                   </div>
                 </div>
                 <ol class="activity-list recent-activity-list" id="recent-activity-list"></ol>
@@ -245,7 +246,7 @@
             </div>
           </section>
 
-          <section class="panel services-panel" id="services-history-panel" aria-label="Historial de servicios" hidden>
+          <section class="panel services-panel services-visual-panel" id="services-history-panel" aria-label="Historial de servicios" hidden>
             <div class="services-toolbar list-toolbar">
               <div class="list-toolbar__heading">
                 <p class="panel__eyebrow">Consulta</p>
@@ -257,22 +258,30 @@
                   <span>Buscar</span>
                   <input id="services-history-search" type="search" placeholder="Servicio, cliente, ruta o colaborador" />
                 </label>
+                <button class="button button--compact button--muted" type="button" id="services-history-refresh">Actualizar</button>
               </div>
             </div>
+
+            <p id="services-history-status" role="status" aria-live="polite">Historial de estados terminales, ordenado por fecha programada descendente.</p>
 
             <div class="services-list-wrapper">
               <div class="services-list-header services-list-grid" aria-hidden="true">
                 <span></span>
-                <span>Fecha/Hora</span>
+                <span>Servicio / fecha</span>
                 <span>Tipo</span>
                 <span class="services-list-header__client">Cliente</span>
                 <span>Ruta</span>
                 <span>Colaborador</span>
-                <span>Estado</span>
+                <span>Estado operativo / cierre financiero</span>
                 <span>Acciones</span>
               </div>
 
               <div class="services-list" id="services-history-list" aria-label="Historial de servicios"></div>
+            </div>
+            <div class="cash-pagination">
+              <p id="services-history-page" aria-live="polite"></p>
+              <button class="button button--compact button--muted" type="button" id="services-history-prev">Anterior</button>
+              <button class="button button--compact button--muted" type="button" id="services-history-next">Siguiente</button>
             </div>
           </section>
         </main>
@@ -2400,7 +2409,8 @@
             <h2 id="service-summary-modal-title">Resumen del servicio</h2>
             <p>Informaci&oacute;n operativa del servicio.</p>
           </div>
-          <div class="modal__actions" id="service-detail-view-actions">
+          <div class="modal__actions modal__header-actions" id="service-detail-view-actions">
+            <button class="button button--compact" type="button" id="service-detail-assign">Asignar conductor</button>
             <button class="button button--compact" type="button" id="service-detail-reassign" hidden>Reasignar conductor</button>
             <button class="button button--compact" type="button" id="service-detail-edit">Editar</button>
             <button class="button button--compact button--muted" type="button" id="service-detail-cancel-service">Cancelar servicio</button>
@@ -2413,13 +2423,17 @@
         </header>
 
         <div class="modal__body modal__body--summary service-summary" id="service-detail-view">
+          <p id="service-detail-operational-status" class="modal__hint" role="status" aria-live="polite"></p>
           <dl class="modal__grid service-summary__list">
             <div class="modal__field"><dt class="modal__field-label">N&uacute;mero de servicio</dt><dd class="modal__field-value" id="summary-service-number">-</dd></div>
+            <div class="modal__field modal__field--wide"><dt class="modal__field-label">UUID del servicio</dt><dd class="modal__field-value" id="summary-service-uuid">-</dd></div>
             <div class="modal__field"><dt class="modal__field-label">Tipo de servicio</dt><dd class="modal__field-value" id="summary-service-type">-</dd></div>
             <div class="modal__field"><dt class="modal__field-label">Fecha</dt><dd class="modal__field-value" id="summary-service-date">-</dd></div>
             <div class="modal__field"><dt class="modal__field-label">Hora</dt><dd class="modal__field-value" id="summary-service-time">-</dd></div>
             <div class="modal__field"><dt class="modal__field-label">Origen</dt><dd class="modal__field-value" id="summary-service-origin">-</dd></div>
+            <div class="modal__field"><dt class="modal__field-label">Direcci&oacute;n de origen</dt><dd class="modal__field-value" id="summary-service-origin-address">-</dd></div>
             <div class="modal__field"><dt class="modal__field-label">Destino</dt><dd class="modal__field-value" id="summary-service-destination">-</dd></div>
+            <div class="modal__field"><dt class="modal__field-label">Direcci&oacute;n de destino</dt><dd class="modal__field-value" id="summary-service-destination-address">-</dd></div>
             <div class="modal__field"><dt class="modal__field-label">Cliente</dt><dd class="modal__field-value" id="summary-service-client">-</dd></div>
             <div class="modal__field"><dt class="modal__field-label">Estado del servicio</dt><dd class="modal__field-value" id="summary-service-status">-</dd></div>
             <div class="modal__field"><dt class="modal__field-label">Colaborador</dt><dd class="modal__field-value" id="summary-service-collaborator">-</dd></div>
@@ -2439,18 +2453,20 @@
                 <p class="modal__hint">Precio, cobros y movimientos internos del servicio.</p>
               </div>
               <div class="service-financial-panel__actions">
-                <button class="button button--compact button--muted" type="button" id="service-detail-financial-edit">Editar precio</button>
-                <button class="button button--compact" type="button" id="service-detail-payment-register">Registrar pago</button>
-                <button class="button button--compact button--muted" type="button" id="service-detail-writeoff">Marcar incobrable</button>
+                <button class="button button--compact button--muted" type="button" id="service-detail-financial-edit" disabled>Finalizar precio</button>
+                <button class="button button--compact" type="button" id="service-detail-payment-register" disabled>Consultar / registrar cierre</button>
+                <button class="button button--compact button--muted" type="button" id="service-detail-writeoff" disabled title="No disponible mediante este flujo operativo">Marcar incobrable</button>
               </div>
             </div>
             <dl class="modal__grid service-financial-panel__grid">
-              <div class="modal__field"><dt class="modal__field-label">Precio base</dt><dd class="modal__field-value" id="summary-service-financial-base">-</dd></div>
+              <div class="modal__field"><dt class="modal__field-label">Precio</dt><dd class="modal__field-value" id="summary-service-financial-pricing">-</dd></div>
+              <div class="modal__field"><dt class="modal__field-label">Base imponible</dt><dd class="modal__field-value" id="summary-service-financial-base">-</dd></div>
               <div class="modal__field"><dt class="modal__field-label">IVA aplicado</dt><dd class="modal__field-value" id="summary-service-financial-vat">-</dd></div>
               <div class="modal__field"><dt class="modal__field-label">Total</dt><dd class="modal__field-value" id="summary-service-financial-total">-</dd></div>
               <div class="modal__field"><dt class="modal__field-label">Estado de cobro</dt><dd class="modal__field-value" id="summary-service-financial-status">-</dd></div>
               <div class="modal__field"><dt class="modal__field-label">Pagado</dt><dd class="modal__field-value" id="summary-service-financial-paid">-</dd></div>
               <div class="modal__field"><dt class="modal__field-label">Pendiente</dt><dd class="modal__field-value" id="summary-service-financial-pending">-</dd></div>
+              <div class="modal__field modal__field--wide"><dt class="modal__field-label">Cierre financiero 0050</dt><dd class="modal__field-value" id="summary-service-financial-close">-</dd></div>
               <div class="modal__field modal__field--wide" id="summary-service-financial-writeoff-field" hidden><dt class="modal__field-label">Incobrable</dt><dd class="modal__field-value" id="summary-service-financial-writeoff">-</dd></div>
             </dl>
             <section class="service-receivable-panel" id="summary-service-receivable-section" hidden>
@@ -2482,6 +2498,12 @@
               <div id="summary-service-payment-history">Sin pagos registrados</div>
             </div>
           </section>
+
+          <details class="service-financial-history" id="service-operational-history">
+            <summary class="modal__section-title">Historial operativo</summary>
+            <p class="modal__hint">Cambios de estado registrados por 0049. No incluye creación inicial, pagos ni historial de asignaciones.</p>
+            <div id="service-operational-history-content" aria-live="polite"><p class="modal__hint" role="status">Despliega esta sección para consultar el historial.</p></div>
+          </details>
 
         </div>
         <form class="modal__body modal__body--summary service-summary customer-detail-edit-form" id="service-detail-cancel-form" novalidate hidden>
@@ -2962,7 +2984,7 @@
                 </select>
               </label>
               <label class="field">
-                <span>Nota de resoluci&oacute;n <small id="admin-incident-resolution-required" hidden>Obligatoria si se resuelve</small></span>
+                <span>Resumen de resoluci&oacute;n / motivo de cancelaci&oacute;n <small id="admin-incident-resolution-required" hidden>Obligatorio para esta acci&oacute;n</small></span>
                 <textarea id="admin-incident-resolution-note" rows="3" placeholder="Describe la resoluci&oacute;n administrativa si corresponde."></textarea>
               </label>
             </div>
@@ -2973,11 +2995,12 @@
               </div>
               <div class="admin-incident-actions__end">
                 <button class="button button--compact button--muted" type="button" id="admin-incident-management-cancel">Cancelar gesti&oacute;n</button>
-                <button class="button button--compact button--primary" type="submit">Guardar estado</button>
+                <button class="button button--compact button--primary" type="submit">Confirmar cambio</button>
               </div>
             </div>
           </form>
 
+          <section id="admin-incident-operational-events" aria-live="polite"></section>
           <div class="admin-incident-actions">
             <div class="admin-incident-actions__start">
               <button class="button button--compact button--muted" type="button" id="admin-incident-related-action" hidden>Ver ficha relacionada</button>
@@ -2997,7 +3020,7 @@
           <div>
             <p class="panel__eyebrow">Incidencias</p>
             <h2 id="admin-incident-history-title">Historial de incidencias</h2>
-            <p>Consulta incidencias operativas resueltas y su cierre administrativo.</p>
+            <p>Consulta incidencias operativas resueltas o canceladas y su cierre administrativo.</p>
           </div>
           <button class="button button--compact button--muted" type="button" data-modal-close>Cerrar</button>
         </header>
@@ -3074,16 +3097,17 @@
           <div>
             <p class="panel__eyebrow">Ficha de cliente</p>
             <h2 id="customer-detail-modal-title">Cliente</h2>
-            <p id="customer-detail-description">Cliente y resumen operativo.</p>
           </div>
           <div class="modal__header-actions" id="customer-detail-view-actions">
-            <button class="button button--compact button--muted" type="button" id="customer-detail-edit-button">Editar</button>
+            <div id="customer-detail-operational-actions"></div>
+            <button class="button button--compact button--muted" type="button" id="customer-detail-edit-button" hidden>Editar</button>
             <button class="button button--compact button--muted" type="button" data-modal-close>Cerrar</button>
           </div>
           <div class="modal__header-actions" id="customer-detail-edit-actions" hidden>
             <button class="button button--compact button--muted" type="button" id="customer-detail-cancel-edit">Cancelar</button>
             <button class="button button--compact" type="submit" form="customer-detail-edit-form">Guardar cambios</button>
           </div>
+          <p id="customer-detail-description">Cliente y resumen operativo.</p>
         </header>
 
         <div class="modal__body modal__body--summary service-summary" id="customer-detail-content"></div>
@@ -3099,20 +3123,22 @@
             <h2 id="customer-history-modal-title">Historial</h2>
             <p><span id="history-customer-code">-</span> &middot; <span id="history-customer-name">-</span></p>
           </div>
-          <button class="button button--compact button--muted" type="button" data-modal-close>Cerrar</button>
+          <div class="modal__header-actions"><button class="button button--compact button--muted" type="button" data-customer-history-back>Volver a la ficha</button><button class="button button--compact button--muted" type="button" data-modal-close>Cerrar</button></div>
         </header>
 
-        <div class="modal__body modal__body--summary service-summary">
+        <div class="modal__body modal__body--summary service-summary" id="customer-history-content">
           <dl class="modal__grid service-summary__list">
-            <div class="modal__field"><dt class="modal__field-label">Valoracion</dt><dd class="modal__field-value" id="history-customer-rating">-</dd></div>
             <div class="modal__field"><dt class="modal__field-label">Total servicios</dt><dd class="modal__field-value" id="history-customer-total">-</dd></div>
           </dl>
 
-          <h3 class="modal__section-title">Ultimos servicios</h3>
+          <p id="customer-history-status" role="status" aria-live="polite"></p><button class="button button--secondary" type="button" data-customer-history-retry hidden>Reintentar lectura</button>
+          <h3 class="modal__section-title">Servicios anteriores</h3>
           <ol class="customer-history-list" id="customer-history-list"></ol>
 
-          <h3 class="modal__section-title">Proximos servicios</h3>
+          <h3 class="modal__section-title">Pr&oacute;ximos servicios y en curso</h3>
           <ol class="customer-history-list" id="customer-upcoming-list"></ol>
+          <h3 class="modal__section-title">Cancelados o no realizados</h3>
+          <ol class="customer-history-list" id="customer-unsuccessful-list"></ol>
         </div>
       </section>
     </div>

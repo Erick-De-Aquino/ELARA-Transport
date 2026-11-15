@@ -1394,6 +1394,7 @@ function getCustomerDetailStatusCardClass(label, status) {
   if (normalizeCustomerSearchText(label) !== "estado") {
     return "";
   }
+  if (normalizeCustomerSearchText(status) === "inactivo") return "status-card--neutral";
 
   const statusClassByName = {
     activo: "status-card--success",
@@ -2621,13 +2622,358 @@ window.ElaraCustomers = {
   updateCustomerLifecycleFromServices,
 };
 
-// Read-only operational route. Legacy renderer below/above is retained for demo dependencies.
+// Presentation only: identity, filtering, paging and detail guards remain owned by OperationalData.
+let operationalCustomersElements;
+let operationalCustomerCreateButton;
+let operationalCustomerCreateObserver;
+let operationalCustomerCreateCurrent = () => false;
+function placeOperationalCustomerCreate(panel, isCurrent) {
+  const view = document.getElementById('clientes');
+  operationalCustomerCreateCurrent = isCurrent;
+  operationalCustomerCreateButton ||= panel.querySelector('[data-catalog-action="customerCreate"]');
+  const allowed = () => operationalCustomerCreateCurrent() && !view.hidden &&
+    Boolean(window.ElaraAuth?.getCurrentUser?.()) &&
+    ['administrativo','superadmin'].includes(window.ElaraAuth?.getActiveContext?.());
+  document.querySelector('.header__actions').appendChild(operationalCustomerCreateButton);
+  operationalCustomerCreateButton.hidden = !allowed();
+  operationalCustomerCreateButton.onclick = () => {
+    if (allowed()) return window.ElaraCatalogAdmin.open('customers', 'customerCreate');
+  };
+  if (!operationalCustomerCreateObserver && window.MutationObserver) {
+    operationalCustomerCreateObserver = new window.MutationObserver(() => {
+      operationalCustomerCreateButton.hidden = !allowed();
+    });
+    operationalCustomerCreateObserver.observe(view, {attributes:true, childList:true, subtree:true});
+  }
+}
+let operationalCustomerDialog = null;
+let operationalCustomerHistory = null;
+let operationalCustomerSessionBound = false;
+function bindOperationalCustomerSession() {
+  if(operationalCustomerSessionBound)return;
+  operationalCustomerSessionBound=true;
+  window.addEventListener('elara:auth-session-updated',()=>{
+    if(operationalCustomerDialog?.scope!==operationalCustomerScope())closeOperationalCustomerDetail(false);
+
+  });
+}
+const operationalCustomerServiceLabels = {pending:'Pendiente',confirmed:'Confirmado',in_progress:'En curso',completed:'Finalizado',cancelled:'Cancelado',no_show:'No presentado',not_performed:'No realizado'};
+const operationalCustomerDate = new Intl.DateTimeFormat('es-ES', {timeZone:'Europe/Madrid',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
+function operationalCustomerScope() {
+  const user=window.ElaraAuth?.getCurrentUser?.();
+  return JSON.stringify([user?.id,user?.supabaseUserId,user?.appSessionId,window.ElaraAuth?.getActiveContext?.()]);
+}
+async function openOperationalCustomerService(id, history) {
+  const services=window.ElaraServices;
+  if(!history.current()||!history.rows?.some(row=>row.id===id)||!services?.openOperationalDetail)return;
+  history.service?.observer?.disconnect();
+  const transition={scope:operationalCustomerScope(),scroll:document.getElementById('customer-history-content').scrollTop};
+  history.service=transition;
+  history.modal.hidden=true;
+  const modal=document.getElementById('service-summary-modal');
+  const current=()=>operationalCustomerHistory===history&&history.service===transition&&
+    transition.scope===operationalCustomerScope()&&history.current();
+  const resume=()=>{
+    transition.observer?.disconnect();
+    if(!current())return;
+    history.modal.hidden=false;
+    history.service=null;
+    document.getElementById('customer-history-content').scrollTop=transition.scroll;
+    history.modal.querySelector(`[data-customer-service-id="${id}"]`)?.focus?.({preventScroll:true});
+  };
+  transition.observer=new window.MutationObserver(()=>{
+    if(!current()){
+      transition.observer.disconnect();
+      if(history.service===transition){history.service=null;services.closeOperationalDetail();}
+      return;
+    }
+    if(modal.hidden&&!document.querySelector('.modal-backdrop:not([hidden])'))resume();
+  });
+  transition.observer.observe(document.body,{attributes:true,attributeFilter:['hidden'],childList:true,subtree:true});
+  try {
+    await services.openOperationalDetail(id,{viewId:'clientes',isCurrent:current,onClose:reason=>{
+      if(['navigation','invalidated'].includes(reason)){
+        transition.observer.disconnect();
+        if(operationalCustomerHistory===history&&history.service===transition)closeOperationalCustomerDetail(false);
+      } else if(reason==='close'&&current()&&!document.querySelector('.modal-backdrop:not([hidden])'))resume();
+    }});
+    if(current()&&modal.hidden&&!document.querySelector('.modal-backdrop:not([hidden])'))resume();
+  } catch(_){
+    if(current()){
+      services.closeOperationalDetail();resume();
+      document.getElementById('customer-history-status').textContent='No se pudo abrir el detalle del servicio. Puedes reintentar desde Detalle.';
+    }
+  }
+}
+function renderCustomerAuthorizedContacts(contacts, op) {
+  return contacts.map(contact => {
+    const person = op.getCollection('persons').find(p => p.id === contact.person_id);
+    return renderCustomerDetailSection(person ? op.personName(person.id) : 'Contacto no disponible',
+      [['Función',contact.role_label],['Estado',contact.status==='active'?'Activo':contact.status==='inactive'?'Inactivo':'No disponible'],
+       ['Teléfono',person?.phone],['Correo electrónico',person?.contact_email]]);
+  }).join('');
+}
+function closeOperationalCustomerHistory() {
+  const state = operationalCustomerHistory;
+  if (!state) return;
+  operationalCustomerHistory = null;
+  if(state.service){state.service.observer?.disconnect();state.service=null;window.ElaraServices?.closeOperationalDetail?.();}
+  state.observer?.disconnect();
+  state.modal.hidden = true;
+  if (operationalCustomerDialog) operationalCustomerDialog.history = false;
+  for (const id of ['customer-history-list','customer-upcoming-list','customer-unsuccessful-list','customer-history-status','history-customer-code','history-customer-name','history-customer-total']) document.getElementById(id).replaceChildren();
+  delete state.modal.dataset.customerId;
+}
+async function openOperationalCustomerHistory(detail) {
+  if (operationalCustomerDialog !== detail || !detail.isCurrent()) return;
+  closeOperationalCustomerHistory();
+  const modal = document.getElementById('customer-history-modal');
+  const state = {modal, detail}; operationalCustomerHistory = state;
+  detail.history = true; detail.modal.hidden = true; modal.hidden = false;
+  modal.dataset.customerId = detail.row.id;
+  const current = () => operationalCustomerHistory===state && operationalCustomerDialog===detail && (!modal.hidden || state.service) &&
+    detail.isCurrent() && !document.getElementById('clientes').hidden;
+  state.current = current;
+  document.getElementById('history-customer-code').textContent = detail.row.human_code;
+  document.getElementById('history-customer-name').textContent = window.ElaraOperationalData.customerName(detail.row);
+  document.getElementById('customer-history-status').textContent = 'Cargando servicios vinculados…';
+  const retry = modal.querySelector('[data-customer-history-retry]'); retry.hidden = true;
+  modal.onclick = event => {
+    if(modal.hidden)return;
+    const service = event.target.closest('[data-customer-service-id]');
+    if (service) { event.stopPropagation(); if(current()) openOperationalCustomerService(service.dataset.customerServiceId,state); }
+    else if(event.target.closest('[data-customer-history-retry]')) { event.stopPropagation(); if(current()) void openOperationalCustomerHistory(detail); }
+    else if(event.target.closest('[data-customer-history-back]')) {
+      event.stopPropagation(); if(!current()) return;
+      detail.modal.hidden = false; closeOperationalCustomerHistory(); detail.modal.querySelector('[data-modal-close]').focus?.({preventScroll:true});
+    } else if(event.target===modal || event.target.closest('[data-modal-close]')) {
+      event.stopPropagation(); closeOperationalCustomerDetail();
+    }
+  };
+  modal.onkeydown = event => { if(event.key==='Escape'&&!modal.hidden&&!state.service){event.stopPropagation();closeOperationalCustomerDetail();} };
+  if(window.MutationObserver){state.observer=new window.MutationObserver(()=>{
+    if(operationalCustomerHistory===state&&!current())closeOperationalCustomerDetail(false);
+  });state.observer.observe(modal,{attributes:true,attributeFilter:['hidden']});}
+  try {
+    const op=window.ElaraOperationalData;
+    await op.loadIdentity({tables:['persons','companies','customers','drivers','vehicles','services']});
+    if(!current())return;
+    if(!op.getCollection('customers').some(c=>c.id===detail.row.id))throw Error('Cliente no accesible.');
+    const rows=(await op.readAll('services','id',{column:'customer_id',values:[detail.row.id]}))
+      .filter(r=>r.customer_id===detail.row.id&&!r.deleted_at&&op.isOperationalRecord(r));
+    if(!current())return;
+    const ids=rows.map(r=>r.id),locations=[];
+    for(let i=0;i<ids.length;i+=100){locations.push(...await op.readAll('service_locations','id',{column:'service_id',values:ids.slice(i,i+100)}));if(!current())return;}
+    op.indexRecords({locations});
+    const groups={upcoming:[],previous:[],unsuccessful:[]},now=Date.now();
+    for(const row of rows){
+      const terminal=['completed','cancelled','no_show','not_performed'].includes(row.operational_status);
+      const group=['cancelled','no_show','not_performed'].includes(row.operational_status)?'unsuccessful':
+        row.operational_status==='in_progress'||(!terminal&&Date.parse(row.scheduled_start_at)>=now)?'upcoming':'previous';
+      groups[group].push(row);
+    }
+    state.rows=rows;
+    for(const [group,id] of [['upcoming','customer-upcoming-list'],['previous','customer-history-list'],['unsuccessful','customer-unsuccessful-list']]){
+      groups[group].sort((a,b)=>{
+        const difference=(Date.parse(a.scheduled_start_at)||0)-(Date.parse(b.scheduled_start_at)||0);
+        return (group==='upcoming'?difference:-difference)||String(a.id).localeCompare(String(b.id));
+      });
+      document.getElementById(id).innerHTML=groups[group].length?groups[group].map(row=>{
+        const route=type=>{const matches=locations.filter(l=>l.service_id===row.id&&l.location_type===type&&op.isOperationalRecord(l));return matches.length===1?(matches[0].label||matches[0].address||'No disponible'):'No disponible';};
+        const date=Date.parse(row.scheduled_start_at);
+        return `<li class="customer-history-item" data-customer-history-service="${escapeHtml(row.id)}"><div><strong>${escapeHtml(row.human_code||row.id)}</strong><p>${Number.isFinite(date)?escapeHtml(operationalCustomerDate.format(new Date(date))):'Fecha no disponible'} · ${escapeHtml(operationalCustomerServiceLabels[row.operational_status]||'Estado no disponible')}</p><p>${escapeHtml(route('origin'))} → ${escapeHtml(route('destination'))}</p></div><button type="button" class="button button--compact button--muted" data-customer-service-id="${escapeHtml(row.id)}">Detalle</button></li>`;
+      }).join(''):'<li role="status">No hay servicios accesibles en este grupo.</li>';
+    }
+    document.getElementById('history-customer-total').textContent=String(rows.length);
+    document.getElementById('customer-history-status').textContent=rows.length?'Servicios vinculados · Fechas en Europe/Madrid.':'No hay servicios vinculados accesibles.';
+  } catch(_){if(current()){
+    for(const id of ['customer-upcoming-list','customer-history-list','customer-unsuccessful-list'])document.getElementById(id).replaceChildren();
+    document.getElementById('customer-history-status').textContent='No se pudo consultar el historial de servicios.';retry.hidden=false;
+  }}finally{if(operationalCustomerHistory===state&&!current())closeOperationalCustomerDetail(false);}
+}
+function closeOperationalCustomerDetail(restoreFocus = true) {
+  const state = operationalCustomerDialog;
+  if (!state) return;
+  operationalCustomerDialog = null;
+  closeOperationalCustomerHistory();
+  state.observer?.disconnect();
+  state.modal.hidden = true;
+  delete state.modal.dataset.customerId;
+  state.modal.querySelector('#customer-detail-content').replaceChildren();
+  state.modal.querySelector('#customer-detail-operational-actions').replaceChildren();
+  state.modal.querySelector('#customer-detail-modal-title').textContent = 'Cliente';
+  state.modal.querySelector('#customer-detail-description').textContent = '';
+  if (restoreFocus && state.previous?.isConnected) state.previous.focus?.({preventScroll:true});
+}
+async function openOperationalCustomerDetail(row, {isCurrent}) {
+  if (!row || !isCurrent()) return;
+  const previous = document.activeElement;
+  closeOperationalCustomerDetail(false);
+  const op = window.ElaraOperationalData;
+  const modal = document.getElementById('customer-detail-modal');
+  const body = modal.querySelector('#customer-detail-content');
+  const actions = modal.querySelector('#customer-detail-operational-actions');
+  const state = {modal, previous, row, isCurrent, scope:operationalCustomerScope()};
+  bindOperationalCustomerSession();
+  operationalCustomerDialog = state;
+  const current = () => operationalCustomerDialog === state && (!modal.hidden || state.history) && isCurrent() && state.scope===operationalCustomerScope() &&
+    !document.getElementById('clientes').hidden;
+  modal.dataset.customerId = row.id;
+  modal.querySelector('#customer-detail-modal-title').textContent = row.human_code || 'Cliente';
+  modal.querySelector('#customer-detail-description').textContent = 'Cargando ficha de cliente…';
+  body.innerHTML = '<p role="status">Cargando detalle real…</p>';
+  body.scrollTop = 0;
+  modal.hidden = false;
+  // Assignment replaces handlers on every opening; no legacy initializer is enabled.
+  modal.onclick = event => {
+    if(modal.hidden)return;
+    if (event.target.closest('[data-customer-operational-history]')) { event.stopPropagation(); void openOperationalCustomerHistory(state); return; }
+    if (event.target.closest('[data-customer-detail-retry]')) { event.stopPropagation(); void openOperationalCustomerDetail(row, {isCurrent}); return; }
+    const action = event.target.closest('[data-catalog-action]');
+    if (action) {
+      event.stopPropagation();
+      if (current()) void window.ElaraCatalogAdmin.open('customers', action.dataset.catalogAction, row.id);
+    } else if (event.target === modal || event.target.closest('[data-modal-close]')) {
+      event.stopPropagation();
+      closeOperationalCustomerDetail();
+    }
+  };
+  modal.onkeydown = event => {
+    if(modal.hidden)return;
+    if (event.key === 'Escape') { event.stopPropagation(); closeOperationalCustomerDetail(); }
+    if (event.key === 'Tab') {
+      const buttons = [...modal.querySelectorAll('button:not([hidden]):not([disabled])')]
+        .filter(button => !button.closest('[hidden]'));
+      const first = buttons[0], last = buttons[buttons.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    }
+  };
+  if (window.MutationObserver) {
+    state.observer = new window.MutationObserver(() => {
+      if (operationalCustomerDialog === state && !current()) closeOperationalCustomerDetail(false);
+    });
+    state.observer.observe(document.getElementById('clientes'), {attributes:true, childList:true, subtree:true});
+    state.observer.observe(modal, {attributes:true, attributeFilter:['hidden']});
+  }
+  modal.querySelector('[data-modal-close]').focus?.({preventScroll:true});
+  try {
+    await op.loadIdentity({tables:['persons','companies','customers']});
+    if (!current()) return;
+    const customer = op.getCollection('customers').find(c => c.id === row.id);
+    if (!customer || !op.isOperationalRecord(customer)) throw new Error('Cliente no disponible.');
+    const entity = op.getCollection(customer.customer_type === 'company' ? 'companies' : 'persons')
+      .find(c => c.id === (customer.company_id || customer.person_id)) || {};
+    const contacts = customer.company_id ? await op.related('company_contacts', 'company_id', customer.company_id) : [];
+    const actionHtml = await window.ElaraCatalogAdmin.detailActions('customers', customer);
+    if (!current()) return;
+    const source = document.createElement('div'); source.innerHTML = actionHtml;
+    actions.replaceChildren(...source.querySelectorAll('[data-catalog-action]'));
+    actions.insertAdjacentHTML('beforeend', '<button class="button button--compact button--muted" type="button" data-customer-operational-history>Historial de servicios</button>');
+    const company = customer.customer_type === 'company';
+    const status = adaptOperationalCustomer(customer).state;
+    body.innerHTML = renderCustomerDetailSection(company ? 'Datos de la empresa' : 'Datos personales',
+      [['Código de cliente',customer.human_code],['UUID',customer.id],['Tipo de cliente',company?'Empresa':'Particular'],['Estado',status],
+       ...(company ? [['Razón social',entity.legal_name],['Nombre comercial',entity.trade_name],['NIF/CIF',entity.tax_id],['Dirección de facturación',entity.billing_address]] :
+         [['Nombre completo',op.customerName(customer)],['Nombre/s',entity.first_name],['Apellido/s',entity.last_name],['Código de país',entity.country_code]]),
+       [company?'Teléfono de facturación':'Teléfono',company?entity.billing_phone:entity.phone],
+       [company?'Correo de facturación':'Correo electrónico',company?entity.billing_email:entity.contact_email]]) +
+      renderCustomerDetailSection('Observaciones', [['Notas',entity.notes],['Notas internas',customer.internal_notes],['Notas de facturación',customer.billing_notes]]) +
+      (company ? '<h3 class="modal__section-title">Contactos autorizados</h3>' + (contacts.length ?
+        renderCustomerAuthorizedContacts(contacts, op) : '<p role="status">No hay contactos empresariales accesibles.</p>') : '');
+    modal.querySelector('#customer-detail-description').textContent = op.customerName(customer);
+  } catch (_) {
+    if (current()) { actions.replaceChildren(); body.innerHTML = '<p role="alert">No se pudo cargar el detalle.</p><button type="button" class="button button--secondary" data-customer-detail-retry>Reintentar lectura</button>'; }
+  } finally {
+    if (operationalCustomerDialog === state && !current()) closeOperationalCustomerDetail(false);
+  }
+}
+function adaptOperationalCustomer(row) {
+  const op = window.ElaraOperationalData;
+  const company = row.customer_type === 'company';
+  const subject = op.getCollection(company ? 'companies' : 'persons')
+    .find(entity => entity.id === (company ? row.company_id : row.person_id)) || {};
+  return {
+    code: row.human_code || 'Sin c\u00f3digo', name: op.customerName(row),
+    type: company ? 'Empresa' : 'Particular',
+    phone: (company ? subject.billing_phone : subject.phone) || 'Sin tel\u00e9fono',
+    email: (company ? subject.billing_email : subject.contact_email) || 'Sin correo',
+    searchNames: company ? [subject.legal_name, subject.trade_name].filter(Boolean).join(' ') : '',
+    state: ({new:'Nuevo',active:'Activo',inactive:'Inactivo',blocked:'Bloqueado'})[row.status] || 'Estado no disponible',
+    tone: ({new:'warning',active:'success',inactive:'neutral',blocked:'danger'})[row.status] || 'neutral',
+  };
+}
+function mountOperationalCustomers(panel, {controls}) {
+  if (!operationalCustomersElements) {
+    const view = document.getElementById('clientes');
+    operationalCustomersElements = {
+      summary: view.querySelector('#customers-summary'),
+      section: view.querySelector('.customers-panel'),
+    };
+  }
+  const {summary, section} = operationalCustomersElements;
+  // Move the original nodes, rather than cloning IDs or retaining a second visible list.
+  panel.replaceChildren(summary, section);
+  summary.hidden = section.hidden = false;
+  summary.setAttribute('data-operational-summary', '');
+  summary.setAttribute('aria-label', 'Resumen de clientes del filtro actual');
+  const source = document.createElement('div');
+  source.innerHTML = controls;
+  const search = section.querySelector('#customers-search');
+  search.setAttribute('data-operational-search', '');
+  search.value = '';
+  search.placeholder = 'C\u00f3digo, nombre, tel\u00e9fono o correo';
+  const menu = section.querySelector('.customer-filter__menu');
+  menu.replaceChildren(...source.querySelectorAll('select[data-operational-filter]').values());
+  // Keep native selects inside the original filter menu; their handlers belong to OperationalData.
+  for (const select of menu.querySelectorAll('select')) {
+    const label = document.createElement('label');
+    label.className = 'field';
+    label.textContent = select.dataset.operationalFilter === '0' ? 'Tipo de cliente' : 'Estado';
+    select.replaceWith(label); label.appendChild(select);
+  }
+  menu.insertAdjacentHTML('beforeend', '<button class="button button--compact button--muted" type="button" data-customers-clear>Limpiar</button>');
+  const actions = section.querySelector('.customer-toolbar-actions');
+  if (!actions.querySelector('[data-catalog-toolbar]')) actions.insertAdjacentHTML('afterbegin', '<div data-catalog-toolbar><button type="button" class="button button--primary" data-catalog-action="customerCreate">Nuevo cliente individual</button></div>');
+  const legend = section.querySelector('.status-legend__group');
+  if (!legend.querySelector('[data-customer-inactive-legend]')) legend.insertAdjacentHTML('beforeend', '<span data-customer-inactive-legend><i class="status-legend__mark"></i>Inactivo</span>');
+  section.querySelector('.customers-list-header').innerHTML = '<span></span><span>C\u00f3digo / Cliente</span><span>Contacto</span><span>Tipo</span><span>Estado</span><span>Acciones</span>';
+  section.querySelector('#customers-list').setAttribute('data-operational-results', '');
+  section.querySelector('[data-customers-operational-footer]')?.remove();
+  section.insertAdjacentHTML('beforeend', '<div data-customers-operational-footer><div class="cash-pagination"><p data-operational-page aria-live="polite"></p><button type="button" class="button button--secondary" data-operational-prev>Anterior</button><button type="button" class="button button--secondary" data-operational-next>Siguiente</button><button type="button" class="button button--secondary" data-operational-retry>Actualizar</button></div><div data-operational-detail-content aria-live="polite"></div></div>');
+}
+function renderOperationalCustomerCards(rows) {
+  return rows.map((row, index) => {
+    const c = adaptOperationalCustomer(row), esc = escapeHtml;
+    return `<article class="customer-card customer-card--${c.tone}" data-operational-customer-id="${esc(row.id)}">
+      <div class="customer-card__marker" aria-hidden="true"></div>
+      <div class="customer-card__identity"><button type="button" class="customer-card__code" data-operational-detail="${index}" data-customer-id="${esc(row.id)}">${esc(c.code)}</button><button type="button" class="customer-card__name" data-operational-detail="${index}" data-customer-id="${esc(row.id)}">${esc(c.name)}</button></div>
+      <div class="customer-card__contact"><span>${esc(c.phone)}</span><span>${esc(c.email)}</span></div>
+      <span class="customer-type-pill">${c.type}</span><span class="status-pill">${esc(c.state)}</span>
+      <div class="customer-card__actions"><button type="button" class="button button--compact button--muted" data-operational-detail="${index}" data-customer-id="${esc(row.id)}">Detalle</button></div></article>`;
+  }).join('');
+}
+function renderOperationalCustomersSummary(rows) {
+  const count = status => rows.filter(row => row.status === status).length;
+  return [['Total filtrado',rows.length,'neutral'],['Activos',count('active'),'success'],['Nuevos',count('new'),'warning'],['Inactivos',count('inactive'),'neutral'],['Bloqueados',count('blocked'),'danger']]
+    .map(([label,value,tone]) => `<article class="summary-card summary-card--${tone}"><span>${label}</span><strong>${value}</strong></article>`).join('');
+}
+// The old renderer stays unreachable: no mock initializers or historic writes are enabled.
 async function showOperationalCustomers() {
+  closeOperationalCustomerDetail(false);
   const op = window.ElaraOperationalData;
   if (!op) throw new Error('Lectura operativa no disponible.');
-  await op.show('clientes', {title: 'Clientes', load: async () => op.getCollection('customers'),
+  await op.show('clientes', {title: 'Clientes', load: async () => [...op.getCollection('customers')].sort((a,b) => String(a.human_code || '').localeCompare(String(b.human_code || ''), 'es') || String(a.id).localeCompare(String(b.id))),
+presentation: {panelClassName:'customers-operational-panel',mount:mountOperationalCustomers,rows:renderOperationalCustomerCards,summary:renderOperationalCustomersSummary,
+  ready: (_rows,{panel,isCurrent}) => { placeOperationalCustomerCreate(panel, isCurrent); panel.querySelector('[data-customers-clear]').onclick = () => {
+    for (const select of panel.querySelectorAll('[data-operational-filter]')) { select.value = ''; select.onchange(); }
+    const input = panel.querySelector('[data-operational-search]'); input.value = ''; input.oninput({target:input});
+  }; }},
+defaultFilters:false,
+filters:[{label:'Tipo de cliente',value:r=>r.customer_type,text:r=>adaptOperationalCustomer(r).type}, {label:'Estado',value:r=>r.status,text:r=>adaptOperationalCustomer(r).state}],
+searchText:r=>{const c=adaptOperationalCustomer(r);return [c.code,c.name,c.searchNames,c.phone,c.email].join(' ');},
 notice: 'Alta individual y activar/inactivar mediante contratos administrativos. Edición general y bloqueo no disponibles.',
 columns: [['Código','human_code'],['Cliente',r=>op.customerName(r)],['Tipo','customer_type'],['Estado','status']],
-detail: async r => { const entity=op.getCollection(r.customer_type==='company'?'companies':'persons').find(x=>x.id===(r.company_id||r.person_id))||{}; const contacts=r.company_id?await op.related('company_contacts','company_id',r.company_id):[]; return await window.ElaraCatalogAdmin.detailActions('customers',r) + op.fields(r,[['UUID','id'],['Código','human_code'],['Tipo','customer_type'],['Estado','status'],['Notas','internal_notes']])+op.fields(entity,[['Nombre','first_name'],['Apellidos','last_name'],['Razón social','legal_name'],['Nombre comercial','trade_name'],['Teléfono','phone'],['Email','contact_email']])+op.tableHtml(contacts,[['Contacto',c=>op.personName(c.person_id)],['Función','role_label'],['Estado','status']]); }});
+openDetail: openOperationalCustomerDetail});
   return window.ElaraCatalogAdmin.attach('customers', showOperationalCustomers);
 }

@@ -222,7 +222,10 @@ window.ElaraCatalogAdmin = (() => {
       const index=op().getCollection(module).findIndex(r=>r.id===entityId);
       if(index>=0) {
         for(let page=0;page<Math.floor(index/25);page++) panel.querySelector('[data-operational-next]').click();
-        const target=panel.querySelectorAll('[data-operational-detail]')[index%25];
+        // Customer cards expose code, name and detail buttons for the same UUID.
+        const target=module==='customers'
+          ? panel.querySelector(`[data-operational-detail][data-customer-id="${entityId}"]`)
+          : panel.querySelectorAll('[data-operational-detail]')[index%25];
         if(target) await panel.querySelector('[data-operational-results]').onclick({target});
       }
     }

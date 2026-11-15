@@ -1993,12 +1993,365 @@ window.ElaraDashboard = {
   showDashboard,
 };
 
-// Read-only operational route. Legacy renderer below/above is retained for demo dependencies.
+// Dashboard Phase 1A: existing visual nodes, real data, no legacy initialization.
+let operationalDashboardNodes = null;
+let operationalDashboardCurrent = () => false;
+let operationalDashboardBound = false;
+const operationalDashboardDayFormat = new Intl.DateTimeFormat('en-CA', {
+  timeZone:'Europe/Madrid',year:'numeric',month:'2-digit',day:'2-digit'});
+const operationalDashboardDateFormat = new Intl.DateTimeFormat('es-ES', {
+  timeZone:'Europe/Madrid',day:'2-digit',month:'2-digit'});
+const operationalDashboardTimeFormat = new Intl.DateTimeFormat('es-ES', {
+  timeZone:'Europe/Madrid',hour:'2-digit',minute:'2-digit',hour12:false});
+function operationalDashboardDay(value) {
+  const date = new Date(value);
+  if (value == null || !Number.isFinite(date.getTime())) return null;
+  return operationalDashboardDayFormat.format(date);
+}
+function operationalDashboardModel(rows, now = new Date()) {
+  const today = rows.filter(r=>operationalDashboardDay(r.scheduled_start_at)===operationalDashboardDay(now));
+  const assignable = r=>['pending','confirmed'].includes(r.operational_status);
+  return {
+    metrics:[
+      ['Servicios hoy',today.length,'Agenda de hoy, incluidos completados y cancelados','neutral'],
+      ['Servicios en curso',rows.filter(r=>r.operational_status==='in_progress').length,'En curso ahora, aunque empezaran otro día','info'],
+      ['Por asignar hoy',today.filter(r=>assignable(r)&&!r.current_assignment_id).length,'Sin asignación actual','warning'],
+      ['Por aceptar hoy',today.filter(r=>assignable(r)&&r.assignment_status==='pending_acceptance').length,'Asignación pendiente de aceptación','warning'],
+      ['Cancelados de hoy',today.filter(r=>r.operational_status==='cancelled').length,'Servicios programados para hoy','danger'],
+    ],
+    upcoming:rows.filter(r=>assignable(r)&&r.scheduled_start_at&&Number.isFinite(Date.parse(r.scheduled_start_at))&&Date.parse(r.scheduled_start_at)>=now.getTime())
+      .sort((a,b)=>Date.parse(a.scheduled_start_at)-Date.parse(b.scheduled_start_at)||String(a.service_id).localeCompare(String(b.service_id))).slice(0,4),
+  };
+}
+function mountOperationalDashboard(panel, {controls}) {
+  const nodes = operationalDashboardNodes;
+  nodes.summary.hidden = false;
+  nodes.grid.hidden = false;
+  nodes.summary.replaceChildren();
+  nodes.grid.querySelector('#upcoming-services').replaceChildren();
+  for (const [id,text] of [
+    ['alerts-list','Evaluando alertas operativas…'],
+    ['incidents-list','Cargando incidencias administrativas…'],
+    ['recent-activity-list','Cargando actividad de servicios…'],
+  ]) {
+    const target = nodes.grid.querySelector('#'+id);
+    const message = document.createElement(target.tagName==='OL'?'li':'p');
+    message.className = id==='incidents-list'?'incident-empty':id==='recent-activity-list'?'activity-empty':'service-assignment-empty';
+    message.textContent = text;
+    target.replaceChildren(message);
+  }
+  const count = nodes.grid.querySelector('#alerts-count');
+  count.textContent = '—';
+  count.setAttribute('aria-label','Evaluando alertas');
+  const history = nodes.grid.querySelector('#incidents-history-action');
+  history.hidden = true;
+  history.disabled = true;
+  nodes.grid.querySelector('#upcoming-services').closest('article').querySelector('button').dataset.dashboardOperationalAction = 'all';
+  if (!nodes.secondary) {
+    nodes.secondary = document.createElement('details');
+    nodes.secondary.className = 'panel';
+  }
+  nodes.secondary.innerHTML = '<summary>Consulta operativa completa</summary><div>'+controls+'</div>';
+  panel.replaceChildren(nodes.summary,nodes.grid,nodes.secondary);
+}
+function renderOperationalDashboard(rows, {isCurrent}) {
+  const esc = window.ElaraOperationalData.display;
+  const html = value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const model = operationalDashboardModel(rows);
+  operationalDashboardNodes.summary.innerHTML = model.metrics.map(([label,value,detail,tone])=>
+    `<article class="summary-card summary-card--${tone}"><span>${html(label)}</span><strong>${value}</strong><small>${html(detail)}</small></article>`).join('');
+  const states = {pending:['Pendiente','status--warning'],confirmed:['Confirmado','status--success']};
+  const assignments = {pending_acceptance:'Pendiente de aceptación',accepted:'Aceptada',reassignment_required:'Reasignación requerida'};
+  const types = {transfer:'Traslado',hourly:'Por horas',airport:'Aeropuerto'};
+  operationalDashboardNodes.grid.querySelector('#upcoming-services').innerHTML = model.upcoming.length ? model.upcoming.map(row=>{
+    const date = new Date(row.scheduled_start_at),state=states[row.operational_status];
+    return `<section class="service-item" data-dashboard-service-id="${html(row.service_id)}">
+      <div class="service-item__schedule"><span class="service-item__date">${html(operationalDashboardDateFormat.format(date))}</span><time class="service-item__time" datetime="${html(date.toISOString())}">${html(operationalDashboardTimeFormat.format(date))}</time></div>
+      <div class="service-item__main"><h3>${html(types[row.service_type]||esc(row.service_type))}</h3><p>${html(esc(row.customer_display_name))} | ${html(esc(row.human_code))}</p>
+        <span class="service-item__assignment">${html(row.driver_display_name||'Conductor no disponible')} | ${html(row.plate_normalized||'Vehículo no disponible')}</span>
+        <p>Asignación: ${html(assignments[row.assignment_status]||row.assignment_status||'Sin asignación actual')}</p>
+        <button type="button" class="button button--compact button--muted" data-dashboard-operational-action="service" data-service-id="${html(row.service_id)}">Ver servicio</button></div>
+      <span class="status-pill ${state[1]}">${state[0]}</span></section>`;
+  }).join('') : '<p class="service-assignment-empty" role="status">No hay próximos servicios pendientes o confirmados.</p>';
+  const user = window.ElaraAuth.getCurrentUser();
+  document.getElementById('page-title').textContent = 'Hola, '+(user.name||user.email||'Usuario ELARA');
+  document.getElementById('page-eyebrow').textContent = 'Centro de operaciones';
+  document.getElementById('page-summary').textContent = `Hoy tienes ${model.metrics[0][1]} servicios programados. ${model.metrics[2][1]} por asignar y ${model.metrics[3][1]} por aceptar. Los indicadores no son sumables entre sí.`;
+  const primary = document.getElementById('primary-action');
+  primary.textContent = 'Nuevo servicio';
+  primary.hidden = false;
+  primary.removeAttribute('data-modal-target');
+  primary.removeAttribute('data-modal-open');
+  operationalDashboardCurrent = isCurrent;
+  void loadOperationalDashboardPanels(rows, isCurrent);
+}
+function bindOperationalDashboard() {
+  if (operationalDashboardBound) return;
+  const allowed = ()=>operationalDashboardCurrent()&&!document.getElementById('dashboard').hidden&&
+    ['administrativo','superadmin'].includes(window.ElaraAuth?.getActiveContext?.());
+  document.getElementById('primary-action').addEventListener('click',()=>{
+    if (allowed()) void window.ElaraServiceAdmin.open('create');
+  });
+  document.getElementById('dashboard').addEventListener('click',event=>{
+    const button = event.target.closest('[data-dashboard-operational-action]');
+    if (!button || !allowed()) return;
+    if (button.dataset.dashboardOperationalAction==='all') window.ElaraRouter.navigateTo('servicios');
+    else window.ElaraServices.navigateOperationalService(button.dataset.serviceId);
+  });
+  window.addEventListener('elara:service-admin-confirmed',()=>{
+    if (allowed()) void showOperationalDashboard();
+  });
+  operationalDashboardBound = true;
+}
 function showOperationalDashboard() {
   const op = window.ElaraOperationalData;
   if (!op) throw new Error('Lectura operativa no disponible.');
+  operationalDashboardCurrent = () => false;
+  if (!operationalDashboardNodes) {
+    const view = document.getElementById('dashboard');
+    operationalDashboardNodes = {summary:view.querySelector('#summary-cards'),grid:view.querySelector('.dashboard-grid'),secondary:null};
+  }
+  bindOperationalDashboard();
+  closeOperationalDashboardIncidents();
   return op.show('dashboard', {title: 'Dashboard', load: () => op.readAll('v_admin_service_overview','service_id'),
-notice: 'Métricas reales. Incidencias, actividad y saldos financieros no disponibles en este diferencial.',
+presentation:{panelClassName:'dashboard-operational-panel',mount:mountOperationalDashboard,ready:renderOperationalDashboard},
+notice: 'Consulta operativa actual. Fechas en Europe/Madrid. Actividad de servicios: cambios de estado registrados; no incluye creación ni rechazo de asignaciones.',
 columns: [['Servicio','human_code'],['Fecha','scheduled_start_at'],['Cliente','customer_display_name'],['Estado','operational_status'],['Conductor',r=>op.display(r.driver_display_name)]],
 summary: rows=>'Clientes: '+op.getCollection('customers').length+' · Conductores: '+op.getCollection('drivers').length+' · Vehículos: '+op.getCollection('vehicles').length+' · Servicios en curso: '+rows.filter(r=>r.operational_status==='in_progress').length});
+}
+
+// Phase 1B. These handlers own the existing panels/modals; legacy initializers stay inactive.
+let operationalIncidentState = null;
+let operationalIncidentTicket = 0;
+let operationalIncidentBusy = false;
+let operationalIncidentBound = false;
+const operationalIncidentUncertain = new Set();
+const operationalIncidentStatus = {open:'Pendiente',acknowledged:'Reconocida',investigating:'En investigación',resolved:'Resuelta',cancelled:'Cancelada'};
+const operationalIncidentSeverity = {low:'Baja',medium:'Media',high:'Alta',critical:'Crítica'};
+const operationalIncidentTransitions = {open:['acknowledged','investigating','resolved','cancelled'],acknowledged:['investigating','resolved','cancelled'],investigating:['resolved','cancelled']};
+const operationalIncidentRpcs = {acknowledged:'acknowledge_incident',investigating:'investigate_incident',resolved:'resolve_incident',cancelled:'cancel_incident'};
+const operationalDashboardFullDate = new Intl.DateTimeFormat('es-ES', {
+  timeZone:'Europe/Madrid',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
+const operationalDashboardHtml = value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function operationalDashboardWhen(value) {
+  return value && Number.isFinite(Date.parse(value)) ? operationalDashboardFullDate.format(new Date(value)) : 'Fecha no disponible';
+}
+function operationalDashboardCompactWhen(value) {
+  if(!value||!Number.isFinite(Date.parse(value)))return '<time title="Fecha no disponible">—</time>';
+  const date=new Date(value),html=operationalDashboardHtml;
+  // Original timeline columns are narrow: retain their date/time stack, with full year on hover/AT.
+  return `<time datetime="${html(date.toISOString())}" title="${html(operationalDashboardWhen(value))}" aria-label="${html(operationalDashboardWhen(value))}">${html(operationalDashboardDateFormat.format(date))}<br>${html(operationalDashboardTimeFormat.format(date))}</time>`;
+}
+function operationalDashboardScope() {
+  const user=window.ElaraAuth?.getCurrentUser?.();
+  return JSON.stringify([user?.id,user?.appSessionId,window.ElaraAuth?.getActiveContext?.()]);
+}
+function operationalDashboardGuard(isCurrent) {
+  const scope=operationalDashboardScope();
+  return ()=>isCurrent() && scope===operationalDashboardScope() && !document.getElementById('dashboard').hidden &&
+    ['administrativo','superadmin'].includes(window.ElaraAuth?.getActiveContext?.());
+}
+function operationalDashboardAlerts(rows, now=new Date()) {
+  // A rolling 24-hour interval, not "until tomorrow midnight". Instants are zone independent;
+  // every displayed date uses Madrid, including across DST changes.
+  const start=now.getTime(),end=start+24*60*60*1000,result=[];
+  for(const row of rows) {
+    if(!['pending','confirmed'].includes(row.operational_status)||!row.scheduled_start_at) continue;
+    const time=Date.parse(row.scheduled_start_at);
+    if(!Number.isFinite(time)||time>end) continue;
+    const add=(kind,title,level)=>result.push({row,kind,title,level,time});
+    if(time<start) add('not_started','Hora prevista superada; servicio sin iniciar','critical');
+    if(!row.current_assignment_id && time>=start) add('unassigned','Servicio próximo sin asignación actual','medium');
+    if(row.current_assignment_id && row.assignment_status==='pending_acceptance') add('acceptance','Asignación pendiente de aceptación','medium');
+  }
+  return result.sort((a,b)=>a.time-b.time||String(a.row.service_id).localeCompare(String(b.row.service_id))||a.kind.localeCompare(b.kind));
+}
+function operationalDashboardMessage(id,text,error=false) {
+  const target=document.getElementById(id),item=document.createElement(target.tagName==='OL'?'li':'p');
+  item.className=id==='incidents-list'?'incident-empty':'activity-empty';
+  item.setAttribute('role',error?'alert':'status');item.textContent=text;target.replaceChildren(item);
+}
+function operationalIncidentEligible(row) {
+  const op=window.ElaraOperationalData;
+  if(!op.isOperationalRecord(row)) return false;
+  for(const [field,table] of [['service_id','services'],['driver_id','drivers'],['reported_by_driver_id','drivers'],['vehicle_id','vehicles'],['customer_id','customers']]) {
+    if(row[field]&&!op.getCollection(table).some(r=>r.id===row[field]&&op.isOperationalRecord(r))) return false;
+  }
+  return true;
+}
+async function loadOperationalDashboardPanels(rows,isCurrent) {
+  const op=window.ElaraOperationalData,valid=operationalDashboardGuard(isCurrent),html=operationalDashboardHtml;
+  bindOperationalDashboardIncidents();
+  const state={valid,rows:[],categories:[],users:[],selected:null};operationalIncidentState=state;
+  const alerts=operationalDashboardAlerts(rows.filter(r=>op.isOperationalRecord(r)));
+  const count=document.getElementById('alerts-count');count.textContent=String(alerts.length);count.setAttribute('aria-label',`${alerts.length} alertas operativas`);
+  document.getElementById('alerts-list').innerHTML=alerts.map(a=>`<section class="alert-item alert-item--${a.level}"><div class="alert-item__marker" aria-hidden="true"></div><div class="alert-item__content"><span class="alert-item__level">${a.level==='critical'?'Revisar':'Atención'}</span><h3>${html(a.title)}</h3><p>${html(a.row.human_code)} · ${html(operationalDashboardWhen(a.row.scheduled_start_at))}</p></div><button class="button button--compact" type="button" data-dashboard-operational-action="service" data-service-id="${html(a.row.service_id)}">Ver servicio</button></section>`).join('');
+  if(!alerts.length)operationalDashboardMessage('alerts-list','Sin alertas operativas en el horizonte de 24 horas.');
+  document.getElementById('recent-activity-heading').textContent='Actividad de servicios';
+  const incidents=Promise.all([op.readAll('incidents'),op.readAll('incident_categories')]).then(async([records,categories])=>{
+    if(!valid())return;
+    state.rows=records.filter(operationalIncidentEligible).sort((a,b)=>Date.parse(b.reported_at)-Date.parse(a.reported_at)||String(a.id).localeCompare(String(b.id)));
+    state.categories=categories.filter(op.isOperationalRecord);
+    const reporterIds=[...new Set(state.rows.map(r=>r.reported_by_user_id).filter(Boolean))];
+    // Reporter labels are optional; a failed name lookup must never hide an incident.
+    if(reporterIds.length)try{state.users=(await op.readAll('app_users','id',{column:'id',values:reporterIds})).filter(op.isOperationalRecord);}catch{state.users=[];}
+    if(!valid())return;
+    renderOperationalIncidents(state);
+    const history=document.getElementById('incidents-history-action');history.hidden=false;history.disabled=false;
+  }).catch(()=>{if(valid())operationalDashboardMessage('incidents-list','No se pudieron cargar las incidencias. Actualiza para reintentar.',true);});
+  const ids=rows.filter(r=>op.isOperationalRecord(r)&&op.getCollection('services').some(s=>s.id===r.service_id)).map(r=>r.service_id);
+  const activity=(async()=>{
+    const events=[];
+    for(let offset=0;offset<ids.length;offset+=100)events.push(...await op.readAll('service_status_history','id',{column:'service_id',values:ids.slice(offset,offset+100)}));
+    if(!valid())return;
+    const labels={pending:'Pendiente',confirmed:'Confirmado',in_progress:'En curso',completed:'Finalizado',cancelled:'Cancelado',no_show:'No presentado',not_performed:'No realizado'};
+    const visible=events.filter(e=>ids.includes(e.service_id)&&op.isOperationalRecord(e)&&e.from_status!==e.to_status&&Number.isFinite(Date.parse(e.changed_at)))
+      .sort((a,b)=>Date.parse(b.changed_at)-Date.parse(a.changed_at)||String(b.id).localeCompare(String(a.id))).slice(0,10);
+    document.getElementById('recent-activity-list').innerHTML=visible.map(e=>`<li class="recent-activity-item">${operationalDashboardCompactWhen(e.changed_at)}<span>${html(rows.find(r=>r.service_id===e.service_id)?.human_code||e.service_id)}: ${html(labels[e.from_status]||e.from_status)} → ${html(labels[e.to_status]||e.to_status)}</span></li>`).join('');
+    if(!visible.length)operationalDashboardMessage('recent-activity-list','No hay cambios de estado registrados. Cobertura parcial: no incluye creación ni rechazo de asignaciones.');
+  })().catch(()=>{if(valid())operationalDashboardMessage('recent-activity-list','No se pudo cargar la actividad de servicios. Actualiza para reintentar.',true);});
+  await Promise.all([incidents,activity]);
+}
+function operationalIncidentReporter(row) {
+  const op=window.ElaraOperationalData;
+  if(row.reported_by_driver_id){const driver=op.getCollection('drivers').find(r=>r.id===row.reported_by_driver_id);return `Conductor · ${driver?op.personName(driver.person_id):row.reported_by_driver_id}`;}
+  const user=operationalIncidentState?.users.find(u=>u.id===row.reported_by_user_id);
+  return row.reported_by_user_id ? `Usuario · ${user?.person_id?op.personName(user.person_id):row.reported_by_user_id}` : 'Reportante no disponible';
+}
+function operationalIncidentItem(row,state) {
+  const html=operationalDashboardHtml,category=state.categories.find(c=>c.id===row.category_id);
+  return `<li class="incident-item incident-item--${html(['low','medium','high','critical'].includes(row.severity)?row.severity:'medium')}">${operationalDashboardCompactWhen(row.reported_at)}<span class="incident-item__content"><strong>${html(operationalIncidentReporter(row))}</strong><span class="incident-item__category">${html(category?.name_es||category?.name||row.title)}</span><span class="incident-item__id">${html(row.human_code||row.id)}</span><small>${html(operationalIncidentSeverity[row.severity]||row.severity)} · ${html(operationalIncidentStatus[row.status]||row.status)}</small><span>${html(row.description||row.title)}</span><button class="button button--compact button--muted incident-item__action" type="button" data-operational-incident="${html(row.id)}">Ver detalle</button></span></li>`;
+}
+function renderOperationalIncidents(state) {
+  const active=state.rows.filter(r=>!['resolved','cancelled'].includes(r.status));
+  document.getElementById('incidents-list').innerHTML=active.map(r=>operationalIncidentItem(r,state)).join('');
+  if(!active.length)operationalDashboardMessage('incidents-list','Sin incidencias administrativas abiertas.');
+  renderOperationalIncidentHistory(state);
+}
+function renderOperationalIncidentHistory(state) {
+  const query=document.getElementById('incidents-history-search').value.trim().toLocaleLowerCase();
+  const rows=state.rows.filter(r=>['resolved','cancelled'].includes(r.status)&&[r.human_code,r.title,r.description,r.service_id,operationalIncidentReporter(r)].join(' ').toLocaleLowerCase().includes(query));
+  const html=operationalDashboardHtml;
+  document.getElementById('incidents-history-list').innerHTML=rows.length?rows.map(r=>`<article class="admin-incident-history-row"><time>${html(operationalDashboardWhen(r.reported_at))}</time><strong>${html(operationalIncidentReporter(r))}</strong><span>${html(state.categories.find(c=>c.id===r.category_id)?.name_es||r.title)}</span><span class="incident-item__id">${html(r.human_code||r.id)}</span><small>${html(operationalIncidentSeverity[r.severity])} · ${html(operationalIncidentStatus[r.status])}</small><span>${html(operationalDashboardWhen(r.resolved_at||r.cancelled_at))}</span><button class="button button--compact button--muted" type="button" data-operational-incident="${html(r.id)}">Ver detalle</button></article>`).join(''):'<p class="incident-empty" role="status">No hay incidencias resueltas o canceladas coincidentes.</p>';
+}
+function closeOperationalDashboardIncidents() {
+  ++operationalIncidentTicket;
+  for(const id of ['admin-incident-detail-modal','admin-incident-history-modal'])document.getElementById(id).hidden=true;
+  operationalIncidentState=null;
+}
+function operationalIncidentActions(row) {return operationalIncidentTransitions[row.status]||[];}
+function operationalIncidentSetText(id,value) {document.getElementById(id).textContent=value||'No indicado';}
+async function openOperationalIncident(id) {
+  const state=operationalIncidentState;if(!state?.valid()||operationalIncidentBusy)return;
+  const row=state.rows.find(r=>r.id===id);if(!row)return;
+  const op=window.ElaraOperationalData,ticket=++operationalIncidentTicket,modal=document.getElementById('admin-incident-detail-modal');
+  state.selected=null;document.getElementById('admin-incident-history-modal').hidden=true;modal.hidden=false;
+  document.getElementById('admin-incident-management-form').hidden=true;
+  document.getElementById('admin-incident-manage-action').hidden=true;
+  document.getElementById('admin-incident-related-action').hidden=true;
+  document.getElementById('admin-incident-management-related-action').hidden=true;
+  document.getElementById('admin-incident-financial-summary').hidden=true;
+  for(const node of modal.querySelectorAll('dd'))node.textContent='Cargando…';
+  operationalIncidentSetText('admin-incident-detail-title','Detalle de incidencia');
+  const output=document.getElementById('admin-incident-operational-events');output.textContent='Cargando eventos y comentarios…';output.setAttribute('role','status');
+  const current=()=>state===operationalIncidentState&&state.valid()&&ticket===operationalIncidentTicket&&!modal.hidden;
+  try {
+    const [records,categories,events,comments]=await Promise.all([
+      op.readAll('incidents','id',{column:'id',values:[id]}),op.readAll('incident_categories','id',{column:'id',values:[row.category_id]}),
+      op.readAll('incident_events','id',{column:'incident_id',values:[id]}),op.readAll('incident_comments','id',{column:'incident_id',values:[id]})]);
+    if(!current())return;
+    const fresh=records.find(r=>r.id===id&&operationalIncidentEligible(r));if(!fresh)throw Error('Incidencia no disponible.');
+    state.selected={row:fresh,category:categories.find(c=>c.id===fresh.category_id)};
+    state.rows=state.rows.map(r=>r.id===id?fresh:r);renderOperationalIncidents(state);
+    const service=op.getCollection('services').find(r=>r.id===fresh.service_id),driver=op.getCollection('drivers').find(r=>r.id===fresh.driver_id),vehicle=op.getCollection('vehicles').find(r=>r.id===fresh.vehicle_id);
+    for(const [key,value] of Object.entries({id:fresh.human_code||fresh.id,reporter:operationalIncidentReporter(fresh),involved:driver?op.personName(driver.person_id):fresh.driver_id,date:operationalDashboardWhen(fresh.reported_at),category:state.selected.category?.name_es||state.selected.category?.name||fresh.category_id,priority:operationalIncidentSeverity[fresh.severity],status:operationalIncidentStatus[fresh.status],service:service?.human_code||fresh.service_id,vehicle:vehicle?.plate_normalized||fresh.vehicle_id,subject:fresh.title,message:fresh.description,resolution:fresh.resolution_summary,'resolved-at':fresh.resolved_at?operationalDashboardWhen(fresh.resolved_at):null})) operationalIncidentSetText('admin-incident-'+key,value);
+    const options=operationalIncidentActions(fresh),select=document.getElementById('admin-incident-status-select');
+    select.innerHTML='<option value="">Selecciona una acción</option>'+options.map(v=>`<option value="${v}">${operationalDashboardHtml(operationalIncidentStatus[v])}</option>`).join('');
+    document.getElementById('admin-incident-management-id').value=fresh.human_code||fresh.id;
+    document.getElementById('admin-incident-resolution-note').value='';
+    document.getElementById('admin-incident-resolution-note').required=false;
+    document.getElementById('admin-incident-resolution-required').hidden=true;
+    const form=document.getElementById('admin-incident-management-form');form.querySelector('[type="submit"]').disabled=false;
+    const error=document.getElementById('admin-incident-management-error');error.hidden=true;error.textContent='';
+    document.getElementById('admin-incident-manage-action').hidden=!options.length||operationalIncidentUncertain.has(id);
+    if(operationalIncidentUncertain.has(id)){error.hidden=false;error.textContent='Resultado anterior incierto. No repitas la escritura; revisa el estado y recarga la aplicación.';form.hidden=false;form.querySelector('[type="submit"]').disabled=true;}
+    const related=document.getElementById('admin-incident-related-action');related.hidden=!service;related.dataset.serviceId=service?.id||'';
+    const html=operationalDashboardHtml;
+    const entries=[...events.filter(e=>e.incident_id===id&&op.isOperationalRecord(e)).map(e=>({date:e.occurred_at,text:`${e.event_type}${e.to_status?' · '+(operationalIncidentStatus[e.to_status]||e.to_status):''}${e.description?' · '+e.description:''}`})),...comments.filter(c=>c.incident_id===id&&op.isOperationalRecord(c)).map(c=>({date:c.created_at,text:`Comentario${c.is_private?' interno':''}: ${c.content}`}))].sort((a,b)=>Date.parse(a.date)-Date.parse(b.date));
+    output.innerHTML=entries.length?`<h3 class="modal__section-title">Eventos y comentarios</h3><ol class="activity-list">${entries.map(e=>`<li>${operationalDashboardCompactWhen(e.date)} <span>${html(e.text)}</span></li>`).join('')}</ol>`:'Sin eventos ni comentarios registrados.';
+  }catch(error){if(current()){state.selected=null;for(const node of modal.querySelectorAll('dd'))node.textContent='No disponible';output.setAttribute('role','alert');output.textContent='No se pudo cargar el detalle. Cierra y vuelve a abrir para reintentar.';}}
+}
+function operationalIncidentNoteRequired(selected,target) {return target==='cancelled'||target==='resolved'&&selected.category?.requires_resolution===true;}
+async function submitOperationalIncident(event) {
+  event.preventDefault();const state=operationalIncidentState;
+  if(operationalIncidentBusy||!state?.valid()||!state.selected)return;
+  const {row}=state.selected,id=row.id,target=document.getElementById('admin-incident-status-select').value;
+  const note=document.getElementById('admin-incident-resolution-note').value.trim(),form=document.getElementById('admin-incident-management-form'),error=document.getElementById('admin-incident-management-error');
+  if(operationalIncidentUncertain.has(id))return;
+  error.hidden=false;
+  if(!operationalIncidentActions(row).includes(target)){error.textContent='Selecciona una transición permitida.';return;}
+  if(operationalIncidentNoteRequired(state.selected,target)&&!note){error.textContent='Indica el resumen de resolución o el motivo de cancelación obligatorio.';return;}
+  operationalIncidentBusy=true;
+  const controls=[...form.closest('.modal-backdrop').querySelectorAll('input,select,textarea,button')].map(el=>[el,el.disabled]);controls.forEach(([el])=>el.disabled=true);form.setAttribute('aria-busy','true');error.textContent='Esperando confirmación remota…';
+  let confirmed=false,uncertain=false;
+  try {
+    const op=window.ElaraOperationalData;
+    // Fresh identity and record before any write; do not use stale modal permissions/state.
+    await op.loadIdentity();if(!state.valid()||state!==operationalIncidentState) return;
+    const fresh=(await op.readAll('incidents','id',{column:'id',values:[id]})).find(r=>r.id===id&&operationalIncidentEligible(r));
+    if(!state.valid()||state!==operationalIncidentState)return;
+    if(!fresh||fresh.status!==row.status||!operationalIncidentActions(fresh).includes(target))throw Error('La incidencia cambió. Cierra y vuelve a consultar el detalle.');
+    const category=(await op.readAll('incident_categories','id',{column:'id',values:[fresh.category_id]})).find(c=>c.id===fresh.category_id);
+    if(!category)throw Error('No se pudo verificar la categoría de la incidencia.');
+    if(operationalIncidentNoteRequired({category},target)&&!note)throw Error('Esta categoría requiere un resumen de resolución.');
+    if(!state.valid()||state!==operationalIncidentState)return;
+    const args={p_incident_id:id};if(target==='resolved')args.p_resolution_summary=note||null;if(target==='cancelled')args.p_reason=note;
+    let response;
+    try{response=await window.ElaraSupabase.client.rpc(operationalIncidentRpcs[target],args);}
+    catch(transport){uncertain=true;throw transport;}
+    if(!response||typeof response!=='object'){uncertain=true;throw Error('Respuesta remota ausente.');}
+    if(response.error){uncertain=!response.error.code;throw Error(response.error.message||'La operación no se confirmó.');}
+    if(response.data!==id){uncertain=true;throw Error('Respuesta remota no reconocida.');}
+    confirmed=true;
+    if(!state.valid()||state!==operationalIncidentState)return;
+    const records=await op.readAll('incidents');if(!state.valid()||state!==operationalIncidentState)return;
+    const updated=records.find(r=>r.id===id);if(!updated||updated.status!==target)throw Error('No se pudo verificar el estado confirmado.');
+    state.rows=records.filter(operationalIncidentEligible);renderOperationalIncidents(state);
+    error.textContent='Cambio confirmado por el servidor.';document.getElementById('admin-incident-detail-modal').hidden=true;++operationalIncidentTicket;
+  }catch(failure){
+    uncertain=uncertain||confirmed;
+    if(uncertain)operationalIncidentUncertain.add(id);
+    if(state.valid()&&state===operationalIncidentState)error.textContent=uncertain?'No reintentes la escritura: el resultado puede estar confirmado. Revisa el estado y recarga la aplicación.':failure.message;
+  }finally{
+    operationalIncidentBusy=false;form.removeAttribute('aria-busy');controls.forEach(([el,disabled])=>el.disabled=disabled);
+    if(operationalIncidentUncertain.has(id)||confirmed)form.querySelector('[type="submit"]').disabled=true;
+  }
+}
+function bindOperationalDashboardIncidents() {
+  if(operationalIncidentBound)return;operationalIncidentBound=true;
+  const allowed=()=>operationalIncidentState?.valid();
+  document.getElementById('dashboard').addEventListener('click',event=>{
+    const button=event.target.closest('[data-operational-incident]');if(button&&allowed())void openOperationalIncident(button.dataset.operationalIncident);
+  });
+  document.getElementById('incidents-history-action').addEventListener('click',()=>{if(allowed()){renderOperationalIncidentHistory(operationalIncidentState);document.getElementById('admin-incident-history-modal').hidden=false;}});
+  document.getElementById('incidents-history-search').addEventListener('input',()=>{if(allowed())renderOperationalIncidentHistory(operationalIncidentState);});
+  const detail=document.getElementById('admin-incident-detail-modal'),history=document.getElementById('admin-incident-history-modal');
+  for(const modal of [detail,history])modal.addEventListener('click',event=>{
+    if(event.target===modal||event.target.closest('[data-modal-close]')){if(!operationalIncidentBusy){modal.hidden=true;++operationalIncidentTicket;}return;}
+    const button=event.target.closest('[data-operational-incident]');if(button&&allowed())void openOperationalIncident(button.dataset.operationalIncident);
+  });
+  document.getElementById('admin-incident-manage-action').addEventListener('click',()=>{if(allowed()&&operationalIncidentState.selected&&!operationalIncidentBusy)document.getElementById('admin-incident-management-form').hidden=false;});
+  document.getElementById('admin-incident-management-cancel').addEventListener('click',()=>{if(!operationalIncidentBusy)document.getElementById('admin-incident-management-form').hidden=true;});
+  document.getElementById('admin-incident-management-form').addEventListener('submit',submitOperationalIncident);
+  document.getElementById('admin-incident-status-select').addEventListener('change',()=>{
+    const selected=operationalIncidentState?.selected;if(!allowed()||!selected)return;
+    const required=operationalIncidentNoteRequired(selected,document.getElementById('admin-incident-status-select').value);
+    document.getElementById('admin-incident-resolution-note').required=required;document.getElementById('admin-incident-resolution-required').hidden=!required;
+  });
+  document.getElementById('admin-incident-related-action').addEventListener('click',event=>{if(allowed()&&!operationalIncidentBusy){const id=event.target.dataset.serviceId;closeOperationalDashboardIncidents();window.ElaraServices.navigateOperationalService(id);}});
+  document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!operationalIncidentBusy)for(const modal of [detail,history])modal.hidden=true;});
+  window.addEventListener('hashchange',()=>closeOperationalDashboardIncidents());
+  window.addEventListener('elara:auth-session-updated',()=>{if(operationalIncidentState&&!operationalIncidentState.valid())closeOperationalDashboardIncidents();});
+  // Router and Auth hide the view on navigation/context changes; close retained global modals.
+  if(window.MutationObserver){const observer=new window.MutationObserver(()=>{if(operationalIncidentState&&!operationalIncidentState.valid())closeOperationalDashboardIncidents();});observer.observe(document.getElementById('dashboard'),{attributes:true,attributeFilter:['hidden']});}
 }

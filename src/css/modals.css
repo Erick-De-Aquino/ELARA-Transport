@@ -770,6 +770,11 @@
 
 #service-summary-modal .modal__header {
   flex: 0 0 auto;
+  flex-wrap: wrap;
+}
+
+#service-summary-modal .modal__header-actions {
+  max-width: 100%;
 }
 
 #service-summary-modal .modal__body--summary {

@@ -5797,6 +5797,9 @@ function escapeHtml(value) {
 // =========================
 
 window.ElaraServices = {
+  navigateOperationalService,
+  openOperationalDetail: openServiceOperationalDetail,
+  closeOperationalDetail: closeOperationalServiceDetail,
   calculateServiceFinancialSummary,
   canServiceStartWithFinancialData,
   getNextServicePaymentId,
@@ -5809,41 +5812,448 @@ window.ElaraServices = {
   showServices,
 };
 
-// Read-only operational route. Legacy renderer below/above is retained for demo dependencies.
-async function showOperationalServices() {
+// Phase 1A: presentation only. No legacy service objects, reconciliation or writes.
+const operationalServiceStates = Object.freeze({
+  pending: ['Pendiente', 'warning'], confirmed: ['Confirmado', 'success'],
+  in_progress: ['En curso', 'info'], completed: ['Completado', 'success'],
+  cancelled: ['Cancelado', 'danger'], no_show: ['No presentado', 'neutral'],
+  not_performed: ['No realizado', 'neutral'],
+});
+function operationalServiceMoney(value, currency) {
+  if (value === null || value === undefined || String(value).trim() === '' ||
+      !Number.isFinite(Number(value)) || !/^[A-Z]{3}$/.test(currency || '')) return 'No disponible';
+  return new Intl.NumberFormat('es-ES', {style:'currency',currency}).format(Number(value));
+}
+function adaptOperationalService(row) {
+  const state = operationalServiceStates[row.operational_status] || [row.operational_status || 'No disponible','neutral'];
+  const assignment = ({pending_acceptance:'Pendiente de aceptación',accepted:'Aceptada',
+    reassignment_required:'Reasignación requerida'})[row.assignment_status] || row.assignment_status || 'Sin asignación actual';
+  const date = row.scheduled_start_at ? new Date(row.scheduled_start_at) : null;
+  const price = row.pricing_status === 'finalized' ? operationalServiceMoney(row.total_amount,row.currency_code) : null;
+  return {
+    id:row.service_id, code:row.human_code || 'Código no disponible',
+    date:date && Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat('es-ES', {
+      dateStyle:'short',timeStyle:'short',timeZone:'Europe/Madrid'}).format(date) : 'Fecha no disponible',
+    type:({transfer:'Traslado',hourly:'Por horas',airport:'Aeropuerto'})[row.service_type] || row.service_type || 'Tipo no disponible',
+    customer:row.customer_display_name || 'Cliente no disponible', state:state[0], tone:state[1], assignment,
+    driver:row.driver_display_name || 'Conductor no disponible',
+    vehicle:row.plate_normalized || row.vehicle_human_code || 'Vehículo no disponible',
+    origin:row.presentation_route?.origin || 'Origen no disponible',
+    destination:row.presentation_route?.destination || 'Destino no disponible',
+    price:price || 'Sin precio definitivo',
+    paid:price ? operationalServiceMoney(row.paid_amount,row.currency_code) : null,
+    pending:price ? operationalServiceMoney(row.pending_amount,row.currency_code) : null,
+    close:row.financial_close_label || 'Cierre financiero: servicio no completado',
+    receivable:row.active_receivable_id ? (row.active_receivable_code || 'CxC activa') : null,
+  };
+}
+async function loadOperationalServices(op, isCurrent, identityReady) {
+  const rows = await op.readAll('v_admin_service_overview','service_id');
+  await identityReady;
+  if (!isCurrent()) return [];
+  op.indexRecords({loaded:rows});
+  const operational = rows.filter(op.isOperationalRecord);
+  const ids = [...new Set(operational.map(r=>r.service_id))];
+  const routesReady = (async () => {
+  const locations = [];
+  // One scoped, paginated read per batch, never one read per card.
+  for (let offset=0;offset<ids.length;offset+=100) {
+    locations.push(...await op.readAll('service_locations','id',{column:'service_id',values:ids.slice(offset,offset+100)}));
+    if (!isCurrent()) return new Map();
+  }
+  op.indexRecords({locations});
+  const routes = new Map();
+  for (const location of locations.filter(op.isOperationalRecord)) {
+    const route = routes.get(location.service_id) || {};
+    if (['origin','destination'].includes(location.location_type)) {
+      // Ambiguous historical locations are not guessed.
+      const key=location.location_type;
+      route[key] = Object.hasOwn(route,key) ? null : (location.label || location.address || null);
+    }
+    routes.set(location.service_id,route);
+  }
+  return routes;
+  })();
+  const financesReady = Promise.all(operational.map(async row=>{
+    if(row.operational_status!=='completed')return row;
+    try{const c=await op.shareRead('financial-close-context',{serviceId:row.service_id},()=>window.ElaraFinancialClose.context(row.service_id));return {...row,financial_close:c.financial_close,
+      financial_close_label:c.financial_close==='pending'?'Cierre financiero pendiente':c.no_charge?'Sin importe a cobrar · resuelto':'Cierre financiero resuelto'};}
+    catch(_){return {...row,financial_close_label:'Revisión necesaria: lectura no disponible'};}
+  }));
+  const [routes, enriched] = await Promise.all([routesReady, financesReady]);
+  if (!isCurrent()) return [];
+  return enriched.map(row=>({...row,presentation_route:routes.get(row.service_id) || {}}));
+}
+function operationalServicesLayout({filters,notice}) {
+  return `<div class="summary-grid compact-summary compact-summary--six" data-operational-summary aria-label="Resumen del conjunto filtrado"></div>
+    <div class="services-toolbar list-toolbar">
+      <div class="list-toolbar__heading"><p class="panel__eyebrow">Operación real</p><h2>Servicios</h2></div>
+      <div class="list-toolbar__actions"><button type="button" class="button button--primary" data-service-admin-action="create">Nuevo servicio</button>
+        <button type="button" class="button button--secondary" data-operational-retry>Actualizar</button></div>
+      <div class="list-toolbar__legend"><label class="field field--search">Buscar servicios<input type="search" data-operational-search placeholder="Código, cliente, ruta o conductor"></label>${filters}</div>
+    </div>
+    <p>${notice}</p>
+    <div class="services-list-wrapper"><div class="services-list-header services-list-grid" aria-hidden="true"><span></span><span>Servicio / fecha</span><span>Tipo</span><span>Cliente</span><span>Ruta</span><span>Operación / asignación</span><span>Finanzas</span><span>Acciones</span></div>
+      <div class="services-list" data-operational-results></div></div>
+    <div class="cash-pagination"><p data-operational-page aria-live="polite"></p><button type="button" class="button button--secondary" data-operational-prev>Anterior</button><button type="button" class="button button--secondary" data-operational-next>Siguiente</button></div>
+    <div data-operational-detail-content aria-live="polite"></div>`;
+}
+function renderOperationalServicesSummary(rows, caption = '') {
+  const count = (...states)=>rows.filter(r=>states.includes(r.operational_status)).length;
+  return [['Total filtrado',rows.length,'neutral'],['Pendientes',count('pending'),'warning'],
+    ['Confirmados',count('confirmed'),'success'],['En curso',count('in_progress'),'info'],
+    ['Completados',count('completed'),'success'],['Cancelados / sin realizar',count('cancelled','no_show','not_performed'),'neutral']]
+    .map(([label,value,tone])=>`<article class="summary-card summary-card--${tone}"><span>${label}</span><strong>${value}</strong></article>`).join('') +
+    `<p class="services-summary-caption">Resultados del filtro: ${rows.length}. ${serviceAdminEscape(caption)}</p>`;
+}
+function renderOperationalServiceCards(rows) {
+  const esc=serviceAdminEscape;
+  return rows.map((row,index)=>{
+    const s=adaptOperationalService(row), editable=['pending','confirmed'].includes(row.operational_status);
+    const action=row.current_assignment_id?'reassign':'assign';
+    return `<article class="operation-card services-list-grid operation-card--${s.tone}" data-operational-service-id="${esc(s.id)}">
+      <div class="operation-card__marker" aria-hidden="true"></div>
+      <time class="operation-card__time operation-card__payment operation-card__payment--financial"><strong>${esc(s.code)}</strong><small>${esc(s.date)}</small></time>
+      <span class="operation-card__type">${esc(s.type)}</span><strong class="operation-card__client">${esc(s.customer)}</strong>
+      <p class="operation-card__route">${esc(s.origin)} → ${esc(s.destination)}</p>
+      <div class="operation-card__collaborator operation-card__payment operation-card__payment--financial"><strong>${esc(s.state)}</strong><small>Asignación: ${esc(s.assignment)}</small><small>${esc(s.driver)}</small><small>${esc(s.vehicle)}</small></div>
+      <div class="operation-card__payment operation-card__payment--financial"><strong>${esc(s.price)}</strong>${s.paid!==null?`<small>Pagado: ${esc(s.paid)}</small><small>Pendiente: ${esc(s.pending)}</small>`:''}<small>${esc(s.close)}</small>${s.receivable?`<small>${esc(s.receivable)}</small>`:''}</div>
+      <div class="operation-card__actions"><button type="button" class="button button--compact button--muted" data-operational-detail="${index}">Ver</button>
+        ${editable?`<button type="button" class="button button--compact" data-service-admin-action="${action}" data-service-id="${esc(s.id)}">${action==='assign'?'Asignar':'Reasignar'}</button>`:''}
+        ${row.operational_status==='completed'?`<button type="button" class="button button--compact" data-financial-kind="admin" data-financial-id="${esc(s.id)}">Revisar cierre</button>`:''}</div>
+    </article>`;
+  }).join('');
+}
+
+// Operational entry stays authoritative; the original detail modal uses fresh real sources.
+let pendingOperationalService = null;
+function operationalServiceScope() {
+  const user=window.ElaraAuth?.getCurrentUser?.();
+  return JSON.stringify([user?.id,user?.appSessionId,window.ElaraAuth?.getActiveContext?.()]);
+}
+function navigateOperationalService(serviceId) {
+  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(serviceId||'') ||
+      !['administrativo','superadmin'].includes(window.ElaraAuth?.getActiveContext?.())) return false;
+  pendingOperationalService={id:serviceId,scope:operationalServiceScope()};
+  window.ElaraRouter.navigateTo('servicios');
+  return true;
+}
+async function showOperationalServices({history=false}={}) {
   const op = window.ElaraOperationalData;
   if (!op) throw new Error('Lectura operativa no disponible.');
-  await op.show('servicios', {title: 'Servicios', load: async () => {
-    const rows=await op.readAll('v_admin_service_overview','service_id');
-    return Promise.all(rows.map(async row=>{
-      if(row.operational_status!=='completed'||!op.isOperationalRecord(row))return row;
-      try{const c=await window.ElaraFinancialClose.context(row.service_id);return {...row,financial_close:c.financial_close,
-        financial_close_label:c.financial_close==='pending'?'Cierre financiero pendiente':c.no_charge?'Sin importe a cobrar · resuelto':'Cierre financiero resuelto'};}
-      catch(_){return {...row,financial_close_label:'Revisión necesaria: lectura no disponible'};}
-    }));
-  },
-filters:[{label:'Cierre financiero',value:r=>r.financial_close==='pending'?'Cierre financiero pendiente':r.financial_close==='resolved'?'Cierre financiero resuelto':r.financial_close_label||''}],
+  const requestedService=pendingOperationalService;
+  closeOperationalServiceDetail();
+  bindOperationalServicesHistory();
+  operationalServicesHistory=null;
+  document.getElementById('services-history-action').hidden=!['administrativo','superadmin'].includes(window.ElaraAuth?.getActiveContext?.());
+  document.getElementById('services-history-action').disabled=true;
+  document.getElementById('services-history-list').replaceChildren();
+  const view = document.getElementById('servicios');
+  if (view) view.onclick = event => {
+    const button = event.target.closest('[data-service-admin-action]');
+    if (button) void serviceAdminOpen(button.dataset.serviceAdminAction, button.dataset.serviceId || '');
+  };
+  const shown = await op.show('servicios', {title: 'Servicios', parallelLoad:true,
+    load: ({isCurrent,identityReady}) => loadOperationalServices(op, isCurrent, identityReady),
+presentation:{panelClassName:'panel services-panel services-visual-panel',layout:operationalServicesLayout,
+  summary:renderOperationalServicesSummary,rows:renderOperationalServiceCards,
+  ready:(rows,guard)=>prepareOperationalServicesHistory(rows,guard,history)},
+defaultFilters:false,
+filters:[{label:'Estado operativo',value:r=>r.operational_status,text:r=>adaptOperationalService(r).state},
+  {label:'Cierre financiero',value:r=>r.financial_close==='pending'?'Cierre financiero pendiente':r.financial_close==='resolved'?'Cierre financiero resuelto':r.financial_close_label||''},
+  {label:'Conductor',value:r=>r.driver_id||'',text:r=>r.driver_display_name||r.driver_id},
+  {label:'Cliente',value:r=>r.customer_id||'',text:r=>r.customer_display_name||r.customer_id}],
+searchText:r=>Object.values(adaptOperationalService(r)).join(' '),
 pageSummary:'Servicios reales · QA/legacy excluido · Efectivo 0050 · Finalización administrativa deshabilitada',
 rowActions:r=>r.operational_status==='completed'?`<button type="button" class="button button--secondary" data-financial-kind="admin" data-financial-id="${serviceAdminEscape(r.service_id)}">Revisar cierre</button>`:'',
 notice: 'Contratos remotos. Cierre financiero en efectivo para servicios completados; finalización operativa a cargo del conductor.',
 columns: [['Servicio','human_code'],['Fecha','scheduled_start_at'],['Cliente','customer_display_name'],['Estado','operational_status'],['Cierre financiero',r=>r.financial_close_label||'No completado'],['Conductor',r=>op.display(r.driver_display_name)],['Matrícula',r=>op.display(r.plate_normalized)],['Pendiente','pending_amount'],['Moneda','currency_code']],
-summary: rows=>'Pendiente global del filtro: '+op.money(rows,'pending_amount'), detail: async row =>
-  await op.serviceDetail(row) + serviceAdminActions(row)});
-  const view = document.getElementById('servicios');
+summary: rows=>'Pendiente global del filtro: '+op.money(rows,'pending_amount'),
+openDetail: (row,guard)=>openOperationalServiceDetail(row.service_id,guard.isCurrent)});
+  if (!shown) {
+    if (pendingOperationalService===requestedService) pendingOperationalService=null;
+    return;
+  }
   if (!view || view.hidden) return;
   const panel = view.querySelector('[data-operational-panel]');
   if (!panel) return;
   if (panel.querySelector('[role="alert"]')) return false;
-  const toolbar = document.createElement('div');
-  toolbar.innerHTML = '<button type="button" class="button button--primary" data-service-admin-action="create">Nuevo servicio</button>';
-  panel.prepend(toolbar);
+  if (!panel.querySelector('[data-service-admin-action="create"]')) {
+    const toolbar = document.createElement('div');
+    toolbar.innerHTML = '<button type="button" class="button button--primary" data-service-admin-action="create">Nuevo servicio</button>';
+    panel.prepend(toolbar);
+  }
   const summary = document.getElementById('page-summary');
-  if (summary) summary.textContent = 'Servicios reales · QA/legacy excluido · Efectivo 0050 · Finalización administrativa deshabilitada';
-  view.onclick = event => {
-    const button = event.target.closest('[data-service-admin-action]');
-    if (button) void serviceAdminOpen(button.dataset.serviceAdminAction, button.dataset.serviceId || '');
-  };
+  if (summary&&!history) summary.textContent = 'Servicios reales · QA/legacy excluido · Efectivo 0050 · Finalización administrativa deshabilitada';
+  if (requestedService && pendingOperationalService===requestedService) {
+    pendingOperationalService=null;
+    if (requestedService.scope===operationalServiceScope() && op.getCollection('servicios').some(row=>row.service_id===requestedService.id)) {
+      const search=panel.querySelector('[data-operational-search]');
+      search.value=requestedService.id;
+      search.oninput({target:search});
+      panel.querySelector(`[data-operational-service-id="${requestedService.id}"] [data-operational-detail]`)?.click();
+    }
+  }
   return true;
+}
+
+// Phase 1B.3: one retained historical panel, no legacy initialization or second data load.
+let operationalServicesHistory=null;
+let operationalServicesHistoryBound=false;
+const operationalClosedServiceStates=new Set(['completed','cancelled','no_show','not_performed']);
+function prepareOperationalServicesHistory(rows,{panel,isCurrent},showHistory) {
+  const scope=operationalServiceScope();
+  operationalServicesHistory={panel,mode:false,page:1,query:'',version:0,
+    rows:rows.filter(r=>operationalClosedServiceStates.has(r.operational_status)&&window.ElaraOperationalData.isOperationalRecord(r))
+      .slice().sort((a,b)=>{
+        const time=r=>Number.isFinite(Date.parse(r.scheduled_start_at))?Date.parse(r.scheduled_start_at):-Infinity;
+        return time(b)-time(a)||String(b.service_id).localeCompare(String(a.service_id));
+      }),
+    valid:()=>isCurrent()&&scope===operationalServiceScope()&&!document.getElementById('servicios').hidden&&
+      ['administrativo','superadmin'].includes(window.ElaraAuth?.getActiveContext?.())};
+  const button=document.getElementById('services-history-action');button.disabled=false;button.textContent='Historial';
+  document.getElementById('services-history-search').value='';
+  if(showHistory)setOperationalServicesHistory(true);
+}
+function setOperationalServicesHistory(visible) {
+  const state=operationalServicesHistory;if(!state?.valid())return;
+  closeOperationalServiceDetail();state.mode=visible;++state.version;
+  state.panel.hidden=visible;document.getElementById('services-history-panel').hidden=!visible;
+  document.getElementById('services-history-action').textContent=visible?'Volver a servicios':'Historial';
+  document.getElementById('page-title').textContent=visible?'Historial de servicios':'Servicios';
+  document.getElementById('page-summary').textContent=visible?'Servicios cerrados · Estados operativos terminales · Cierre financiero independiente':'Servicios reales · QA/legacy excluido · Efectivo 0050 · Finalización administrativa deshabilitada';
+  if(visible)renderOperationalServicesHistory();
+}
+function renderOperationalServicesHistory() {
+  const state=operationalServicesHistory;if(!state?.valid()||!state.mode)return;
+  closeOperationalServiceDetail();++state.version;
+  const op=window.ElaraOperationalData,html=serviceAdminEscape;
+  const rows=state.rows.filter(r=>op.isOperationalRecord(r)&&Object.values(adaptOperationalService(r)).join(' ').toLocaleLowerCase('es').includes(state.query));
+  state.page=Math.max(1,Math.min(state.page,Math.ceil(rows.length/25)||1));
+  const visible=rows.slice((state.page-1)*25,state.page*25);
+  document.getElementById('services-history-list').innerHTML=visible.length?visible.map(row=>{
+    const s=adaptOperationalService(row);
+    return `<article class="operation-card services-list-grid operation-card--${s.tone}" data-historical-service-id="${html(s.id)}"><div class="operation-card__marker" aria-hidden="true"></div><time class="operation-card__time operation-card__payment operation-card__payment--financial"><strong>${html(s.code)}</strong><small>${html(s.date)}</small></time><span class="operation-card__type">${html(s.type)}</span><strong class="operation-card__client">${html(s.customer)}</strong><p class="operation-card__route">${html(s.origin)} → ${html(s.destination)}</p><div class="operation-card__collaborator operation-card__payment operation-card__payment--financial"><strong>${html(s.driver)}</strong><small>${html(s.vehicle)}</small></div><div class="operation-card__payment operation-card__payment--financial"><strong>${html(s.state)}</strong><small>${html(row.operational_status==='completed'?s.close:'Cierre financiero: no evaluado para este estado')}</small></div><div class="operation-card__actions"><button class="button button--compact button--muted" type="button" data-history-service-detail="${html(s.id)}">Detalle</button></div></article>`;
+  }).join(''):'<p class="service-assignment-empty" role="status">No hay servicios cerrados para esta búsqueda.</p>';
+  document.getElementById('services-history-status').textContent=`${rows.length} servicios cerrados. Orden: fecha programada descendente. Datos de la última lectura operativa completa; usa Actualizar para renovarlos.`;
+  document.getElementById('services-history-page').textContent=`Página ${state.page} de ${Math.ceil(rows.length/25)||1}`;
+  document.getElementById('services-history-prev').disabled=state.page===1;
+  document.getElementById('services-history-next').disabled=state.page*25>=rows.length;
+}
+function bindOperationalServicesHistory() {
+  if(operationalServicesHistoryBound)return;operationalServicesHistoryBound=true;
+  document.getElementById('services-history-action').addEventListener('click',()=>{
+    if(operationalServicesHistory?.valid())setOperationalServicesHistory(!operationalServicesHistory.mode);
+  });
+  document.getElementById('services-history-search').addEventListener('input',event=>{
+    const state=operationalServicesHistory;if(!state?.valid()||!state.mode)return;
+    state.query=event.target.value.trim().toLocaleLowerCase('es');state.page=1;renderOperationalServicesHistory();
+  });
+  for(const [id,delta]of [['services-history-prev',-1],['services-history-next',1]])document.getElementById(id).addEventListener('click',()=>{
+    const state=operationalServicesHistory;if(state?.valid()&&state.mode){state.page+=delta;renderOperationalServicesHistory();}
+  });
+  document.getElementById('services-history-refresh').addEventListener('click',()=>{
+    if(operationalServicesHistory?.valid()&&operationalServicesHistory.mode)void showOperationalServices({history:true});
+  });
+  document.getElementById('services-history-list').addEventListener('click',event=>{
+    const button=event.target.closest('[data-history-service-detail]'),state=operationalServicesHistory;
+    if(!button||!state?.valid()||!state.mode||!state.rows.some(r=>r.service_id===button.dataset.historyServiceDetail))return;
+    const version=state.version;
+    void openOperationalServiceDetail(button.dataset.historyServiceDetail,()=>state===operationalServicesHistory&&state.valid()&&state.mode&&version===state.version);
+  });
+  window.addEventListener('elara:auth-session-updated',()=>{
+    if(operationalServicesHistory&&!operationalServicesHistory.valid()){
+      operationalServicesHistory=null;document.getElementById('services-history-panel').hidden=true;
+      document.getElementById('services-history-action').hidden=true;
+      document.getElementById('services-history-list').replaceChildren();
+    }
+  });
+}
+
+// Phase 1B.1: reuse the original summary DOM, with no legacy models or initializers.
+let operationalServiceDetail = null;
+let operationalServiceDetailTicket = 0;
+let operationalServiceDetailBound = false;
+const operationalServiceDetailDate = new Intl.DateTimeFormat('es-ES',{timeZone:'Europe/Madrid',day:'2-digit',month:'2-digit',year:'numeric'});
+const operationalServiceDetailTime = new Intl.DateTimeFormat('es-ES',{timeZone:'Europe/Madrid',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
+function closeOperationalServiceDetail({reason='close'}={}) {
+  const previous=operationalServiceDetail;
+  ++operationalServiceDetailTicket;operationalServiceDetail=null;
+  const modal=document.getElementById('service-summary-modal');if(!modal)return;
+  modal.hidden=true;delete modal.dataset.serviceId;
+  for(const node of modal.querySelectorAll('dd'))node.textContent='—';
+  for(const button of modal.querySelectorAll('#service-detail-view-actions button:not([data-modal-close]),.service-financial-panel button')) {
+    button.disabled=true;delete button.dataset.financialKind;delete button.dataset.financialId;
+  }
+  for(const id of ['service-detail-edit','service-detail-assign','service-detail-reassign','service-detail-cancel-service'])document.getElementById(id).hidden=true;
+  document.getElementById('summary-service-payment-history').textContent='No consultado.';
+  document.getElementById('service-operational-history').open=false;
+  const history=document.getElementById('service-operational-history-content');
+  history.removeAttribute('aria-busy');history.innerHTML='<p class="modal__hint" role="status">Despliega esta sección para consultar el historial.</p>';
+  previous?.onClose?.(reason);
+}
+function operationalServiceDetailText(name,value) {
+  document.getElementById('summary-service-'+name).textContent=value===null||value===undefined||value===''?'No disponible':String(value);
+}
+function bindOperationalServiceDetail() {
+  if(operationalServiceDetailBound)return;operationalServiceDetailBound=true;
+  const modal=document.getElementById('service-summary-modal');
+  modal.addEventListener('click',event=>{
+    if(event.target===modal||event.target.closest('[data-modal-close]')){
+      event.preventDefault();event.stopPropagation();closeOperationalServiceDetail();return;
+    }
+    const state=operationalServiceDetail;if(!state?.valid()||!state.loaded){
+      if(event.target.closest('[data-financial-kind]')){event.preventDefault();event.stopPropagation();}return;
+    }
+    const button=event.target.closest('button');if(!button||button.disabled)return;
+    if(button.hasAttribute('data-service-history-retry')){void loadOperationalServiceHistory(state);return;}
+    const actions={'service-detail-edit':'update','service-detail-assign':'assign','service-detail-reassign':'reassign','service-detail-cancel-service':'cancel'};
+    if(actions[button.id]){const id=state.id;closeOperationalServiceDetail({reason:'handoff'});void window.ElaraServiceAdmin.open(actions[button.id],id);}
+    // Financial buttons deliberately bubble to the existing 0050 delegated listener.
+    if(button.dataset.financialKind){modal.hidden=true;++operationalServiceDetailTicket;operationalServiceDetail=null;}
+  });
+  document.addEventListener('keydown',event=>{
+    if(event.key==='Escape'&&!modal.hidden){event.preventDefault();event.stopImmediatePropagation();closeOperationalServiceDetail();}
+  },true);
+  const invalidate=()=>{if(operationalServiceDetail&&!operationalServiceDetail.valid())closeOperationalServiceDetail({reason:'invalidated'});};
+  window.addEventListener('hashchange',()=>closeOperationalServiceDetail({reason:'navigation'}));
+  window.addEventListener('elara:auth-session-updated',invalidate);
+  document.getElementById('service-operational-history').addEventListener('toggle',event=>{
+    if(event.target.open&&operationalServiceDetail?.loaded)void loadOperationalServiceHistory(operationalServiceDetail);
+  });
+  if(window.MutationObserver){const observer=new window.MutationObserver(invalidate);
+    for(const id of ['servicios','clientes'])observer.observe(document.getElementById(id),{attributes:true,childList:true,subtree:true});}
+}
+function openServiceOperationalDetail(id,{viewId='servicios',isCurrent=()=>true,onClose}={}) {
+  if(!['servicios','clientes'].includes(viewId)||typeof isCurrent!=='function')return Promise.resolve(false);
+  return openOperationalServiceDetail(id,isCurrent,viewId,onClose);
+}
+async function openOperationalServiceDetail(id,isCurrent=()=>true,viewId='servicios',onClose) {
+  const op=window.ElaraOperationalData;
+  if(!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id||'')||
+    !['servicios','clientes'].includes(viewId)||document.getElementById(viewId)?.hidden!==false||
+    !window.ElaraAuth?.getCurrentUser?.()||!['administrativo','superadmin'].includes(window.ElaraAuth?.getActiveContext?.())||!isCurrent())return;
+  bindOperationalServiceDetail();closeOperationalServiceDetail({reason:'replace'});
+  const modal=document.getElementById('service-summary-modal'),scope=operationalServiceScope(),ticket=++operationalServiceDetailTicket;
+  const state={id,loaded:false,onClose:typeof onClose==='function'?onClose:null,valid:()=>ticket===operationalServiceDetailTicket&&scope===operationalServiceScope()&&isCurrent()&&
+    !document.getElementById(viewId).hidden&&['administrativo','superadmin'].includes(window.ElaraAuth?.getActiveContext?.())};
+  operationalServiceDetail=state;modal.dataset.serviceId=id;modal.hidden=false;
+  modal.querySelector('[data-modal-close]').focus?.({preventScroll:true});
+  document.getElementById('service-detail-view').hidden=false;
+  for(const key of ['service-detail-edit-actions','service-detail-edit-form','service-detail-cancel-form','summary-service-portal-access-warning-field','summary-service-cancellation-reason-field','summary-service-finish-closure-field','summary-service-no-show-field','summary-service-financial-writeoff-field','summary-service-receivable-section'])document.getElementById(key).hidden=true;
+  for(const key of ['summary-service-assignment-status-field','summary-service-passenger-field','summary-service-financial-section','service-detail-view-actions'])document.getElementById(key).hidden=false;
+  const status=document.getElementById('service-detail-operational-status');status.setAttribute('role','status');status.textContent='Cargando detalle real…';
+  operationalServiceDetailText('uuid',id);
+  try {
+    await op.loadIdentity();if(!state.valid())return;
+    const service=op.getCollection('services').find(r=>r.id===id&&op.isOperationalRecord(r)&&!r.deleted_at);
+    if(!service)throw Error('Servicio no operativo o no accesible.');
+    const related=async table=>(await op.readAll(table,'id',{column:'service_id',values:[id]})).filter(r=>r.service_id===id&&op.isOperationalRecord(r));
+    const financial=Promise.allSettled([related('service_financials'),related('service_payments'),service.operational_status==='completed'?
+      op.shareRead('financial-close-context',{serviceId:id},()=>window.ElaraFinancialClose.context(id)):Promise.resolve(null)]);
+    const [passengers,locations,assignments,economics]=await Promise.all([related('service_passengers'),related('service_locations'),related('service_assignments'),financial]);
+    if(!state.valid())return;
+    const date=service.scheduled_start_at?new Date(service.scheduled_start_at):null;
+    const customer=op.getCollection('customers').find(r=>r.id===service.customer_id);
+    const current=assignments.filter(a=>!a.ended_at&&['pending_acceptance','accepted','reassignment_required'].includes(a.assignment_status));
+    const assignment=current.length===1?current[0]:null;
+    const driver=op.getCollection('drivers').find(r=>r.id===assignment?.driver_id),vehicle=op.getCollection('vehicles').find(r=>r.id===assignment?.vehicle_id);
+    const person=driver?op.personName(driver.person_id):null;
+    const assignmentLabels={pending_acceptance:'Pendiente de aceptación',accepted:'Aceptada',reassignment_required:'Reasignación requerida'};
+    const types={transfer:'Punto a punto',airport:'Aeropuerto',full_day:'Full Day',pets:'Mascotas',long_distance:'Larga distancia',hourly:'Por horas'};
+    const fields={number:service.human_code,uuid:id,type:types[service.service_type]||service.service_type,
+      date:date&&Number.isFinite(date.getTime())?operationalServiceDetailDate.format(date):null,
+      time:date&&Number.isFinite(date.getTime())?operationalServiceDetailTime.format(date):null,
+      client:customer?op.customerName(customer):'Cliente no disponible',status:operationalServiceStates[service.operational_status]?.[0]||service.operational_status,
+      collaborator:assignment?(person&&person!=='No disponible'?`${driver.human_code||assignment.driver_id} · ${person}`:assignment.driver_id):'Sin asignación actual',
+      'assignment-status':assignment?assignmentLabels[assignment.assignment_status]:current.length>1?'Asignación actual ambigua; revisar':'Sin asignación actual',
+      vehicle:assignment?(vehicle?[vehicle.human_code,vehicle.plate_normalized,vehicle.brand,vehicle.model].filter(Boolean).join(' · '):assignment.vehicle_id):'Sin asignación actual',
+      notes:service.notes||'Sin observaciones',passenger:passengers.length?passengers.sort((a,b)=>Number(b.is_primary)-Number(a.is_primary)||String(a.id).localeCompare(String(b.id))).map(p=>[p.display_name,p.phone,p.email,p.notes?`Notas del pasajero: ${p.notes}`:null].filter(Boolean).join(' · ')).join(' / '):'Sin pasajeros registrados'};
+    for(const kind of ['origin','destination']){
+      const values=locations.filter(l=>l.location_type===kind);
+      fields[kind]=values.length===1?values[0].label:values.length?'Ubicación ambigua; revisar':'No registrado';
+      fields[kind+'-address']=values.length===1?values[0].address||'Sin dirección registrada':'No disponible';
+    }
+    for(const [name,value]of Object.entries(fields))operationalServiceDetailText(name,value);
+    const editable=['pending','confirmed'].includes(service.operational_status);
+    for(const key of ['service-detail-edit','service-detail-assign','service-detail-reassign','service-detail-cancel-service']){
+      const button=document.getElementById(key);button.hidden=!editable;button.disabled=!editable;button.title=editable?'':'El estado operativo no permite esta acción';
+    }
+    renderOperationalServiceEconomics(service,economics);
+    state.loaded=true;status.textContent='Lectura operativa actual · Fechas y horas en Europe/Madrid.';
+    if(document.getElementById('service-operational-history').open)void loadOperationalServiceHistory(state);
+  }catch(error){if(state.valid()){
+    for(const node of modal.querySelectorAll('dd'))node.textContent='No disponible';operationalServiceDetailText('uuid',id);
+    status.setAttribute('role','alert');status.textContent='No se pudo cargar el detalle. Cierra y vuelve a abrir para reintentar.';
+  }}
+}
+async function loadOperationalServiceHistory(state) {
+  if(!state?.loaded||!state.valid()||operationalServiceDetail!==state||state.historyPending||state.historyStatus==='loaded')return;
+  state.historyPending=true;state.historyStatus='loading';
+  const op=window.ElaraOperationalData,content=document.getElementById('service-operational-history-content');
+  const current=()=>operationalServiceDetail===state&&state.valid()&&!document.getElementById('service-summary-modal').hidden;
+  content.setAttribute('aria-busy','true');content.innerHTML='<p class="modal__hint" role="status">Cargando historial operativo…</p>';
+  try {
+    const records=await op.readAll('service_status_history','id',{column:'service_id',values:[state.id]});
+    if(!current())return;
+    const events=records.filter(row=>row.service_id===state.id&&op.isOperationalRecord(row));
+    if(events.some(row=>!Number.isFinite(Date.parse(row.changed_at))||!row.from_status||!row.to_status||row.from_status===row.to_status))throw Error('Historial incompleto.');
+    events.sort((a,b)=>Date.parse(b.changed_at)-Date.parse(a.changed_at)||String(b.id).localeCompare(String(a.id)));
+    const users=[];const ids=[...new Set(events.map(row=>row.changed_by_user_id).filter(Boolean))];
+    // Names are optional. Read only actors actually recorded; never infer them from services.updated_by.
+    for(let offset=0;offset<ids.length;offset+=100){
+      try{users.push(...(await op.readAll('app_users','id',{column:'id',values:ids.slice(offset,offset+100)})).filter(op.isOperationalRecord));}
+      catch{ /* Keep factual transitions when an authorized actor name cannot be resolved. */ }
+      if(!current())return;
+    }
+    const html=serviceAdminEscape;
+    const label=value=>operationalServiceStates[value]?.[0]||value;
+    const badge=value=>`<span class="status-pill status--${operationalServiceStates[value]?.[1]||'neutral'}">${html(label(value))}</span>`;
+    const personName=id=>{const name=id?op.personName(id):null;return name&&name!=='No disponible'?name:null;};
+    const actor=row=>{
+      if(row.changed_by_driver_id&&row.changed_by_user_id)return 'Responsable no identificable';
+      if(row.changed_by_driver_id){
+        const driver=op.getCollection('drivers').find(d=>d.id===row.changed_by_driver_id&&op.isOperationalRecord(d));
+        const name=driver&&(personName(driver.person_id)||driver.human_code);
+        return name?`Conductor · ${name}`:'Responsable no identificable';
+      }
+      const user=users.find(u=>u.id===row.changed_by_user_id),name=user&&personName(user.person_id);
+      return name?`Usuario · ${name}`:'Responsable no identificable';
+    };
+    const stages={on_way:'En camino',waiting_passenger:'Esperando al pasajero',passenger_on_board:'Pasajero a bordo',finishing:'Finalizando',finished:'Finalizado'};
+    const contexts={administrativo:'Administración',superadmin:'Superadministración',conductor:'Conductor'};
+    content.innerHTML=events.length?`<ol class="activity-list">${events.map(row=>{
+      const date=new Date(row.changed_at),fullDate=operationalServiceDetailDate.format(date)+' '+operationalServiceDetailTime.format(date);
+      // Allowlist persisted, meaningful metadata. Never dump session IDs or financial/incident payloads.
+      const additional=[Object.hasOwn(stages,row.metadata?.driver_stage)?`Etapa registrada: ${stages[row.metadata.driver_stage]}`:null,Object.hasOwn(contexts,row.metadata?.active_context)?`Contexto registrado: ${contexts[row.metadata.active_context]}`:null];
+      return `<li data-service-history-event="${html(row.id)}"><time datetime="${html(date.toISOString())}" title="${html(fullDate)}">${html(operationalServiceDetailTime.format(date))}</time><div class="incident-item__content"><small>${html(operationalServiceDetailDate.format(date))}</small><strong>${badge(row.from_status)} → ${badge(row.to_status)}</strong><span>${html(actor(row))}</span>${typeof row.reason==='string'&&row.reason.trim()?`<span class="modal__field-value">Motivo registrado: ${html(row.reason)}</span>`:''}${additional.filter(Boolean).map(text=>`<small>${html(text)}</small>`).join('')}</div></li>`;
+    }).join('')}</ol>`:'<p class="modal__hint" role="status">No hay transiciones operativas registradas para este servicio.</p>';
+    state.historyStatus='loaded';
+  }catch(error){if(current()){
+    state.historyStatus='error';content.innerHTML='<p class="modal__hint" role="alert">No se pudo cargar el historial operativo.</p><button class="button button--compact button--muted" type="button" data-service-history-retry>Reintentar lectura</button>';
+  }}finally{state.historyPending=false;if(current())content.removeAttribute('aria-busy');}
+}
+function renderOperationalServiceEconomics(service,results) {
+  const id=service.id,html=serviceAdminEscape;
+  const [finances,payments,close]=results;
+  const records=finances.status==='fulfilled'?finances.value:[],f=records.length===1?records[0]:null;
+  const finalized=f?.pricing_status==='finalized';
+  const pricing=document.getElementById('service-detail-financial-edit');
+  pricing.disabled=['cancelled','no_show','not_performed'].includes(service.operational_status);
+  if(!pricing.disabled){pricing.dataset.financialKind='pricing';pricing.dataset.financialId=id;}
+  const closing=document.getElementById('service-detail-payment-register');closing.disabled=service.operational_status!=='completed';
+  if(!closing.disabled){closing.dataset.financialKind='admin';closing.dataset.financialId=id;}
+  const money=value=>operationalServiceMoney(value,f?.currency_code);
+  operationalServiceDetailText('financial-pricing',f?(finalized?'Precio definitivo':'Sin precio definitivo'):'Información financiera no disponible');
+  operationalServiceDetailText('financial-base',finalized?money(f.taxable_base_amount):'No disponible');
+  operationalServiceDetailText('financial-vat',finalized?`${f.tax_rate} % · ${money(f.tax_amount)}`:'No disponible');
+  operationalServiceDetailText('financial-total',f?(finalized?money(f.total_amount):'Sin precio definitivo'):'No disponible');
+  operationalServiceDetailText('financial-paid',finalized?money(f.paid_amount):'No disponible');
+  operationalServiceDetailText('financial-pending',finalized?money(f.pending_amount):'No disponible');
+  operationalServiceDetailText('financial-status',f?({pending:'Pendiente',paid:'Pagado',partial:'Parcial',cancelled:'Cancelado',not_collectible:'Incobrable'}[f.financial_status]||f.financial_status):null);
+  const c=close.status==='fulfilled'?close.value:null;
+  operationalServiceDetailText('financial-close',service.operational_status!=='completed'?'No corresponde todavía':c?.service_id===id&&['pending','resolved'].includes(c.financial_close)?c.financial_close==='pending'?'Cierre financiero pendiente':c.no_charge?'Sin importe a cobrar · resuelto':'Cierre financiero resuelto':'Lectura 0050 no disponible; revisar');
+  document.getElementById('summary-service-payment-history').innerHTML=payments.status==='fulfilled'?(payments.value.length?payments.value.map(p=>`<article class="service-financial-payment"><time>${html(p.registered_at&&Number.isFinite(Date.parse(p.registered_at))?operationalServiceDetailDate.format(new Date(p.registered_at))+' '+operationalServiceDetailTime.format(new Date(p.registered_at)):'Fecha no disponible')}</time><strong>${html(operationalServiceMoney(p.amount,p.currency_code))}</strong><span>${html(p.payment_method==='cash'?'Efectivo':p.payment_method||'Método no disponible')}</span><small>${html(({completed:'Completado',pending:'Pendiente',failed:'Fallido',cancelled:'Cancelado',reversed:'Revertido'})[p.payment_status]||p.payment_status)}</small><small class="modal__field-value">${html(p.human_code||p.id)}</small></article>`).join(''):'Sin pagos registrados.'):'No se pudieron consultar los pagos.';
 }
 
 // Administrative writes are deliberately isolated from the legacy demo handlers.
@@ -5968,19 +6378,97 @@ async function serviceAdminExecute(action, values, serviceId = '') {
   } finally { serviceAdminBusy = false; }
 }
 
+function serviceAdminCreateWizard(customer, route, passenger) {
+  const step = (number, title, content) => `<section class="wizard-step wizard-step--${number === 1 ? 'active' : 'pending'}" data-create-step="${number}"><button class="wizard-step__summary" type="button" data-create-toggle="${number}" aria-expanded="${number === 1}"><span>Paso ${number}</span><strong>${title}</strong></button><div class="wizard-step__body" ${number === 1 ? '' : 'hidden'}><div class="wizard-step__content">${content.replaceAll('class="form-field"','class="field"')}</div><div class="wizard-step__actions">${number > 1 ? `<button class="button button--compact button--muted" type="button" data-create-toggle="${number-1}">Anterior</button>` : ''}${number < 5 ? `<button class="button button--compact" type="button" data-create-toggle="${number+1}">Continuar</button>` : '<button class="button button--primary" type="submit">Crear servicio</button><button class="button button--compact button--muted" type="button" data-service-admin-close>Cancelar</button>'}</div></div></section>`;
+  return `<div class="modal__body--wizard wizard" data-create-wizard>${step(1,'Servicio y trayecto',`<div class="wizard-field-group form-grid">${route}</div><p>Paradas y detalles específicos por tipo no disponibles en creación.</p>`)}${step(2,'Cliente y pasajero',`<label class="field"><span>Buscar cliente existente</span><input type="search" data-create-customer-search placeholder="Buscar entre clientes autorizados" autocomplete="off"></label><div class="form-grid">${customer}</div><div class="service-customer-results" data-create-customer-results hidden></div><div class="service-customer-selected" data-create-customer-selected hidden></div><button class="button button--compact button--muted" type="button" disabled>Crear cliente</button><p>La creación de clientes se realiza desde su módulo.</p><div class="form-grid form-grid--passenger">${passenger}</div>`)}${step(3,'Asignación','<section class="service-assignment__section"><h3 class="modal__section-title">Asignación posterior</h3><p>Crear primero y asignar después</p><p>El servicio se crea sin conductor asignado. La asignación se realiza después mediante la operación vigente.</p></section>')}${step(4,'Pago','<fieldset disabled><legend>Precio y cobro</legend><label class="field">Precio<input placeholder="Sin habilitación financiera"></label></fieldset><p>El precio y el cobro no se registran en este formulario. Se gestionan posteriormente mediante los flujos financieros vigentes.</p>')}${step(5,'Confirmación','<dl class="modal__grid summary-list" data-create-summary></dl>')}</div>`;
+}
+
+function serviceAdminSummarySchedule(value) {
+  // Parse exactly as serviceAdminArgs does: datetime-local uses the browser zone.
+  // Only the display is converted to Madrid; never write this string to the input.
+  if (!value) return 'Sin indicar';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Fecha no válida';
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('es-ES', {
+    timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(date).map(part => [part.type,part.value]));
+  return `${parts.day}/${parts.month}/${parts.year} — ${parts.hour}:${parts.minute}`;
+}
+
+function serviceAdminBindCreateWizard(form, context) {
+  const modal = form.closest('.modal-backdrop');
+  const field = name => form.querySelector(`[name="${name}"]`);
+  const summary = () => {
+    const labels = [['serviceType','Tipo de servicio'],['schedule','Fecha y hora (Europe/Madrid)'],['customerId','Cliente'],['origin','Origen'],['originAddress','Dirección de origen'],['destination','Destino'],['destinationAddress','Dirección de destino'],['passenger','Persona que viaja'],['phone','Teléfono'],['notes','Observaciones']];
+    form.querySelector('[data-create-summary]').innerHTML = labels.map(([name,label]) => {
+      const el = field(name), value = el.tagName === 'SELECT' ? el.querySelector('option:checked')?.textContent || el.value : el.value;
+      return `<div class="modal__field"><dt class="modal__field-label">${label}</dt><dd class="modal__field-value">${serviceAdminEscape(name === 'schedule' ? serviceAdminSummarySchedule(value) : value || 'Sin indicar')}</dd></div>`;
+    }).join('') + '<div class="modal__field"><dt class="modal__field-label">Asignación y precio</dt><dd class="modal__field-value">Se gestionan después de crear</dd></div>';
+  };
+  const show = number => {
+    form.querySelectorAll('[data-create-step]').forEach(step => {
+      const active = Number(step.dataset.createStep) === number;
+      step.classList.toggle('wizard-step--active',active);
+      step.classList.toggle('wizard-step--pending',!active);
+      step.querySelector('.wizard-step__body').hidden = !active;
+      step.querySelector('[data-create-toggle]').setAttribute('aria-expanded',String(active));
+    });
+    summary();
+  };
+  form.onclick = event => {
+    const button = event.target.closest('[data-create-toggle]');
+    if (!button || serviceAdminSubmitting || serviceAdminBusy) return;
+    const target = Number(button.dataset.createToggle);
+    for (const step of form.querySelectorAll('[data-create-step]')) {
+      if (Number(step.dataset.createStep) >= target) break;
+      const invalid = [...step.querySelectorAll('input,select,textarea')].find(el => !el.disabled && !el.checkValidity());
+      if (invalid) { show(Number(step.dataset.createStep)); invalid.reportValidity(); return; }
+    }
+    show(target);
+  };
+  // Reveal invalid controls before the browser attempts to focus a collapsed step.
+  form.addEventListener('invalid', event => {
+    const step = event.target.closest('[data-create-step]');
+    if (step) show(Number(step.dataset.createStep));
+  }, true);
+  form.oninput = event => {
+    if (!event.target.matches('[data-create-customer-search]')) return;
+    const query = event.target.value.trim().toLocaleLowerCase();
+    const results = form.querySelector('[data-create-customer-results]');
+    results.hidden = !query;
+    results.replaceChildren();
+    if (!query) return;
+    for (const customer of context.customers.filter(row => window.ElaraOperationalData.customerName(row).toLocaleLowerCase().includes(query))) {
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'button button--compact button--muted';
+      button.textContent = window.ElaraOperationalData.customerName(customer);
+      button.onclick = () => {
+        field('customerId').value = customer.id;
+        const selected = form.querySelector('[data-create-customer-selected]');
+        selected.textContent = button.textContent; selected.hidden = false; results.hidden = true;
+      };
+      results.append(button);
+    }
+    if (!results.children.length) results.textContent = 'No hay clientes autorizados coincidentes.';
+  };
+  form.onkeydown = event => { if (event.key === 'Escape' && !serviceAdminSubmitting && !serviceAdminBusy) { ++serviceAdminDialogRequest; modal.hidden = true; } };
+  show(1);
+}
+
 function serviceAdminFields(action, context) {
   const op = window.ElaraOperationalData, esc = serviceAdminEscape;
   const input = (name, label, type = 'text', value = '', required = false, disabled = false) =>
-    `<label class="form-field">${label}<input name="${name}" type="${type}" value="${esc(value)}" ${type === 'datetime-local' ? 'step="0.001"' : ''} ${required ? 'required' : ''} ${disabled ? 'disabled' : ''}></label>`;
+    `<label class="form-field">${label}<input name="${name}" type="${type}" value="${esc(value)}" ${type === 'datetime-local' ? `step="${action === 'create' ? '60' : '0.001'}"` : ''} ${required ? 'required' : ''} ${disabled ? 'disabled' : ''}></label>`;
   const area = (name, label, value = '') => `<label class="form-field">${label}<textarea name="${name}">${esc(value)}</textarea></label>`;
   const select = (name, label, options) => `<label class="form-field">${label}<select name="${name}" required><option value="">Selecciona…</option>${options.map(([value,text]) => `<option value="${esc(value)}">${esc(text)}</option>`).join('')}</select></label>`;
-  if (action === 'create') return select('customerId','Cliente operativo',context.customers.map(r => [r.id,op.customerName(r)])) +
+  if (action === 'create') return serviceAdminCreateWizard(select('customerId','Cliente operativo',context.customers.map(r => [r.id,op.customerName(r)])),
     select('serviceType','Tipo',[['transfer','Punto a punto'],['airport','Aeropuerto'],['full_day','Full Day'],['pets','Mascotas'],['long_distance','Larga distancia']]) +
     input('schedule','Fecha y hora (zona horaria de este navegador)','datetime-local','',true) +
     input('origin','Origen','text','',true) + input('originAddress','Dirección de origen') +
     input('destination','Destino','text','',true) + input('destinationAddress','Dirección de destino') +
-    input('passenger','Nombre de pasajero') + input('phone','Teléfono de pasajero','tel') + area('notes','Notas') +
-    '<fieldset disabled><legend>No disponibles en creación</legend><label>Precio<input placeholder="Sin habilitación financiera"></label><label>Paradas intermedias<input placeholder="No admitidas por este contrato"></label><label>Asignación inmediata<input placeholder="Crear primero y asignar después"></label></fieldset>';
+    area('notes','Observaciones del trayecto'),
+    input('passenger','Nombre de pasajero') + input('phone','Teléfono de pasajero','tel'));
   if (action === 'update') {
     const locked = context.service.operational_status === 'confirmed' && context.assignments.some(r => r.assignment_status === 'accepted' && !r.ended_at);
     return input('schedule','Fecha y hora (zona horaria de este navegador)','datetime-local',context.initialSchedule,false,locked) +
@@ -6003,17 +6491,18 @@ async function serviceAdminOpen(action, serviceId = '') {
   const titles = {create:'Nuevo servicio',update:'Editar fecha y notas',assign:'Asignar servicio',reassign:'Reasignar servicio',cancel:'Confirmar cancelación'};
   if (!modal || !titles[action]) return;
   modal.hidden = false;
-  modal.innerHTML = `<section class="modal"><header class="modal__header"><h2 id="${titleId}">${titles[action]}</h2><button type="button" data-service-admin-close>Cerrar</button></header><div class="modal__body" role="status">Cargando opciones operativas…</div></section>`;
+  modal.innerHTML = `<section class="modal${action === 'create' ? ' modal--wizard' : ''}"><header class="modal__header"><div>${action === 'create' ? '<p class="panel__eyebrow">Módulo Servicios</p>' : ''}<h2 id="${titleId}">${titles[action]}</h2>${action === 'create' ? '<p>Registra una reserva de transporte de forma guiada y sin saturar la pantalla.</p>' : ''}</div><button class="button button--compact button--muted" type="button" data-service-admin-close>Cerrar</button></header><div class="modal__body" role="status">Cargando opciones operativas…</div></section>`;
   modal.onclick = event => {
-    if (event.target.closest('[data-service-admin-close]') && !serviceAdminBusy && !serviceAdminSubmitting) { ++serviceAdminDialogRequest; modal.hidden = true; }
+    if ((event.target.closest('[data-service-admin-close]') || (action === 'create' && event.target === modal)) && !serviceAdminBusy && !serviceAdminSubmitting) { ++serviceAdminDialogRequest; modal.hidden = true; }
   };
   try {
     const context = await serviceAdminContext(action,serviceId);
     if (ticket !== serviceAdminDialogRequest || modal.hidden) return;
     const body = modal.querySelector('.modal__body');
     body.removeAttribute('role');
-    body.innerHTML = `<form id="service-admin-form">${serviceAdminFields(action,context)}<p>Solo se guardan los campos de este formulario. Cobros y finalización administrativa deshabilitados.</p><p data-service-admin-result role="status" aria-live="polite"></p><div class="modal__actions"><button class="button button--primary" type="submit">${titles[action]}</button><button type="button" data-service-admin-close>Volver sin guardar</button></div></form>`;
+    body.innerHTML = `<form id="service-admin-form">${serviceAdminFields(action,context)}${action === 'create' ? '' : '<p>Solo se guardan los campos de este formulario. Cobros y finalizaci\u00f3n administrativa deshabilitados.</p>'}<p data-service-admin-result role="status" aria-live="polite"></p>${action === 'create' ? '' : `<div class="modal__actions"><button class="button button--primary" type="submit">${titles[action]}</button><button type="button" data-service-admin-close>Volver sin guardar</button></div>`}</form>`;
     const form = body.querySelector('form');
+    if (action === 'create') serviceAdminBindCreateWizard(form,context);
     if (action === 'create' && !context.customers.length) {
       form.querySelector('[type="submit"]').disabled = true;
       form.querySelector('[data-service-admin-result]').textContent = 'No hay clientes operativos activos. No se crean catálogos desde este flujo.';
@@ -6053,6 +6542,7 @@ async function serviceAdminSubmit(form, action, serviceId, modal) {
     if (!op.getCollection('services').some(r => r.id === written.serviceId)) throw new Error('El servicio confirmado no está disponible en la colección operativa.');
     if (!document.getElementById('servicios')?.hidden && !await showOperationalServices()) throw new Error('No se pudo actualizar el listado remoto.');
     modal.hidden = true;
+    window.dispatchEvent(new window.CustomEvent('elara:service-admin-confirmed'));
     window.ElaraNotifications?.showToast(`Operación remota confirmada: ${written.humanCode}`, 'success');
   } catch (error) {
     const uncertain = committed || error.remoteCommitted;
@@ -6066,4 +6556,4 @@ async function serviceAdminSubmit(form, action, serviceId, modal) {
 }
 
 window.ElaraServiceAdmin = Object.freeze({buildArgs:serviceAdminArgs, execute:serviceAdminExecute,
-  actions:serviceAdminActions, fields:serviceAdminFields});
+  actions:serviceAdminActions, fields:serviceAdminFields, open:(action,id)=>serviceAdminOpen(action,id)});

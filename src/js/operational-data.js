@@ -27,7 +27,51 @@ window.ElaraOperationalData = (() => {
   let collections = {};
   let generation = 0;
   let request = 0;
-  let identityPromise = null;
+  const pendingReads = new Map();
+  let readScope = null;
+  const identityTables = ["persons", "companies", "customers", "drivers", "vehicles", "cash_accounts",
+    "services", "service_assignments", "cash_counts", "cash_discrepancies"];
+  // QA exclusions propagate to children, never from a child back to its parent.
+  // Cash/assignment QA cannot exclude a service/customer/driver/vehicle parent.
+  const viewIdentityTables = {
+    dashboard: ["persons", "companies", "customers", "drivers", "vehicles", "services"],
+    servicios: ["persons", "companies", "customers", "drivers", "vehicles", "services"],
+    clientes: ["persons", "companies", "customers"],
+    colaboradores: ["persons", "drivers"],
+    vehiculos: ["vehicles"],
+  };
+  function scopeIdentity() {
+    const user = window.ElaraAuth?.getCurrentUser?.();
+    return JSON.stringify([user?.id, user?.supabaseUserId, user?.appSessionId,
+      window.ElaraAuth?.getActiveContext?.(), window.ElaraConfig?.supabase?.url]);
+  }
+  function ensureScope() {
+    const next = scopeIdentity();
+    if (readScope !== null && readScope !== next) reset();
+    readScope = next;
+    return next;
+  }
+  function stable(value) {
+    if (Array.isArray(value)) return value.map(stable);
+    if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map(k => [k, stable(value[k])]));
+    return value;
+  }
+  // In-flight reuse only: never retain completed business/QA/financial reads.
+  // Navigation, reset, actor, session and context separate pending operations.
+  function shareRead(resource, args, load) {
+    const scope = ensureScope(), token = generation, ticket = request;
+    const key = JSON.stringify([scope, token, ticket, resource, stable(args)]);
+    if (pendingReads.has(key)) return pendingReads.get(key);
+    const pending = Promise.resolve().then(() => {
+      if (scope !== scopeIdentity() || token !== generation || ticket !== request) throw new Error("Lectura obsoleta.");
+      return load();
+    }).then(value => {
+      if (scope !== scopeIdentity() || token !== generation) throw new Error("La sesión cambió durante la lectura.");
+      return value;
+    }).finally(() => { if (pendingReads.get(key) === pending) pendingReads.delete(key); });
+    pendingReads.set(key, pending);
+    return pending;
+  }
   const escape = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"}[c]));
   const identity = (r) => idKeys.map((k) => r?.[k]).find(Boolean);
   const has = (value) => value !== undefined && value !== null && value !== "" && value !== false;
@@ -77,15 +121,25 @@ window.ElaraOperationalData = (() => {
     collections = {};
     qaIds = new Set();
     excludedIds = new Set(legacyIds);
-    identityPromise = null;
+    pendingReads.clear();
+    readScope = null;
     document.querySelectorAll("[data-operational-panel]").forEach((panel) => panel.replaceChildren());
   }
-  async function readAll(table, key = "id") {
+  function readAll(table, key = "id", scope = null) {
+    const filter = scope ? {column: scope.column, values: [...new Set(scope.values)].sort()} : null;
+    return shareRead("table", {table, key, filter, pageSize: 500}, () => readAllPages(table, key, filter));
+  }
+  async function readAllPages(table, key, scope) {
+    if (scope && !scope.values.length) return [];
+    const readGeneration = generation, readRequest = request, actor = scopeIdentity();
     const rows = [], seen = new Set();
     let expected;
     for (let offset = 0; offset <= 10000;) {
-      const {data, error, count} = await client().from(table).select("*", {count: "exact"})
-        .order(key).range(offset, offset + 499);
+      // Do not start another page after navigation/session invalidated the read.
+      if (readGeneration !== generation || readRequest !== request || actor !== scopeIdentity()) throw new Error("Lectura obsoleta.");
+      let query = client().from(table).select("*", {count: "exact"});
+      if (scope) query = query.in(scope.column, scope.values);
+      const {data, error, count} = await query.order(key).range(offset, offset + 499);
       if (error) throw new Error(`No se pudo leer ${table}.`);
       if (!Array.isArray(data) || count === null || count === undefined) throw new Error(`Lectura incompleta: ${table}.`);
       if (expected !== undefined && expected !== count) throw new Error("Los datos cambiaron durante la lectura. Reintenta.");
@@ -103,11 +157,16 @@ window.ElaraOperationalData = (() => {
   }
   const readRpcs = new Set(["get_admin_expenses", "get_admin_settlements", "get_admin_cash_movements",
     "get_admin_cash_remittances", "get_admin_cash_discrepancies"]);
-  async function readRpc(name, args = {}) {
+  function readRpc(name, args = {}) {
+    return shareRead("rpc-pages", {name, args, pageSize: 100}, () => readRpcPages(name, args));
+  }
+  async function readRpcPages(name, args) {
     if (!readRpcs.has(name)) throw new Error("Contrato de lectura no autorizado.");
     const rows = [], seen = new Set();
+    const readGeneration = generation, readRequest = request, actor = scopeIdentity();
     let expected;
     for (let offset = 0; offset <= 10000;) {
+      if (readGeneration !== generation || readRequest !== request || actor !== scopeIdentity()) throw new Error("Lectura obsoleta.");
       const {data, error} = await client().rpc(name, {...args, p_limit: 100, p_offset: offset});
       if (error || !Array.isArray(data)) throw new Error(`No se pudo leer ${name}.`);
       const total = data.length ? Number(data[0].total_count) : (expected ?? 0);
@@ -127,19 +186,13 @@ window.ElaraOperationalData = (() => {
     }
     throw new Error("No disponible: volumen superior al límite de lectura segura.");
   }
-  async function loadIdentity() {
-    if (identityPromise) return identityPromise;
-    const pending = fetchIdentity();
-    identityPromise = pending;
-    try { return await pending; }
-    finally { if (identityPromise === pending) identityPromise = null; }
+  function loadIdentity({tables = identityTables} = {}) {
+    return shareRead("identity", {tables: [...tables].sort()}, () => fetchIdentity(tables));
   }
-  async function fetchIdentity() {
-    const token = generation;
-    const tables = ["persons", "companies", "customers", "drivers", "vehicles", "cash_accounts",
-      "services", "service_assignments", "cash_counts", "cash_discrepancies"];
+  async function fetchIdentity(tables) {
+    const token = generation, ticket = request, actor = scopeIdentity();
     const values = await Promise.all(tables.map((t) => readAll(t)));
-    if (token !== generation) throw new Error("La sesión cambió durante la lectura.");
+    if (token !== generation || ticket !== request || actor !== scopeIdentity()) throw new Error("La sesión o vista cambió durante la lectura.");
     qaIds = new Set();
     excludedIds = new Set(legacyIds);
     collections = indexRecords(Object.fromEntries(tables.map((t, i) => [t, values[i]])));
@@ -190,47 +243,64 @@ window.ElaraOperationalData = (() => {
       .format(rows.reduce((sum, r) => sum + Number(r[field]), 0));
   }
   async function show(viewId, spec) {
+    ensureScope();
     header(spec.title);
     if(spec.pageSummary){const summary=document.getElementById('page-summary');if(summary)summary.textContent=spec.pageSummary;}
     const panel = panelFor(viewId);
-    const ticket = ++request, token = generation;
+    const presentation = spec.presentation || {};
+    panel.className = presentation.panelClassName || "panel";
+    const ticket = ++request, token = generation, actor = scopeIdentity();
+    const current = () => ticket === request && token === generation && actor === scopeIdentity();
     panel.innerHTML = '<p role="status">Cargando datos reales…</p>';
     try {
       if (!["superadmin", "administrativo"].includes(window.ElaraAuth?.getActiveContext?.())) {
         throw new Error("Se requiere un contexto administrativo válido.");
       }
-      await loadIdentity();
-      const loaded = await spec.load();
-      if (ticket !== request || token !== generation) return;
+      const identityReady = loadIdentity({tables: viewIdentityTables[viewId] || identityTables});
+      const parallelLoad = viewId === "dashboard" || spec.parallelLoad;
+      // Services waits for identityReady before QA filtering/enrichment. The
+      // overview itself is independent and can overlap those fresh QA reads.
+      const loading = parallelLoad ? Promise.all([identityReady, spec.load({isCurrent: current, identityReady})]) : null;
+      if (!parallelLoad) await identityReady;
+      if (!current()) return;
+      const loaded = parallelLoad ? (await loading)[1] : await spec.load({isCurrent: current, identityReady});
+      if (!current()) return;
       indexRecords({loaded});
       const rows = loaded.filter(isOperationalRecord);
       collections[spec.collection || viewId] = rows;
       let query = "", page = 1;
-      const filters = [...(spec.filters || []),
+      const filters = [...(spec.filters || []), ...(spec.defaultFilters === false ? [] : [
         {label: "Estado", value: (r) => r.status || r.operational_status || r.administrative_status || ""},
         {label: "Conductor", value: (r) => r.driver_id || "", text: (r) => r.driver_name || r.driver_display_name ||
           personName(getCollection("drivers").find((d) => d.id === r.driver_id)?.person_id)},
         {label: "Cliente", value: (r) => r.customer_id || "", text: (r) => r.customer_display_name || r.customer_human_code || r.customer_id},
-      ].filter((f) => rows.some((r) => f.value(r)));
+      ])].filter((f) => rows.some((r) => f.value(r)));
       const selected = new Map();
-      panel.innerHTML = `<p>${escape(spec.notice || unavailable)}</p><p data-operational-summary></p>
-        <label>Buscar <input type="search" data-operational-search></label>
-        ${filters.map((f, i) => {
+      const filterControls = filters.map((f, i) => {
           const options = new Map(rows.filter((r) => f.value(r)).map((r) => [f.value(r), f.text ? f.text(r) : f.value(r)]));
-          return `<label>${escape(f.label)} <select data-operational-filter="${i}"><option value="">Todos</option>${[...options].map(([value, text]) => `<option value="${escape(value)}">${escape(text)}</option>`).join("")}</select></label>`;
-        }).join("")}
+          return `<label${presentation.layout || presentation.mount ? ' class="field"' : ''}>${escape(f.label)} <select data-operational-filter="${i}"><option value="">Todos</option>${[...options].map(([value, text]) => `<option value="${escape(value)}">${escape(text)}</option>`).join("")}</select></label>`;
+        }).join("");
+      const controls = `<p>${escape(spec.notice || unavailable)}</p><p data-operational-summary></p>
+        <label>Buscar <input type="search" data-operational-search></label>
+        ${filterControls}
         <button type="button" class="button button--secondary" data-operational-retry>Actualizar</button>
         <div data-operational-results></div><p data-operational-page></p>
         <button type="button" data-operational-prev>Anterior</button> <button type="button" data-operational-next>Siguiente</button>
         <div data-operational-detail-content></div>`;
+      if (presentation.mount) presentation.mount(panel, {controls});
+      else panel.innerHTML = presentation.layout ? presentation.layout({filters: filterControls, notice: escape(spec.notice || unavailable)}) : controls;
       const draw = () => {
+        if (!current()) return;
         const filtered = rows.filter((r) => filters.every((f, i) => !selected.get(i) || f.value(r) === selected.get(i)) &&
-          spec.columns.some(([, key]) => String(typeof key === "function" ? key(r) : r[key] ?? "").toLocaleLowerCase("es").includes(query)));
+          (spec.searchText ? String(spec.searchText(r)).toLocaleLowerCase("es").includes(query) :
+            spec.columns.some(([, key]) => String(typeof key === "function" ? key(r) : r[key] ?? "").toLocaleLowerCase("es").includes(query))));
         page = Math.max(1, Math.min(page, Math.ceil(filtered.length / 25) || 1));
         const visible = filtered.slice((page - 1) * 25, page * 25);
-        panel.querySelector("[data-operational-summary]").textContent = `Resultados operativos del filtro: ${filtered.length}. ${spec.summary ? spec.summary(filtered) : ""}`;
+        const summary = panel.querySelector("[data-operational-summary]");
+        if (presentation.summary) summary.innerHTML = presentation.summary(filtered, spec.summary ? spec.summary(filtered) : '');
+        else summary.textContent = `Resultados operativos del filtro: ${filtered.length}. ${spec.summary ? spec.summary(filtered) : ""}`;
         const results = panel.querySelector("[data-operational-results]");
-        results.innerHTML = visible.length ? tableHtml(visible, spec.columns, Boolean(spec.detail), spec.rowActions) : '<p role="status">No hay registros operativos para este filtro.</p>';
+        results.innerHTML = visible.length ? (presentation.rows ? presentation.rows(visible) : tableHtml(visible, spec.columns, Boolean(spec.detail), spec.rowActions)) : '<p role="status">No hay registros operativos para este filtro.</p>';
         panel.querySelector("[data-operational-page]").textContent = `Página ${page} de ${Math.ceil(filtered.length / 25) || 1}`;
         panel.querySelector("[data-operational-prev]").disabled = page === 1;
         panel.querySelector("[data-operational-next]").disabled = page * 25 >= filtered.length;
@@ -239,13 +309,23 @@ window.ElaraOperationalData = (() => {
         detail.replaceChildren();
         results.onclick = async (event) => {
           const button = event.target.closest("[data-operational-detail]");
-          if (!button || !spec.detail) return;
+          if (!current() || !button || (!spec.detail && !spec.openDetail)) return;
           const detailTicket = (detail.dataset.request = String(Number(detail.dataset.request || 0) + 1));
-          detail.textContent = "Cargando detalle real…";
+          if (!spec.openDetail) detail.textContent = "Cargando detalle real…";
           try {
-            const html = await spec.detail(visible[Number(button.dataset.operationalDetail)]);
-            if (ticket === request && token === generation && detail.dataset.request === detailTicket) detail.innerHTML = html;
-          } catch (_) { if (ticket === request) detail.textContent = "No se pudo cargar el detalle. Reintenta."; }
+            if (spec.openDetail) {
+              const row = visible[Number(button.dataset.operationalDetail)];
+              await spec.openDetail(row, {isCurrent:()=>current() && detail.dataset.request === detailTicket});
+              return;
+            }
+            // Details can refer to dependencies outside this module's list.
+            await loadIdentity();
+            if (!current() || detail.dataset.request !== detailTicket) return;
+            const row = visible[Number(button.dataset.operationalDetail)];
+            if (!isOperationalRecord(row)) throw new Error("Registro excluido.");
+            const html = await spec.detail(row);
+            if (current() && detail.dataset.request === detailTicket) detail.innerHTML = html;
+          } catch (_) { if (current() && detail.dataset.request === detailTicket) detail.textContent = "No se pudo cargar el detalle. Reintenta."; }
         };
       };
       panel.querySelector("[data-operational-search]").oninput = (event) => { query = event.target.value.trim().toLocaleLowerCase("es"); page = 1; draw(); };
@@ -256,8 +336,10 @@ window.ElaraOperationalData = (() => {
       panel.querySelector("[data-operational-next]").onclick = () => { page++; draw(); };
       panel.querySelector("[data-operational-retry]").onclick = () => show(viewId, spec);
       draw();
+      if (presentation.ready && current()) presentation.ready(rows, {panel, isCurrent: current});
+      return true;
     } catch (error) {
-      if (ticket !== request || token !== generation) return;
+      if (!current()) return;
       panel.innerHTML = `<p role="alert">${escape(error.message)} No se muestran datos de demostración.</p><button type="button">Reintentar</button>`;
       panel.querySelector("button").onclick = () => show(viewId, spec);
     }
@@ -330,6 +412,6 @@ window.ElaraOperationalData = (() => {
   }
   // Auth remains owned by auth.js; discard data when its caller ends a session.
   return Object.freeze({isQaRecord, isLegacyQaRecord, isOperationalRecord, indexRecords, reset,
-    readAll, readRpc, loadIdentity, getCollection, blocked, unavailableView, show, fields,
+    readAll, readRpc, shareRead, loadIdentity, getCollection, blocked, unavailableView, show, fields,
     related, serviceDetail, readDetail, checkDriverScope, personName, customerName, money, display, tableHtml});
 })();

@@ -4,9 +4,94 @@
   Responsabilidad: adaptaciones para escritorio, tablet y movil.
 */
 
+/* Phase 1A: the real Services panel has six sections and multiline SQL data.
+   Scope overrides to this presentation; legacy panels and other modules retain
+   their existing layout. Scroll the view rather than clipping cards/controls. */
+#servicios:has(> .services-visual-panel) {
+  grid-template-rows: auto;
+  align-content: start;
+  overflow-y: auto;
+}
+.services-visual-panel {
+  grid-template-rows: repeat(6, auto);
+  align-content: start;
+  height: max-content;
+  --services-list-columns: 8px minmax(90px, .65fr) minmax(55px, .4fr) minmax(100px, .8fr) minmax(150px, 1.5fr) minmax(130px, 1fr) minmax(130px, 1fr) minmax(140px, 1fr);
+}
+#services-history-panel.services-visual-panel {
+  grid-template-rows: auto auto auto auto;
+}
+.services-visual-panel .services-summary-caption { grid-column: 1 / -1; }
+.services-visual-panel .summary-card span { white-space: normal; overflow: visible; }
+.services-visual-panel .services-list-wrapper { grid-template-rows: auto auto; overflow: visible; }
+.services-visual-panel .services-list { grid-auto-rows: max-content; align-content: start; }
+.services-visual-panel .operation-card { height: auto; }
+.services-visual-panel .operation-card > * {
+  min-width: 0;
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+}
+.services-visual-panel .list-toolbar__legend {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
+  width: 100%;
+}
+.services-visual-panel .services-toolbar {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "heading actions" "legend legend";
+}
+.services-visual-panel .cash-pagination { flex-wrap: wrap; }
+.services-visual-panel .field,
+.services-visual-panel .field input,
+.services-visual-panel .field select { min-width: 0; width: 100%; }
+.services-visual-panel .list-toolbar__actions { flex-wrap: wrap; }
+@media (max-width: 1180px) {
+  .services-visual-panel .services-list-header { display: none; }
+  .services-visual-panel .operation-card { grid-template-columns: 8px minmax(0, 1fr) minmax(0, 1fr); }
+  .services-visual-panel .operation-card__marker { grid-column: 1; grid-row: 1 / 9; }
+  .services-visual-panel .operation-card__time { grid-column: 2; }
+  .services-visual-panel .operation-card__type { grid-column: 3; }
+  .services-visual-panel .operation-card__client { display: block; grid-column: 2 / 4; }
+  .services-visual-panel .operation-card__route { grid-column: 2 / 4; }
+  .services-visual-panel .operation-card__collaborator { grid-column: 2; }
+  .services-visual-panel .operation-card__payment:not(.operation-card__time):not(.operation-card__collaborator) { grid-column: 3; }
+  .services-visual-panel .operation-card__actions { grid-column: 2 / 4; }
+}
+@media (max-width: 640px) {
+  .services-visual-panel .services-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "heading" "actions" "legend";
+  }
+  .services-visual-panel .operation-card > :not(.operation-card__marker) { grid-column: 2 / 4; }
+  .services-visual-panel .operation-card .operation-card__payment:not(.operation-card__time):not(.operation-card__collaborator) { grid-column: 2 / 4; }
+}
+
 /* =========================
    RESPONSIVE ESCRITORIO PEQUENO
 ========================= */
+
+/* Dashboard Phase 1A mounts the original sections plus the secondary query.
+   Let the view scroll: real upcoming-service text can exceed the old viewport. */
+#dashboard:has(> .dashboard-operational-panel) {
+  grid-template-rows: auto;
+  align-content: start;
+  overflow-y: auto;
+}
+.dashboard-operational-panel { display: grid; gap: 16px; min-width: 0; }
+.dashboard-operational-panel #summary-cards { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.dashboard-operational-panel .dashboard-grid { align-items: start; }
+.dashboard-operational-panel .incident-empty,
+.dashboard-operational-panel .activity-empty { display: block; }
+.dashboard-operational-panel .panel--priority { border-color: var(--color-border); }
+.dashboard-operational-panel .panel__count { background: var(--color-surface-alt); color: var(--color-muted); }
+.dashboard-operational-panel > details > div { display: grid; gap: 10px; min-width: 0; }
+@media (max-width: 1180px) {
+  .dashboard-operational-panel #summary-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .dashboard-operational-panel #summary-cards { grid-template-columns: minmax(0, 1fr); }
+}
 
 @media (max-width: 1180px) {
   .summary-grid {
@@ -1074,3 +1159,74 @@
     width: min(calc(100% - 32px), 398px);
   }
 }
+/* The restored customer sections share one operational wrapper. */
+.customers-operational-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 16px;
+  min-width: 0;
+  min-height: 0;
+}
+.customers-operational-panel .customers-panel,
+.customers-operational-panel .customer-toolbar-actions,
+.customers-operational-panel .field,
+.customers-operational-panel .field input {
+  min-width: 0;
+  max-width: 100%;
+}
+.customers-operational-panel .customer-toolbar-actions { flex-wrap: wrap; }
+.customers-operational-panel .customers-panel { grid-template-columns: minmax(0, 1fr); }
+.customers-operational-panel .cash-pagination { flex-wrap: wrap; }
+@media (max-width: 860px) {
+  .customers-operational-panel .customer-filter__menu { left: 0; right: auto; }
+}
+@media (max-width: 640px) {
+  .customers-operational-panel .services-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "heading" "actions" "legend";
+  }
+  .customers-operational-panel .customer-card > .status-pill {
+    grid-column: 3 / -1;
+    grid-row: 3;
+  }
+}
+#customer-detail-modal .modal {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+#customer-detail-modal .modal__header > div:first-child { min-width: 0; }
+#customer-detail-view-actions {
+  margin-left: auto;
+  max-width: min(58vw, 360px);
+  grid-column: 2;
+  grid-row: 1;
+  align-items: flex-start;
+}
+#customer-detail-operational-actions { display: contents; }
+#customer-detail-modal .modal__header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px 12px;
+}
+#customer-detail-description { grid-column: 1 / -1; margin: 0; overflow-wrap: anywhere; }
+#customer-detail-modal .modal__header .button { width: auto; white-space: nowrap; }
+@media (max-width: 640px) {
+  #customer-detail-view-actions { flex-direction: column; align-items: flex-end; }
+  #customer-detail-view-actions [data-modal-close] { align-self: flex-end; }
+}
+#customer-detail-content { overflow: auto; min-height: 0; overscroll-behavior: contain; }
+#customer-detail-content .modal__field-value { overflow-wrap: anywhere; }
+#customer-detail-content table { width: 100%; table-layout: fixed; }
+#customer-detail-content td, #customer-detail-content th { overflow-wrap: anywhere; }
+.header__actions:has(> [data-catalog-action="customerCreate"]:not([hidden])) { justify-content: flex-end; }
+.header__actions > [data-catalog-action="customerCreate"] { width: auto; max-width: 100%; }
+#customer-history-modal .modal { display: grid; grid-template-rows: auto minmax(0, 1fr); }
+#customer-history-content { min-height: 0; overflow: auto; overscroll-behavior: contain; }
+#customer-history-modal .modal__header > div:first-child { min-width: 0; overflow-wrap: anywhere; }
+#customer-history-modal .modal__header-actions { max-width: 50%; }
+#customer-history-modal .modal__header .button { width: auto; white-space: normal; }
+#customer-history-content .customer-history-item { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
+#customer-history-content .customer-history-item > div { min-width: 0; overflow-wrap: anywhere; }
+#customer-history-content .customer-history-item button { flex: 0 0 auto; width: auto; }

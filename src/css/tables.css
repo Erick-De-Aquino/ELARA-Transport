@@ -826,6 +826,22 @@
   background: var(--color-surface);
 }
 
+/* Operational list omits historic rating and service-count columns. */
+@media (min-width: 768px) {
+  .customers-operational-panel .customers-list-header,
+  .customers-operational-panel .customer-card {
+    grid-template-columns: 8px minmax(0, 1.2fr) minmax(0, 1fr) 80px 80px 82px;
+  }
+
+  .customers-operational-panel .customer-card__contact {
+    display: grid;
+  }
+
+  .customers-operational-panel .customers-list-header span:nth-child(3) {
+    display: block;
+  }
+}
+
 .customer-card--success {
   border-color: color-mix(in srgb, var(--color-success) 14%, var(--color-border));
   background: var(--color-success-subtle);
