@@ -4063,30 +4063,242 @@ window.ElaraCash = {
   showCash,
 };
 
-ensureFinanceData();
-
-
-
-
-
-// Read-only operational route. Legacy renderer below/above is retained for demo dependencies.
+// Authenticated presentation. No legacy initializer or financial write is enabled here.
+let operationalCashElements, operationalCashDialog, operationalCashBound=false;
+let operationalCashCurrent=()=>false,operationalCashRefresh;
+const operationalCashLabels={inflow:'Ingreso',outflow:'Egreso',driver:'Conductor',central:'Central',administrative:'Administración',temporary:'Temporal',draft:'Borrador',prepared:'Preparada',submitted:'Presentada',received:'Recibida',verified:'Verificada',cancelled:'Anulada',open:'Abierta',under_review:'En revisión',resolved:'Resuelta',counted:'Contado',service_payment:'Cobro de servicio',receivable_payment:'Cobro de cuenta pendiente',cash_remittance:'Rendición',remittance_sent:'Salida por rendición',remittance_received:'Entrada por rendición',expense:'Gasto',expense_payment:'Pago de gasto',settlement:'Liquidación',settlement_payment:'Pago de liquidación',cash_movement_reversal:'Contramovimiento',reversal:'Contramovimiento',opening_balance:'Apertura',manual_adjustment:'Ajuste manual',count_adjustment:'Ajuste por arqueo',other:'Otro',registered:'Registrado'};
+const operationalCashLabel=value=>operationalCashLabels[value]||value||'Sin información disponible';
+function operationalCashMinor(value) {
+  if(value==null||!/^[-]?\d+(?:\.\d{1,2})?$/.test(String(value)))return null;
+  const raw=String(value),negative=raw.startsWith('-'),[whole,fraction='']=raw.replace(/^-/,'').split('.');
+  return (negative?-1n:1n)*(BigInt(whole)*100n+BigInt(fraction.padEnd(2,'0')));
+}
+function operationalCashMoney(value,currency) {
+  const amount=typeof value==='bigint'?value:operationalCashMinor(value);
+  if(amount===null||!/^[A-Z]{3}$/.test(currency||''))return 'Importe no disponible';
+  const absolute=amount<0n?-amount:amount;
+  return `${amount<0n?'-':''}${String(absolute/100n).replace(/\B(?=(\d{3})+(?!\d))/g,'.')},${String(absolute%100n).padStart(2,'0')} ${currency}`;
+}
+function operationalCashDate(value,key=false) {
+  const date=new Date(value||'');if(!Number.isFinite(date.getTime()))return key?'':'Sin fecha';
+  if(key){const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Madrid',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(date);return ['year','month','day'].map(type=>parts.find(p=>p.type===type).value).join('-');}
+  return new Intl.DateTimeFormat('es-ES',{timeZone:'Europe/Madrid',dateStyle:'short',timeStyle:'short'}).format(date);
+}
+function operationalCashScope(){const u=window.ElaraAuth?.getCurrentUser?.();return JSON.stringify([u?.id,u?.supabaseUserId,u?.appSessionId,window.ElaraAuth?.getActiveContext?.(),window.ElaraSupabase?.client?.supabaseUrl]);}
+function operationalCashBalance(account,movements) {
+  const op=window.ElaraOperationalData;
+  if(!op.getCollection('cash_accounts').some(a=>a.id===account.cash_account_id&&a.currency_code===account.currency_code)||!op.isOperationalRecord(account))return null;
+  let sum=operationalCashMinor(account.opening_balance);if(sum===null)return null;
+  for(const movement of movements.filter(m=>m.cash_account_id===account.cash_account_id)){
+    const amount=operationalCashMinor(movement.amount);
+    if(!op.isOperationalRecord(movement)||movement.currency_code!==account.currency_code||amount===null||amount<=0n||!['inflow','outflow'].includes(movement.movement_type))return null;
+    sum+=movement.movement_type==='inflow'?amount:-amount;
+  }
+  // Compare a complete ordered ledger with the backend view. A changing or
+  // QA-contaminated snapshot never becomes an apparently confirmed balance.
+  return operationalCashMinor(account.theoretical_balance)===sum?sum:null;
+}
+function mountOperationalCash(panel,{controls}) {
+  if(!operationalCashElements){const view=document.getElementById('caja');operationalCashElements={summary:view.querySelector('#cash-summary'),layout:view.querySelector('.cash-layout'),create:view.querySelector('#cash-adjustment-open-action')};}
+  const {summary,layout}=operationalCashElements;panel.replaceChildren(summary,layout);summary.hidden=layout.hidden=false;summary.setAttribute('data-operational-summary','');
+  const movements=layout.querySelector('#cash-movements-list'),section=movements.closest('.cash-panel');movements.setAttribute('data-operational-results','');
+  section.querySelector('.panel__eyebrow').textContent='Todas las cuentas';
+  section.querySelector('[data-cash-operational-controls]')?.remove();
+  const source=document.createElement('div');source.dataset.cashOperationalControls='';source.className='cash-history-controls';source.innerHTML=controls;
+  source.querySelector('p').remove();
+  source.querySelector('[data-operational-summary]').remove();source.querySelector('[data-operational-results]').remove();
+  source.querySelector('[data-operational-search]').closest('label').className='field';
+  for(const id of ['data-operational-prev','data-operational-next','data-operational-page','data-operational-detail-content'])source.querySelector(`[${id}]`).remove();
+  section.insertBefore(source,movements);
+  section.querySelector('[data-cash-operational-footer]')?.remove();section.insertAdjacentHTML('beforeend','<div data-cash-operational-footer><div class="cash-pagination"><p data-operational-page aria-live="polite"></p><button type="button" class="button button--secondary" data-operational-prev>Anterior</button><button type="button" class="button button--secondary" data-operational-next>Siguiente</button></div><div data-operational-detail-content></div></div>');
+  section.querySelector('[data-cash-account-balances]')?.remove();section.insertAdjacentHTML('afterbegin','<div class="cash-list" data-cash-account-balances></div>');
+  layout.querySelector('#cash-remittance-history-status').innerHTML='<option value="">Todos</option>'+['draft','prepared','submitted','received','verified','cancelled'].map(s=>`<option value="${s}">${operationalCashLabel(s)}</option>`).join('');
+  const actions=layout.querySelector('.cash-action-grid');actions.innerHTML='<button type="button" class="button button--muted" disabled>Registrar arqueo</button><div data-cash-operational-admin></div>';
+  actions.closest('.cash-panel').querySelector('.modal__hint').textContent='Los cobros, gastos y liquidaciones se registran desde sus módulos. Los movimientos manuales se registran en cuentas centrales o administrativas. Las rendiciones presentadas se reciben y verifican desde su detalle.';
+}
+function renderOperationalCashMovements(rows) {
+  const e=escapeCashHtml;
+  return rows.map((r,index)=>`<article class="cash-row" data-operational-cash-id="${e(r.cash_movement_id)}"><div><strong>${e(r.human_code||r.cash_movement_id)} · ${e(r.description||operationalCashLabel(r.movement_category))}</strong><span>${e(operationalCashDate(r.occurred_at))} · ${e(r.cash_account_name||'Cuenta sin nombre')}</span><small>${e(operationalCashLabel(r.movement_type))} registrado · ${e(operationalCashLabel(r.source_type))}${r.original_movement_id?' · Contramovimiento':''}</small></div><strong class="cash-row__amount cash-row__amount--${r.movement_type==='outflow'?'out':'in'}">${r.movement_type==='inflow'?'+':r.movement_type==='outflow'?'−':''}${e(operationalCashMoney(r.amount,r.currency_code))}</strong><button class="button button--compact button--muted" type="button" data-operational-detail="${index}">Detalle</button></article>`).join('');
+}
+function operationalCashSection(title,fields) {
+  return `<h3 class="modal__section-title">${escapeCashHtml(title)}</h3><dl class="modal__grid service-summary__list">${fields.map(([label,value])=>`<div class="modal__field"><dt class="modal__field-label">${escapeCashHtml(label)}</dt><dd class="modal__field-value">${escapeCashHtml(value??'Sin información disponible')}</dd></div>`).join('')}</dl>`;
+}
+function closeOperationalCashDetail(focus=true){const state=operationalCashDialog;if(!state)return;operationalCashDialog=null;state.observer?.disconnect();state.modal.hidden=true;state.body.replaceChildren();if(focus&&state.previous?.isConnected)state.previous.focus?.();}
+async function openOperationalCashDetail(kind,row,isCurrent) {
+  if(!isCurrent())return;closeOperationalCashDetail(false);
+  const op=window.ElaraOperationalData,modal=document.getElementById(kind==='count'?'cash-count-detail-modal':kind==='discrepancy'?'cash-discrepancy-detail-modal':'cash-remittance-detail-modal');
+  const body=modal.querySelector('.modal__body'),state={modal,body,previous:document.activeElement,scope:operationalCashScope()};operationalCashDialog=state;
+  const current=()=>operationalCashDialog===state&&isCurrent()&&state.scope===operationalCashScope()&&!document.getElementById('caja').hidden&&!modal.hidden;
+  modal.hidden=false;modal.querySelector('h2').textContent=({movement:'Movimiento de efectivo',remittance:'Rendición',discrepancy:'Discrepancia',count:'Arqueo'})[kind];body.innerHTML='<p role="status">Cargando detalle…</p>';
+  const oldActions=modal.querySelector('.modal__actions');if(oldActions)oldActions.hidden=true;
+  modal.onclick=event=>{const action=event.target.closest('[data-cash-discrepancy-action]');if(action&&current()){event.stopPropagation();closeOperationalCashDetail(false);void openOperationalCashDiscrepancyAction(action.dataset.cashDiscrepancyAction,row.discrepancy_id,isCurrent);}else if(event.target===modal||event.target.closest('[data-modal-close]')){event.stopPropagation();closeOperationalCashDetail();}else if(event.target.closest('[data-cash-remittance-review]'))closeOperationalCashDetail(false);};
+  modal.onkeydown=event=>{if(event.key==='Escape'){event.stopPropagation();closeOperationalCashDetail();}else if(event.key==='Tab'){const buttons=[...modal.querySelectorAll('button')].filter(b=>!b.disabled&&!b.closest('[hidden]'));const first=buttons[0],last=buttons.at(-1);if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}}};
+  if(window.MutationObserver){state.observer=new window.MutationObserver(()=>{if(operationalCashDialog===state&&!current())closeOperationalCashDetail(false);});state.observer.observe(document.getElementById('caja'),{attributes:true,childList:true,subtree:true});}
+  modal.querySelector('[data-modal-close]')?.focus?.();
+  try{
+    let d=row;
+    if(kind==='movement')d=(await op.readRpc('get_admin_cash_movements')).find(m=>m.cash_movement_id===row.cash_movement_id);
+    if(kind==='remittance')d=await op.readDetail('get_admin_cash_remittance_detail','p_remittance_id',row.remittance_id);
+    if(kind==='discrepancy')d=await op.readDetail('get_admin_cash_discrepancy_detail','p_discrepancy_id',row.discrepancy_id);
+    if(kind==='count')d=(await op.related('cash_counts','id',row.id))[0];
+    if(!current())return;if(!d||!op.isOperationalRecord(d))throw Error('Registro no disponible');
+    const money=value=>operationalCashMoney(value,d.currency_code);
+    const fields=kind==='movement'?[['UUID',d.cash_movement_id],['Cuenta',d.cash_account_name],['Cuenta UUID',d.cash_account_id],['Fecha (Madrid)',operationalCashDate(d.occurred_at)],['Naturaleza',operationalCashLabel(d.movement_type)],['Importe registrado',money(d.amount)],['Concepto',d.description],['Origen',operationalCashLabel(d.source_type)],['Origen UUID',d.source_id],['Rendición',d.remittance_human_code||d.remittance_id],['Movimiento original',d.original_movement_human_code||d.original_movement_id],['Registrado por',d.actor_name||d.created_by_human_code]]:
+      kind==='remittance'?[['UUID',d.remittance_id],['Estado',operationalCashLabel(d.status)],['Conductor',d.driver_name],['Declarado (no implica traslado)',money(d.declared_amount)],['Verificado',money(d.verified_amount)],['Cuenta de origen',d.source_cash_account_name],['Destino',d.destination_cash_account_name],['Presentada',operationalCashDate(d.submitted_at)],['Verificada',operationalCashDate(d.verified_at)]]:
+      kind==='discrepancy'?[['UUID',d.discrepancy_id],['Estado',operationalCashLabel(d.status)],['Esperado',money(d.expected_amount)],['Real registrado',money(d.actual_amount)],['Diferencia (no es un movimiento)',money(d.difference_amount)],['Rendición',d.remittance_human_code||d.remittance_id],['Arqueo',d.cash_count_human_code||d.cash_count_id],['Motivo',d.reason_details],['Resolución',d.resolution_notes]]:
+      [['UUID',d.id],['Estado',operationalCashLabel(d.status)],['Cuenta UUID',d.cash_account_id],['Fecha (Madrid)',operationalCashDate(d.counted_at)],['Esperado en ese arqueo',money(d.expected_amount)],['Contado en ese arqueo',money(d.counted_amount)],['Diferencia (no es un movimiento)',money(d.difference_amount)],['Verificación',operationalCashDate(d.verified_at)],['Notas',d.notes]];
+    body.innerHTML=operationalCashSection(d.human_code||'Detalle',fields);
+    if(kind==='remittance'&&['submitted','received'].includes(d.status))body.insertAdjacentHTML('beforeend',`<button type="button" class="button button--primary" data-cash-remittance-review="${escapeCashHtml(d.remittance_id)}">${d.status==='submitted'?'Recibir rendición':'Verificar rendición'}</button>`);
+    if(kind==='discrepancy'&&['open','under_review'].includes(d.status))body.insertAdjacentHTML('beforeend',`<p>La gestión de esta discrepancia no crea movimientos ni modifica el saldo.</p><div class="modal__header-actions">${d.status==='open'?'<button type="button" class="button button--secondary" data-cash-discrepancy-action="review">Pasar a revisión</button>':''}<button type="button" class="button button--secondary" data-cash-discrepancy-action="resolve">Resolver</button>${window.ElaraAuth?.getActiveContext?.()==='superadmin'?'<button type="button" class="button button--secondary" data-cash-discrepancy-action="cancel">Cancelar discrepancia</button>':''}</div>`);
+  }catch(_){if(current())body.innerHTML='<p role="alert">No se pudo cargar el detalle. Cierra y vuelve a abrir para intentarlo de nuevo.</p>';}
+  finally{if(operationalCashDialog===state&&!current())closeOperationalCashDetail(false);}
+}
+function renderOperationalCashSidePanels(panel,snapshot,isCurrent) {
+  const op=window.ElaraOperationalData,e=escapeCashHtml;
+  const renderPage=(rows,list,meta,pagination,kind)=>{
+    let page=1;
+    const draw=()=>{if(!isCurrent())return;const filtered=rows();page=Math.max(1,Math.min(page,Math.ceil(filtered.length/20)||1));
+      list.innerHTML=filtered.slice((page-1)*20,page*20).map((r,index)=>`<article class="cash-row cash-row--history"><div><strong>${e(r.human_code||r.id)}</strong><span>${e(operationalCashLabel(r.status))} · ${e(r.driver_name||operationalCashDate(r.counted_at||r.submitted_at||r.created_at))}</span><small>${kind==='remittance'?'Declarado (no es un ingreso)':kind==='discrepancy'?'Diferencia (no es un movimiento)':'Contado en el arqueo'}</small></div><strong class="cash-row__amount">${e(operationalCashMoney(kind==='remittance'?r.declared_amount:kind==='discrepancy'?r.difference_amount:r.counted_amount,r.currency_code))}</strong><button class="button button--compact button--muted" type="button" data-cash-side-detail="${index}">Detalle</button></article>`).join('')||'<p role="status">No hay registros para este filtro.</p>';
+      if(meta)meta.textContent=`${filtered.length} registros · Página ${page} de ${Math.ceil(filtered.length/20)||1}`;
+      pagination.innerHTML='<button type="button" class="button button--secondary" data-cash-prev>Anterior</button><button type="button" class="button button--secondary" data-cash-next>Siguiente</button>';
+      pagination.querySelector('[data-cash-prev]').disabled=page===1;pagination.querySelector('[data-cash-next]').disabled=page*20>=filtered.length;
+      pagination.querySelector('[data-cash-prev]').onclick=()=>{page--;draw();};pagination.querySelector('[data-cash-next]').onclick=()=>{page++;draw();};
+      list.onclick=event=>{const b=event.target.closest('[data-cash-side-detail]');if(b&&isCurrent())return openOperationalCashDetail(kind,filtered[(page-1)*20+Number(b.dataset.cashSideDetail)],isCurrent);};
+    };draw();return ()=>{page=1;draw();};
+  };
+  const history=panel.querySelector('#cash-remittance-history-list'),driver=panel.querySelector('#cash-remittance-history-driver'),status=panel.querySelector('#cash-remittance-history-status'),search=panel.querySelector('#cash-remittance-history-id'),from=panel.querySelector('#cash-remittance-history-from'),to=panel.querySelector('#cash-remittance-history-to');
+  driver.innerHTML='<option value="">Todos</option>'+[...new Map(snapshot.remittances.filter(r=>r.driver_id).map(r=>[r.driver_id,r.driver_name||r.driver_human_code||'Conductor sin nombre'])).entries()].map(([id,name])=>`<option value="${e(id)}">${e(name)}</option>`).join('');for(const input of [driver,status,search,from,to])input.value='';
+  const refreshHistory=renderPage(()=>snapshot.remittances.filter(r=>(!driver.value||r.driver_id===driver.value)&&(!status.value||r.status===status.value)&&(!search.value||`${r.human_code} ${r.remittance_id}`.toLowerCase().includes(search.value.toLowerCase()))&&(!from.value||operationalCashDate(r.submitted_at||r.created_at,true)>=from.value)&&(!to.value||operationalCashDate(r.submitted_at||r.created_at,true)<=to.value)),history,panel.querySelector('#cash-remittance-history-meta'),panel.querySelector('#cash-remittance-history-pagination'),'remittance');
+  for(const input of [driver,status,from,to])input.onchange=refreshHistory;search.oninput=refreshHistory;panel.querySelector('#cash-remittance-history-clear').onclick=()=>{for(const input of [driver,status,search,from,to])input.value='';refreshHistory();};
+  const pending=panel.querySelector('#cash-remittances-list');pending.innerHTML=snapshot.remittances.filter(r=>['submitted','received'].includes(r.status)).map(r=>`<article class="cash-row"><div><strong>${e(r.human_code)}</strong><span>${e(operationalCashLabel(r.status))} · ${e(r.driver_name||'Conductor sin nombre')}</span><small>Declarado: ${e(operationalCashMoney(r.declared_amount,r.currency_code))} · No confirma efectivo trasladado</small></div><button class="button button--compact" type="button" data-cash-remittance-review="${e(r.remittance_id)}">${r.status==='submitted'?'Recibir':'Verificar'}</button></article>`).join('')||'<p>No hay rendiciones presentadas o recibidas pendientes de revisión.</p>';
+  const diffStatus=panel.querySelector('#cash-discrepancy-status'),diffType=panel.querySelector('#cash-discrepancy-type'),diffSearch=panel.querySelector('#cash-discrepancy-search');for(const input of [diffStatus,diffType,diffSearch])input.value='';
+  const refreshDiff=renderPage(()=>snapshot.discrepancies.filter(r=>(!diffStatus.value||r.status===diffStatus.value)&&(!diffType.value||r.discrepancy_type===diffType.value)&&(!diffSearch.value||`${r.human_code} ${r.remittance_human_code||''}`.toLowerCase().includes(diffSearch.value.toLowerCase()))),panel.querySelector('#cash-discrepancy-list'),panel.querySelector('#cash-discrepancy-meta'),panel.querySelector('#cash-discrepancy-pagination'),'discrepancy');
+  diffStatus.onchange=diffType.onchange=refreshDiff;diffSearch.oninput=refreshDiff;panel.querySelector('#cash-discrepancy-clear').onclick=()=>{for(const input of [diffStatus,diffType,diffSearch])input.value='';refreshDiff();};
+  const counts=panel.querySelector('#cash-counts-list');counts.querySelector('[data-cash-count-pages]')?.remove();let countPages=panel.querySelector('[data-cash-count-pages]');if(!countPages){countPages=document.createElement('div');countPages.className='cash-pagination';countPages.dataset.cashCountPages='';counts.after(countPages);}
+  renderPage(()=>snapshot.counts,counts,null,countPages,'count');
+  panel.querySelector('[data-cash-account-balances]').innerHTML=snapshot.accounts.map(a=>`<article class="cash-row"><div><strong>${e(a.name)} · ${e(operationalCashLabel(a.account_type))}</strong><small>Saldo calculado por el sistema · Sin conciliar${snapshot.balances.get(a.cash_account_id)===null?' · Lecturas incompletas o no coincidentes':''}</small></div><strong>${e(operationalCashMoney(snapshot.balances.get(a.cash_account_id),a.currency_code))}</strong></article>`).join('')||'<p>No hay saldos de cuenta disponibles.</p>';
+  window.ElaraAdminControls?.attachCash();const admin=panel.querySelector('[data-admin-control="central"]');if(admin){admin.classList.add('button','button--secondary');panel.querySelector('[data-cash-operational-admin]').appendChild(admin);}
+}
 async function showOperationalCash() {
-  const op = window.ElaraOperationalData;
-  if (!op) throw new Error('Lectura operativa no disponible.');
-  const result = await op.show('caja', {title: 'Caja', load: async () => { const [movements,remittances,discrepancies] = await Promise.all([op.readRpc('get_admin_cash_movements'),op.readRpc('get_admin_cash_remittances'),op.readRpc('get_admin_cash_discrepancies')]); return [...movements.map(r=>({...r,kind:'Movimiento'})),...remittances.map(r=>({...r,kind:'Remesa'})),...discrepancies.map(r=>({...r,kind:'Diferencia'}))]; },
-pageSummary:'Recepción y verificación de rendiciones · Efectivo del conductor y central separados',
-notice: 'Efectivo driver y central separados. Abre una rendición presentada para recibirla y una recibida para verificarla. Los saldos derivados incluyen únicamente movimientos operativos.',
-rowActions:r=>r.kind==='Remesa'?`<button type="button" class="button button--secondary" data-cash-remittance-review="${window.ElaraCashRemittance.escape(r.remittance_id)}">Revisar rendición</button>`:'',
-columns: [['Clase','kind'],['Código','human_code'],['Cuenta','cash_account_name'],['Fecha','occurred_at'],['Tipo',r=>r.movement_type||r.status],['Origen','source_type'],['Concepto','description'],['Importe',r=>r.amount??r.declared_amount??r.difference_amount],['Moneda','currency_code']],
-summary: ()=>window.ElaraCashRemittance.balances(op.getCollection('caja')),
-detail: async r=> { if(r.kind==='Remesa') { const d=await op.readDetail('get_admin_cash_remittance_detail','p_remittance_id',r.remittance_id); return op.fields(d,[['Remesa','human_code'],['Estado','status'],['Conductor','driver_name'],['Declarado','declared_amount'],['Verificado','verified_amount'],['Moneda','currency_code']]); } if(r.kind==='Diferencia') { const d=await op.readDetail('get_admin_cash_discrepancy_detail','p_discrepancy_id',r.discrepancy_id); return op.fields(d,[['Diferencia','human_code'],['Estado','status'],['Esperado','expected_amount'],['Real','actual_amount'],['Diferencia','difference_amount'],['Moneda','currency_code']]); } return op.fields(r,[['UUID','cash_movement_id'],['Cuenta UUID','cash_account_id'],['Origen UUID','source_id'],['Remesa','remittance_human_code'],['Concepto','description']]); }});
-  window.ElaraAdminControls?.attachCash();
+  closeOperationalCashDetail(false);
+  if(!operationalCashBound){operationalCashBound=true;window.addEventListener('elara:auth-session-updated',()=>{if(operationalCashDialog?.scope!==operationalCashScope())closeOperationalCashDetail(false);if(operationalCashManualDialog?.attempt.scope!==operationalCashScope())closeOperationalCashManual();if(operationalCashDiscrepancyDialog?.attempt.scope!==operationalCashScope())closeOperationalCashDiscrepancyAction();if(operationalCashElements?.create&&!operationalCashCurrent())operationalCashElements.create.hidden=true;});}
+  const op=window.ElaraOperationalData;let snapshot;
+  const result=await op.show('caja',{title:'Caja',defaultFilters:false,pageSummary:'Control de efectivo, rendiciones y movimientos registrados.',
+    load:async({isCurrent})=>{
+      const [movements,remittances,discrepancies,accounts,ledger]=await Promise.all([op.readRpc('get_admin_cash_movements'),op.readRpc('get_admin_cash_remittances'),op.readRpc('get_admin_cash_discrepancies'),op.readAll('v_admin_cash_account_overview','cash_account_id'),op.readAll('cash_movements')]);if(!isCurrent())return [];
+      op.indexRecords({movements,remittances,discrepancies,ledger});
+      snapshot={movements,remittances:remittances.filter(op.isOperationalRecord),discrepancies:discrepancies.filter(op.isOperationalRecord),counts:op.getCollection('cash_counts'),accounts:accounts.filter(a=>op.isOperationalRecord(a)&&op.getCollection('cash_accounts').some(c=>c.id===a.cash_account_id)),balances:new Map()};
+      for(const account of snapshot.accounts)snapshot.balances.set(account.cash_account_id,operationalCashBalance(account,movements));
+      return movements;
+    },
+    presentation:{panelClassName:'cash-operational-panel',mount:mountOperationalCash,rows:renderOperationalCashMovements,
+      summary:rows=>{const central=snapshot.accounts.filter(a=>a.account_type==='central'&&a.status==='active'),a=central.length===1?central[0]:null;
+        return [['Saldo central calculado',a?operationalCashMoney(snapshot.balances.get(a.cash_account_id),a.currency_code):'No disponible','neutral'],['Saldo conciliado','No determinado','neutral'],['Ingresos del filtro (registros)',rows.filter(r=>r.movement_type==='inflow').length,'success'],['Egresos del filtro (registros)',rows.filter(r=>r.movement_type==='outflow').length,'danger'],['Rendiciones por revisar',snapshot.remittances.filter(r=>['submitted','received'].includes(r.status)).length,'warning'],['Discrepancias abiertas',snapshot.discrepancies.filter(r=>['open','under_review'].includes(r.status)).length,'warning']].map(([label,value,tone])=>`<article class="summary-card summary-card--${tone}"><span>${escapeCashHtml(label)}</span><strong>${escapeCashHtml(value)}</strong></article>`).join('');},
+      ready:(_,{panel,isCurrent,refreshRows})=>{operationalCashCurrent=isCurrent;operationalCashRefresh=async current=>{await refreshRows(current);renderOperationalCashSidePanels(panel,snapshot,isCurrent);};renderOperationalCashSidePanels(panel,snapshot,isCurrent);placeOperationalCashCreate(isCurrent);document.getElementById('page-eyebrow').textContent='Economía';}},
+    filters:[{label:'Naturaleza',value:r=>r.movement_type,text:r=>operationalCashLabel(r.movement_type)},{label:'Cuenta',value:r=>r.cash_account_id,text:r=>r.cash_account_name},{label:'Origen',value:r=>r.source_type,text:r=>operationalCashLabel(r.source_type)},{label:'Registro',value:r=>r.original_movement_id?'reversal':'registered',text:r=>r.original_movement_id?'Contramovimiento':'Registrado'},{label:'Fecha (Madrid)',value:r=>operationalCashDate(r.occurred_at,true)}],
+    searchText:r=>[r.human_code,r.description,r.cash_account_name,r.source_type,r.source_id,r.original_movement_human_code,r.remittance_human_code,r.amount,r.currency_code].join(' '),columns:[],openDetail:(r,{isCurrent})=>openOperationalCashDetail('movement',r,isCurrent)});
   return result;
+}
+
+
+const operationalCashManualAttempts=new Map();
+let operationalCashManualWriting=false,operationalCashManualDialog,operationalCashCreateObserver;
+function placeOperationalCashCreate(isCurrent) {
+  const button=operationalCashElements.create,view=document.getElementById('caja');
+  button.removeAttribute('data-cash-open-modal');button.classList.remove('button--compact','button--muted');button.classList.add('button--primary');button.textContent='Registrar movimiento';
+  const allowed=()=>operationalCashCurrent()&&!view.hidden&&Boolean(window.ElaraAuth?.getCurrentUser?.())&&['administrativo','superadmin'].includes(window.ElaraAuth?.getActiveContext?.());
+  document.querySelector('.header__actions').appendChild(button);button.hidden=!allowed();button.onclick=()=>{if(allowed())return openOperationalCashManual(isCurrent);};
+  if(!operationalCashCreateObserver&&window.MutationObserver){operationalCashCreateObserver=new window.MutationObserver(()=>{button.hidden=!allowed();});operationalCashCreateObserver.observe(view,{attributes:true,childList:true,subtree:true});}
+}
+async function executeOperationalCashManual(attempt,values,isCurrent=()=>true) {
+  if(operationalCashManualWriting||attempt.busy)throw Error('Hay una operación en curso.');
+  operationalCashManualWriting=attempt.busy=true;
+  const check=()=>{if(!isCurrent()||attempt.scope!==operationalCashScope()||!['administrativo','superadmin'].includes(window.ElaraAuth?.getActiveContext?.()))throw Error('La sesión o la vista cambió. Revisa el intento antes de continuar.');};
+  try{
+    check();const op=window.ElaraOperationalData;
+    if(!attempt.args){
+      const amount=String(values.amount||'').replace(',','.'),minor=operationalCashMinor(amount),description=String(values.description||'').trim();
+      if(minor===null||minor<=0n||minor>99999999999999n)throw Error('Introduce un importe positivo con un máximo de dos decimales.');
+      if(!description||op.isQaRecord({description}))throw Error('Introduce un concepto válido para este movimiento manual.');
+      if(!['inflow','outflow'].includes(values.type))throw Error('Selecciona ingreso o egreso.');
+      const accounts=await op.readAll('cash_accounts');check();const account=accounts.find(a=>a.id===values.account&&a.status==='active'&&['central','administrative'].includes(a.account_type)&&op.isOperationalRecord(a));
+      if(!account)throw Error('Selecciona una cuenta central o administrativa activa.');
+      attempt.currency=account.currency_code;attempt.args={p_cash_account_id:account.id,p_movement_type:values.type,p_amount:`${minor/100n}.${String(minor%100n).padStart(2,'0')}`,p_description:description,p_idempotency_key:attempt.key,p_metadata:{ui_request_key:attempt.key}};
+    }
+    const recover=async()=>{const rows=await op.readRpc('get_admin_cash_movements',{p_cash_account_id:attempt.args.p_cash_account_id});check();const matches=rows.filter(r=>r.metadata?.ui_request_key===attempt.key&&op.isOperationalRecord(r));if(matches.length>1)throw Error('El intento requiere revisión: hay más de un movimiento asociado.');const row=matches[0];if(row&&(row.cash_account_id!==attempt.args.p_cash_account_id||row.movement_type!==attempt.args.p_movement_type||row.currency_code!==attempt.currency||row.description!==attempt.args.p_description||operationalCashMinor(row.amount)!==operationalCashMinor(attempt.args.p_amount)))throw Error('El movimiento encontrado no coincide con este intento.');return row;};
+    if(attempt.sent||attempt.result){const found=await recover();if(found){attempt.result=found;return found;}if(attempt.result)throw Error('Movimiento confirmado; la lectura de comprobación está pendiente.');}
+    check();attempt.sent=true;
+    let response;try{response=await window.ElaraSupabase.client.rpc('create_cash_movement',attempt.args);}catch(_){response=null;}
+    check();const found=await recover();if(found){attempt.result=found;return found;}
+    if(response?.error&&['22023','23503','23514','42501','28000'].includes(response.error.code)){attempt.rejected=true;throw Error('El movimiento fue rechazado. Revisa los datos y el estado de la cuenta; no se ha confirmado un registro.');}
+    if(typeof response?.data==='string'&&/^[0-9a-f-]{36}$/i.test(response.data))attempt.result={cash_movement_id:response.data};
+    throw Error('No se pudo confirmar la lectura del movimiento. Conserva este intento y comprueba su estado antes de registrar otro.');
+  }finally{attempt.busy=operationalCashManualWriting=false;}
+}
+function closeOperationalCashManual(){const state=operationalCashManualDialog;if(!state)return;state.observer?.disconnect();state.modal.hidden=true;operationalCashManualDialog=null;}
+async function openOperationalCashManual(isCurrent) {
+  if(operationalCashManualWriting)return;closeOperationalCashDetail(false);closeOperationalCashManual();
+  const scope=operationalCashScope(),modal=document.getElementById('cash-adjustment-form-modal'),form=modal.querySelector('form');
+  let attempt=operationalCashManualAttempts.get(scope);
+  if(!attempt||attempt.result||attempt.rejected){attempt={scope,key:`cash-ui:${window.crypto.randomUUID()}`,sent:false,result:null};operationalCashManualAttempts.set(scope,attempt);}
+  const state={modal,attempt};operationalCashManualDialog=state;form.classList.add('service-summary');
+  const current=()=>operationalCashManualDialog===state&&isCurrent()&&scope===operationalCashScope()&&!document.getElementById('caja').hidden&&!modal.hidden;
+  modal.hidden=false;modal.querySelector('h2').textContent='Registrar movimiento manual';form.innerHTML='<p role="status">Cargando cuentas…</p>';
+  modal.onclick=e=>{if((e.target===modal||e.target.closest('[data-modal-close]'))&&!attempt.busy){e.stopPropagation();closeOperationalCashManual();}};
+  modal.onkeydown=e=>{if(e.key==='Escape'&&!attempt.busy){e.stopPropagation();closeOperationalCashManual();}else if(e.key==='Tab'){const controls=[...modal.querySelectorAll('button,input,textarea,select')].filter(el=>!el.disabled&&!el.closest('[hidden]'));const first=controls[0],last=controls.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}}};
+  if(window.MutationObserver){state.observer=new window.MutationObserver(()=>{if(operationalCashManualDialog===state&&!current())closeOperationalCashManual();});state.observer.observe(document.getElementById('caja'),{attributes:true,childList:true,subtree:true});}
+  try{
+    const accounts=(await window.ElaraOperationalData.readAll('cash_accounts')).filter(a=>a.status==='active'&&['central','administrative'].includes(a.account_type)&&window.ElaraOperationalData.isOperationalRecord(a));if(!current())return;
+    form.innerHTML='<p>Solo efectivo manual. Los cobros de servicios, pagos de gastos y liquidaciones se gestionan desde sus módulos.</p>'+`<label class="field"><span>Cuenta</span><select name="account" required><option value="">Selecciona…</option>${accounts.map(a=>`<option value="${escapeCashHtml(a.id)}">${escapeCashHtml(a.name)} · ${escapeCashHtml(a.currency_code)}</option>`).join('')}</select></label><label class="field"><span>Naturaleza</span><select name="type"><option value="inflow">Ingreso</option><option value="outflow">Egreso</option></select></label><label class="field"><span>Importe</span><input name="amount" type="text" inputmode="decimal" required></label><label class="field"><span>Concepto obligatorio</span><textarea name="description" required></textarea></label><p role="status" data-cash-manual-status></p><button class="button button--primary" type="submit">${attempt.sent?'Comprobar / reintentar mismo movimiento':'Registrar movimiento'}</button><button class="button button--secondary" type="button" data-modal-close>Cerrar</button>`;
+    if(attempt.args){for(const [name,value]of Object.entries({account:attempt.args.p_cash_account_id,type:attempt.args.p_movement_type,amount:attempt.args.p_amount,description:attempt.args.p_description})){form.querySelector(`[name="${name}"]`).value=value;form.querySelector(`[name="${name}"]`).disabled=true;}}
+    if(!accounts.length&&!attempt.sent){form.querySelector('[type="submit"]').disabled=true;form.querySelector('[data-cash-manual-status]').textContent='No hay cuentas centrales o administrativas activas disponibles.';}
+    form.onsubmit=async event=>{event.preventDefault();if(attempt.busy||!current())return;const controls=[...form.querySelectorAll('input,select,textarea,button')],status=form.querySelector('[data-cash-manual-status]');controls.forEach(c=>c.disabled=true);
+      try{const value=name=>form.querySelector(`[name="${name}"]`).value;await executeOperationalCashManual(attempt,{account:value('account'),type:value('type'),amount:value('amount'),description:value('description')},current);if(!current())return;status.textContent='Movimiento confirmado. Actualizando la lectura…';try{await operationalCashRefresh(current);if(current())status.textContent='Movimiento confirmado. Listado y saldos actualizados.';}catch(_){if(current())status.textContent='Movimiento confirmado. La actualización está pendiente; no repitas el registro.';}}
+      catch(error){if(current())status.textContent=error.message;}
+      finally{controls.forEach(c=>c.disabled=false);if(attempt.sent)controls.filter(c=>c.tagName!=='BUTTON').forEach(c=>c.disabled=true);if(attempt.result){form.querySelector('[type="submit"]').disabled=true;form.querySelector('[type="submit"]').textContent='Movimiento confirmado';}}
+    };
+  }catch(_){if(current())form.innerHTML='<p role="alert">No se pudieron consultar las cuentas.</p><button type="button" data-modal-close>Cerrar</button>';}
+  finally{if(operationalCashManualDialog===state&&!current())closeOperationalCashManual();}
+}
+
+let operationalCashDiscrepancyDialog;
+function closeOperationalCashDiscrepancyAction(){const state=operationalCashDiscrepancyDialog;if(!state)return;state.observer?.disconnect();state.modal.hidden=true;operationalCashDiscrepancyDialog=null;}
+async function executeOperationalCashDiscrepancy(attempt,notes,isCurrent=()=>true) {
+  if(operationalCashManualWriting||attempt.busy)throw Error('Hay una operación en curso.');operationalCashManualWriting=attempt.busy=true;
+  const check=()=>{if(!isCurrent()||attempt.scope!==operationalCashScope()||!['administrativo','superadmin'].includes(window.ElaraAuth?.getActiveContext?.()))throw Error('La sesión o la vista cambió.');if(attempt.action==='cancel'&&window.ElaraAuth.getActiveContext()!=='superadmin')throw Error('Solo Superadmin puede cancelar discrepancias.');};
+  try{
+    check();const names={review:'review_cash_discrepancy',resolve:'resolve_cash_discrepancy',cancel:'cancel_cash_discrepancy'},targets={review:'under_review',resolve:'resolved',cancel:'cancelled'};
+    if(!names[attempt.action])throw Error('Acción no permitida.');
+    const read=async()=>{const row=await window.ElaraOperationalData.readDetail('get_admin_cash_discrepancy_detail','p_discrepancy_id',attempt.id);check();return row;};
+    if(!attempt.args){notes=String(notes||'').trim();if(attempt.action!=='review'&&(!notes||notes.length>1000))throw Error('Introduce un motivo de hasta 1000 caracteres.');attempt.notes=notes;attempt.args={p_discrepancy_id:attempt.id,...(attempt.action==='resolve'?{p_resolution_notes:notes}:attempt.action==='cancel'?{p_reason:notes}:{})};}
+    const matching=row=>row.status===targets[attempt.action]&&(attempt.action==='review'||row.resolution_notes===attempt.notes);
+    const before=await read();if(matching(before)){attempt.result=before;return before;}
+    if(attempt.result||!['open','under_review'].includes(before.status)||(attempt.action==='review'&&before.status!=='open'))throw Error('El estado cambió. Actualiza la lectura antes de iniciar otro cambio.');
+    check();attempt.sent=true;let response;try{response=await window.ElaraSupabase.client.rpc(names[attempt.action],attempt.args);}catch(_){response=null;}
+    const after=await read();if(matching(after)){attempt.result=after;return after;}
+    if(response?.error)throw Error('La operación fue rechazada. Revisa el estado actual de la discrepancia.');throw Error('El resultado no está confirmado. Comprueba la discrepancia por lectura antes de continuar.');
+  }finally{attempt.busy=operationalCashManualWriting=false;}
+}
+async function openOperationalCashDiscrepancyAction(action,id,isCurrent) {
+  if(operationalCashManualWriting)return;closeOperationalCashDiscrepancyAction();
+  const modal=document.getElementById('cash-discrepancy-action-modal'),body=modal.querySelector('.modal__body'),attempt={scope:operationalCashScope(),action,id};
+  const state={modal,attempt};operationalCashDiscrepancyDialog=state;modal.hidden=false;
+  const current=()=>operationalCashDiscrepancyDialog===state&&isCurrent()&&attempt.scope===operationalCashScope()&&!document.getElementById('caja').hidden&&!modal.hidden;
+  modal.querySelector('h2').textContent=({review:'Pasar a revisión',resolve:'Resolver discrepancia',cancel:'Cancelar discrepancia'})[action]||'Discrepancia';
+  body.innerHTML=`<p>Esta operación cambia el estado de la discrepancia. No crea movimientos ni modifica importes o saldos.</p><form class="cash-form">${action==='review'?'':'<label class="field"><span>Motivo obligatorio</span><textarea name="notes" maxlength="1000" required></textarea></label>'}<p role="status"></p><button type="submit" class="button button--primary">Confirmar</button><button type="button" class="button button--secondary" data-modal-close>Cerrar</button></form>`;
+  const close=()=>{if(!attempt.busy)closeOperationalCashDiscrepancyAction();};modal.onclick=e=>{if(e.target===modal||e.target.closest('[data-modal-close]')){e.stopPropagation();close();}};
+  modal.onkeydown=e=>{if(e.key==='Escape'){e.stopPropagation();close();}};
+  if(window.MutationObserver){state.observer=new window.MutationObserver(()=>{if(operationalCashDiscrepancyDialog===state&&!current())closeOperationalCashDiscrepancyAction();});state.observer.observe(document.getElementById('caja'),{attributes:true,childList:true,subtree:true});}
+  const form=body.querySelector('form');form.onsubmit=async event=>{event.preventDefault();if(attempt.busy||!current())return;const controls=[...form.querySelectorAll('button,textarea')],status=form.querySelector('[role="status"]');controls.forEach(c=>c.disabled=true);
+    try{await executeOperationalCashDiscrepancy(attempt,form.querySelector('[name="notes"]')?.value,current);if(current()){status.textContent='Cambio confirmado. Actualizando la lectura…';try{await operationalCashRefresh(current);if(current())status.textContent='Estado actualizado. Los importes y saldos no se han modificado.';}catch(_){if(current())status.textContent='Cambio confirmado; actualización de lectura pendiente.';}}}
+    catch(error){if(current())status.textContent=error.message;}
+    finally{controls.forEach(c=>c.disabled=false);if(attempt.sent)form.querySelector('[name="notes"]')?.setAttribute('disabled','');if(attempt.result)form.querySelector('[type="submit"]').disabled=true;}
+  };
 }
 
 // Administrative remittances: real read/write contracts only; legacy/demo controls stay inactive.
 window.ElaraCashRemittance = (() => {
-  let busy=false,modal=null;
+  let busy=false,modal=null,disposeModal=()=>{};
   const escape=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const op=()=>window.ElaraOperationalData;
   const actor=()=>window.ElaraAuth?.getCurrentUser?.()?.supabaseUserId||window.ElaraAuth?.getCurrentUser?.()?.id;
@@ -4111,11 +4323,11 @@ window.ElaraCashRemittance = (() => {
     await showOperationalCash();
     if(document.getElementById('caja')?.querySelector('[data-operational-panel] [role="alert"]'))throw Error('Lectura de Caja pendiente de actualizar.');
   }
-  async function execute(action,id,amount){
+  async function execute(action,id,amount,isCurrent=()=>true){
     if(busy)throw Error('Hay una rendición en curso.');busy=true;const expected=actor();
     try{
-      authorize(expected);if(!['receive','verify'].includes(action))throw Error('Acción no disponible.');
-      const before=await read(id);authorize(expected);
+      authorize(expected);if(!isCurrent())throw Error('Contexto invalidado.');if(!['receive','verify'].includes(action))throw Error('Acción no disponible.');
+      const before=await read(id);authorize(expected);if(!isCurrent())throw Error('La vista o la sesi\u00f3n cambi\u00f3.');
       const target=action==='receive'?'received':'verified';
       if(before.status===target||(action==='receive'&&before.status==='verified')){
         if(action==='verify'&&Number(before.verified_amount)!==Number(amount))throw Error('La rendición ya fue verificada con otro importe. Revisa el resultado remoto.');
@@ -4134,22 +4346,27 @@ window.ElaraCashRemittance = (() => {
   }
   async function open(id){
     if(busy)return;authorize();const expected=actor();
-    if(modal)modal.remove();const element=document.createElement('div');element.className='modal-backdrop';modal=element;
+    disposeModal();if(modal)modal.remove();const scope=operationalCashScope(),client=window.ElaraSupabase.client;const element=document.createElement('div');element.className='modal-backdrop';modal=element;
     element.innerHTML='<section class="modal financial-close-modal" role="dialog" aria-modal="true" aria-labelledby="cash-remittance-title"><header class="modal__header"><h2 id="cash-remittance-title">Rendición de efectivo</h2><button type="button" data-remittance-close>Cerrar</button></header><div class="modal__body" role="status">Consultando rendición remota…</div></section>';
-    document.body.append(element);element.querySelector('[data-remittance-close]').onclick=()=>{if(!busy){element.remove();if(modal===element)modal=null;}};
+    document.body.append(element);
+    const current=()=>modal===element&&element.isConnected&&scope===operationalCashScope()&&client===window.ElaraSupabase.client&&!document.getElementById('caja').hidden&&operationalCashCurrent();
+    const invalidate=()=>{if(!current()){element.remove();if(modal===element)modal=null;window.removeEventListener?.('elara:auth-session-updated',invalidate);observer?.disconnect();}};
+    const observer=window.MutationObserver?new window.MutationObserver(invalidate):null;observer?.observe(document.getElementById('caja'),{attributes:true,attributeFilter:['hidden']});window.addEventListener?.('elara:auth-session-updated',invalidate);disposeModal=()=>{observer?.disconnect();window.removeEventListener?.('elara:auth-session-updated',invalidate);};
+    element.onkeydown=e=>{if(e.key==='Escape'&&!busy)element.querySelector('[data-remittance-close]').click();};
+    element.querySelector('[data-remittance-close]').onclick=()=>{if(!busy){disposeModal();element.remove();if(modal===element)modal=null;}};
     try{
-      const d=await read(id);authorize(expected);if(!element.isConnected)return;
+      const d=await read(id);authorize(expected);if(!current()){invalidate();return;}
       const body=element.querySelector('.modal__body');
       body.innerHTML=op().fields(d,[['Código','human_code'],['Estado','status'],['Conductor','driver_name'],['Declarado','declared_amount'],['Verificado','verified_amount'],['Moneda','currency_code'],['Custodia origen','source_cash_account_name'],['Destino central','destination_cash_account_name']])+(['submitted','received'].includes(d.status)?`<form data-remittance-form>${d.status==='received'?'<label>Importe contado y verificado<input name="amount" type="number" min="0.01" step="0.01" required></label>':'<p>Confirmar recepción física de esta rendición. La recepción todavía no mueve efectivo a central.</p>'}<p role="status" aria-live="polite"></p><button type="submit">${d.status==='submitted'?'Recibir rendición':'Verificar y trasladar efectivo a central'}</button></form>`:'<p>Sin acciones disponibles para este estado.</p>');
       const form=body.querySelector('form');if(!form)return;
-      form.onsubmit=async event=>{event.preventDefault();if(busy)return;const status=form.querySelector('[role="status"]'),buttons=[...element.querySelectorAll('button')];buttons.forEach(b=>b.disabled=true);
-        try{authorize(expected);const result=await execute(d.status==='submitted'?'receive':'verify',id,form.elements.amount?.value);status.textContent=`Confirmado desde backend: ${result.detail.status}.`;
+      form.onsubmit=async event=>{event.preventDefault();if(busy||!current())return;const status=form.querySelector('[role="status"]'),buttons=[...element.querySelectorAll('button')];buttons.forEach(b=>b.disabled=true);
+        try{authorize(expected);const result=await execute(d.status==='submitted'?'receive':'verify',id,form.elements.amount?.value,current);if(!current())return;status.textContent=`Confirmado desde backend: ${result.detail.status}.`;
           // Confirmed mutations are never retried to repair a failed refresh.
-          try{await refresh();await open(id);}catch(_){status.textContent+=' Actualización pendiente: cierra y vuelve a revisar la rendición; no repitas a ciegas.';}
+          try{await refresh();if(current())await open(id);}catch(_){status.textContent+=' Actualización pendiente: cierra y vuelve a revisar la rendición; no repitas a ciegas.';}
         }catch(error){status.textContent=error.message;}
         finally{buttons.forEach(b=>b.disabled=false);}
       };
-    }catch(error){if(element.isConnected)element.querySelector('.modal__body').textContent=error.message;}
+    }catch(error){if(current())element.querySelector('.modal__body').textContent=error.message;else invalidate();}
   }
   document.addEventListener('click',event=>{const b=event.target.closest?.('[data-cash-remittance-review]');if(b)void open(b.dataset.cashRemittanceReview).catch(e=>window.ElaraNotifications?.showToast(e.message,'error'));});
   return Object.freeze({execute,open,refresh,balances,escape});

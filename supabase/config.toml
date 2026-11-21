@@ -414,3 +414,6 @@ enabled = true
 
 [functions.driver-portal-access]
 verify_jwt = true
+
+[functions.user-administration]
+verify_jwt = true

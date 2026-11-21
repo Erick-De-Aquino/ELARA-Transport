@@ -1,0 +1,74 @@
+const test=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm');
+const {fixture,setup}=require('./vehicles-presentation-harness.cjs');
+const {uuid}=require('./services-presentation-harness.cjs');
+const cards=h=>[...h.panel().querySelectorAll('[data-operational-vehicle-id]')];
+const search=(h,value)=>{const input=h.panel().querySelector('[data-operational-search]');input.value=value;input.oninput({target:input});};
+const open=async h=>h.panel().querySelector('[data-operational-results]').onclick({target:cards(h)[0].querySelector('button')});
+function forms(h){Object.defineProperty(h.window.HTMLElement.prototype,'elements',{configurable:true,get(){return Object.fromEntries([...this.querySelectorAll('[name]')].map(e=>[e.name,e]));}});}
+test('original nodes, UUID cards, real identity and document reads, bounded summary and primary header button',async()=>{
+ const h=setup(),list=h.document.getElementById('vehicles-list');await h.show();assert.equal(h.panel().querySelector('#vehicles-list'),list);assert.equal(cards(h).length,25);assert.match(cards(h)[0].textContent,/1000BCD/);assert.match(cards(h)[0].textContent,/Conductor Local/);assert.match(cards(h)[0].textContent,/Documentos registrados/);assert.match(h.panel().textContent,/Total filtrado32/);assert.match(h.panel().textContent,/no confirman la disponibilidad/);assert.equal(h.panel().querySelector('.status-legend').hidden,true);
+ const button=h.document.querySelector('.header__actions [data-catalog-action="vehicleCreate"]');assert.ok(button.classList.contains('button--primary'));assert.equal(button.textContent,'Nuevo vehículo');assert.deepEqual([...new Set(h.calls.map(c=>c.table))].sort(),['driver_vehicle_assignments','drivers','persons','vehicle_documents','vehicles']);
+});
+test('search, independent filters, pagination and clear keep actual rows and counters',async()=>{
+ const h=setup();await h.show();h.panel().querySelector('[data-operational-next]').onclick();assert.equal(cards(h).length,7);for(const term of ['VEH-000001','1000BCD','Conductor Local']){search(h,term);assert.equal(cards(h).length,1);}
+ for(const el of h.panel().querySelectorAll('select'))Object.defineProperty(el,'value',{configurable:true,writable:true,value:''});search(h,'');const select=h.panel().querySelector('[data-operational-filter="0"]');select.value='inactive';select.onchange();assert.equal(cards(h).length,8);assert.ok(cards(h).every(c=>c.textContent.includes('Inactivo')));h.panel().querySelector('[data-vehicles-clear]').onclick();assert.equal(cards(h).length,25);
+});
+test('existing detail shows documents, expiry, historical links and assignments without unsupported editors',async()=>{
+ const tables=fixture();tables.services.push({id:uuid(8000),human_code:'SRV-LOCAL'});tables.service_assignments.push({id:uuid(8100),service_id:uuid(8000),vehicle_id:uuid(1),assignment_status:'accepted'});tables.vehicle_documents.push({id:uuid(7001),vehicle_id:uuid(1),document_type_key:'insurance',status:'replaced',replaced_at:'2026-01-01',expires_at:'2020-01-01'});
+ const h=setup({tables});await h.show();await open(h);const m=h.document.getElementById('vehicle-detail-modal');assert.equal(m.hidden,false);assert.match(m.textContent,/Seguro/);assert.match(m.textContent,/01\/12\/2099/);assert.match(m.textContent,/Histórico/);assert.match(m.textContent,/Conductor Local/);assert.match(m.textContent,/SRV-LOCAL/);assert.match(m.textContent,/Requiere comprobación operativa/);assert.ok(m.querySelector('[data-catalog-action="document"]'));assert.ok(m.querySelector('[data-catalog-action="close"]'));assert.equal(m.querySelectorAll('button[disabled]').length,2);
+ m.onkeydown({key:'Escape',stopPropagation(){}});assert.equal(m.hidden,true);await open(h);assert.equal(m.querySelectorAll('[data-catalog-action="document"]').length,1);m.onclick({target:m,stopPropagation(){}});assert.equal(m.hidden,true);
+ search(h,'VEH-000004');await open(h);assert.equal(m.querySelector('[data-catalog-action="vehicleInactive"]'),null);assert.equal(m.querySelector('[data-catalog-action="document"]'),null);
+});
+test('document summary never claims completeness and excludes retired documents from nearest expiry',async()=>{
+ const h=setup();await h.show();const summary=docs=>h.context.operationalVehicleDocuments(docs);
+ assert.equal(summary([]).label,'Sin documentos visibles');assert.equal(summary([{status:'valid',expires_at:'2020-01-01'}]).status,'review');assert.equal(summary([{status:'pending'}]).status,'pending');assert.equal(summary([{status:'expiring_soon',expires_at:'2099-01-01'}]).status,'expiring');assert.equal(summary([{status:'valid',expires_at:'2099-01-01'},{status:'replaced',replaced_at:'2020-01-01',expires_at:'2020-01-01'}]).date,'2099-01-01');assert.doesNotMatch(summary([{status:'valid'}]).label,/al día|completa/);
+});
+test('document cards retain complete references, dates, states and record history without changing source data',async()=>{
+ const tables=fixture(),long='REF-'+('0123456789'.repeat(80))+' <script>texto</script>\nSegunda línea';
+ tables.vehicle_documents.push({id:uuid(7001),vehicle_id:uuid(1),document_type_key:'itv',status:'pending',reference_number:long},{id:uuid(7002),vehicle_id:uuid(1),document_type_key:'insurance',status:'replaced',replaced_at:'2026-01-01',issued_at:null,expires_at:null,reference_number:null},{id:uuid(7003),vehicle_id:uuid(1),document_type_key:'insurance',status:'expired',expires_at:'2020-01-01',reference_number:'CORTA'});
+ tables.vehicle_document_types.push({key:'itv',label_es:'Inspección técnica'});const before=JSON.stringify(tables.vehicle_documents),h=setup({tables});await h.show();await open(h);
+ const m=h.document.getElementById('vehicle-detail-modal'),cards=[...m.querySelectorAll('[data-vehicle-document-card]')];assert.equal(cards.length,4);assert.equal(cards[0].querySelector('h4').textContent,'Seguro');assert.equal(cards[1].querySelector('h4').textContent,'Inspección técnica');assert.equal(cards[1].querySelector('.modal__field--wide dd').textContent,long);assert.equal(cards[1].querySelector('script'),null);assert.match(cards[0].textContent,/Vigente/);assert.match(cards[1].textContent,/Pendiente/);assert.match(cards[2].textContent,/Histórico/);assert.match(cards[2].textContent,/Sin fecha/);assert.match(cards[2].textContent,/Sin referencia/);assert.match(cards[3].textContent,/Vencido/);assert.match(cards[3].textContent,/01\/01\/2020/);assert.equal(cards[3].querySelector('.modal__field--wide dd').textContent,'CORTA');assert.equal(JSON.stringify(tables.vehicle_documents),before);assert.equal(cards.some(c=>c.querySelector('table')),false);
+});
+test('empty document section preserves the existing empty indication without blank cards',async()=>{
+ const tables=fixture();tables.vehicle_documents=[];const h=setup({tables});await h.show();await open(h);const body=h.document.getElementById('vehicle-detail-view');assert.equal(body.querySelectorAll('[data-vehicle-document-card]').length,0);assert.match(body.textContent,/No se muestran documentos registrados/);
+});
+test('create, inactivation, document and relation forms reuse catalog contracts without writing',async()=>{
+ const h=setup();await h.show();forms(h);const button=h.document.querySelector('[data-catalog-action="vehicleCreate"]');await button.onclick();assert.ok(h.document.querySelector('#new-vehicle-modal [name="plate"]'));assert.ok(h.document.querySelector('#new-vehicle-modal [name="brand"]'));assert.equal(h.document.querySelector('#new-vehicle-modal [name="color"]'),null);h.document.querySelector('#new-vehicle-modal [data-catalog-close]').click();
+ for(const action of ['vehicleInactive','document','assign','close']){await h.window.ElaraCatalogAdmin.open('vehicles',action,action==='close'?uuid(6000):uuid(1));assert.equal(h.document.getElementById('new-vehicle-modal').hidden,false);assert.equal(h.document.querySelector('#new-vehicle-modal [role="alert"]'),null);h.document.querySelector('#new-vehicle-modal [data-catalog-close]').click();}
+});
+test('repeated show and refresh retain a single original header button and unique nodes',async()=>{
+ const h=setup();await h.show();const button=h.document.querySelector('[data-catalog-action="vehicleCreate"]');await h.show();await h.panel().querySelector('[data-operational-retry]').onclick();assert.equal(h.document.querySelectorAll('[data-catalog-action="vehicleCreate"]').length,1);assert.equal(h.document.querySelector('.header__actions [data-catalog-action="vehicleCreate"]'),button);const ids=[...h.document.querySelectorAll('[id]')].map(e=>e.id);assert.equal(new Set(ids).size,ids.length);
+});
+test('empty, denied and failed reads do not fall back to demo records',async()=>{
+ const h=setup({tables:fixture(0)});await h.show();assert.match(h.panel().textContent,/No hay registros/);const denied=setup({role:'conductor'});await denied.show();assert.equal(denied.calls.length,0);assert.ok(denied.panel().querySelector('[role="alert"]'));const failed=setup({beforeRead:()=>{throw Error('read failed');}});await failed.show();assert.equal(cards(failed).length,0);assert.ok(failed.panel().querySelector('[role="alert"]'));
+});
+for(const change of ['session','navigation','reset'])test('late list is ignored after '+change,async()=>{
+ let release,started;const ready=new Promise(r=>started=r);let block=true;const h=setup({beforeRead:async table=>{if(block&&table==='vehicles'){block=false;started();await new Promise(r=>release=r);}}});const pending=h.show();await ready;if(change==='session')h.window.ElaraAuth.getCurrentUser=()=>({id:uuid(901)});if(change==='reset')h.op.reset();if(change==='navigation')await h.op.show('dashboard',{title:'Dashboard',load:async()=>[],columns:[]});release();await pending;assert.equal(cards(h).length,0);
+});
+for(const change of ['session','navigation','close'])test('late detail cannot survive '+change,async()=>{
+ let block=false,release,started;const ready=new Promise(r=>started=r);const h=setup({beforeRead:async table=>{if(block&&table==='service_assignments'){started();await new Promise(r=>release=r);}}});await h.show();block=true;const pending=open(h);await ready;if(change==='session')h.window.ElaraAuth.getCurrentUser=()=>({id:uuid(901)});if(change==='navigation')h.document.getElementById('vehiculos').hidden=true;if(change==='close')h.context.closeOperationalVehicleDetail();release();await pending;assert.equal(h.document.getElementById('vehicle-detail-modal').hidden,true);
+});
+test('QA parent exclusion and escaping apply to vehicles, links and documents',async()=>{
+ const tables=fixture(4);tables.vehicles[1].metadata={qa_fixture:true};tables.persons[0].metadata={qa_fixture:true};tables.vehicles[0].brand='<img src=x onerror=bad()>';const h=setup({tables});await h.show();assert.equal(cards(h).length,3);assert.equal(h.panel().querySelector('img'),null);assert.match(h.panel().textContent,/<img/);assert.doesNotMatch(cards(h)[0].textContent,/Conductor Local/);
+});
+test('administrative refresh preserves filters, search and pagination while opening the saved vehicle by UUID',async()=>{
+ const h=setup();await h.show();h.panel().querySelector('[data-operational-next]').onclick();const page=h.panel().querySelector('[data-operational-page]').textContent;await h.context.refreshOperationalVehicle({vehicle_id:uuid(30)},'vehicleInactive');assert.equal(h.panel().querySelector('[data-operational-page]').textContent,page);assert.equal(h.document.getElementById('vehicle-detail-title').textContent,'1029BCD');h.context.closeOperationalVehicleDetail();search(h,'1000BCD');await h.context.refreshOperationalVehicle({vehicle_id:uuid(1)},'document');assert.equal(h.panel().querySelector('[data-operational-search]').value,'1000BCD');assert.equal(cards(h).length,1);
+});
+test('uncertain inactivation cannot replay an RPC without a receipt',async()=>{
+ const h=setup();await h.show();let writes=0;h.window.ElaraSupabase.client.rpc=async()=>{writes++;throw Error('lost');};const api=h.window.ElaraCatalogAdmin,attempt=api.operation('vehicleInactive'),values={vehicleId:uuid(2),reason:'Local test'};await assert.rejects(api.execute(attempt,values));await assert.rejects(api.execute(attempt,values),/lectura/);assert.equal(writes,1);
+});
+test('vehicle creation serializes double sends and retries a lost response with the same receipt and payload',async()=>{
+ const h=setup();await h.show();const api=h.window.ElaraCatalogAdmin,attempt=api.operation('vehicleCreate'),values={plate:'1111BCD',brand:'Local',model:'Isolated',manualStatus:'unavailable'};let release,started;const ready=new Promise(r=>started=r),calls=[];
+ h.window.ElaraSupabase.client.rpc=async(name,args)=>{calls.push({name,args});if(calls.length===1){started();await new Promise(r=>release=r);throw Error('lost');}return {data:[{vehicle_id:uuid(9000),human_code:'VEH-009000',plate_normalized:'1111BCD',ownership_type:'owned',manual_operational_status:'unavailable',elara_approval_status:'not_required',inactive_at:null}],error:null};};
+ const first=api.execute(attempt,values);await ready;await assert.rejects(api.execute(attempt,values),/curso/);release();await assert.rejects(first);await api.execute(attempt,values);assert.equal(calls.length,2);assert.equal(calls[0].name,'admin_create_vehicle');assert.deepEqual(calls[0].args,calls[1].args);await api.execute(attempt,values);assert.equal(calls.length,2);
+});
+test('vehicle inactivation rejects invalid reasons, permissions, late scope and translates backend dependency rejection',async()=>{
+ const h=setup();await h.show();const api=h.window.ElaraCatalogAdmin;assert.throws(()=>api.payload('vehicleInactive',{vehicleId:uuid(2),reason:''}),/motivo/);let calls=0;
+ h.window.ElaraSupabase.client.rpc=async()=>{calls++;return {error:{code:'23514',message:'Vehicle has a live link, service, maintenance or incident.'}};};
+ await assert.rejects(api.execute(api.operation('vehicleInactive'),{vehicleId:uuid(2),reason:'Local'},async()=>{},()=>false),/Contexto/);assert.equal(calls,0);
+ await assert.rejects(api.execute(api.operation('vehicleInactive'),{vehicleId:uuid(2),reason:'Local'}),/conductor vinculado/);
+ h.window.ElaraAuth.getActiveContext=()=> 'conductor';await assert.rejects(api.execute(api.operation('vehicleInactive'),{vehicleId:uuid(2),reason:'Local'}),/autorización/);assert.equal(calls,1);
+});
+test('late administrative form and session invalidation clear only their own dialog',async()=>{
+ const h=setup();await h.show();forms(h);await h.window.ElaraCatalogAdmin.open('vehicles','vehicleCreate');const m=h.document.getElementById('new-vehicle-modal');m.onclick({target:m.querySelector('[data-catalog-close]')});await h.window.ElaraCatalogAdmin.open('vehicles','document',uuid(1));assert.equal(m.hidden,false);assert.ok(m.querySelector('[name="documentType"]'));h.window.ElaraAuth.getCurrentUser=()=>({id:uuid(901)});h.window.dispatchEvent(new h.window.Event('elara:auth-session-updated'));assert.equal(m.hidden,true);
+});

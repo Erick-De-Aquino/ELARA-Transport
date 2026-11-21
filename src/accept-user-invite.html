@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="es">
+<head>
+ <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+ <meta name="referrer" content="no-referrer"><title>Activar cuenta · ELARA Transport</title>
+ <link rel="stylesheet" href="css/variables.css"><link rel="stylesheet" href="css/base.css"><link rel="stylesheet" href="css/forms.css"><link rel="stylesheet" href="css/buttons.css"><link rel="stylesheet" href="css/modals.css">
+</head>
+<body>
+ <main class="modal__body">
+  <h1>Activar cuenta de ELARA Transport</h1>
+  <p id="user-invite-status" role="status" aria-live="polite">Comprobando invitación…</p>
+  <form id="user-invite-form" hidden>
+   <label class="field"><span>Nueva contraseña</span><input name="password" type="password" autocomplete="new-password" minlength="12" required></label>
+   <label class="field"><span>Confirmar contraseña</span><input name="confirmation" type="password" autocomplete="new-password" minlength="12" required></label>
+   <button class="button button--primary" type="submit">Establecer contraseña y entrar</button>
+  </form>
+  <button class="button button--secondary" id="user-invite-retry" type="button" hidden>Comprobar acceso preparado por Administración</button>
+  <a href="index.html">Volver al inicio de sesión</a>
+ </main>
+ <!-- Capture the invitation before the SDK consumes its URL. No token persistence. -->
+ <script src="js/accept-user-invite.js"></script>
+ <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js"></script>
+ <script src="js/config.js"></script><script src="js/supabase.js"></script>
+</body>
+</html>

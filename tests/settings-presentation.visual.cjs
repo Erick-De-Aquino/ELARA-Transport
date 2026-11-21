@@ -1,0 +1,25 @@
+const fs=require('node:fs'),path=require('node:path'),http=require('node:http'),os=require('node:os'),{spawn}=require('node:child_process');
+const {fixture}=require('./settings-presentation-harness.cjs'),{readClient}=require('./services-presentation-harness.cjs');
+(async()=>{
+ const out=fs.mkdtempSync(path.join(os.tmpdir(),'elara-settings-')),tables=fixture();
+ tables.app_settings[4].value_json='ReferenciaLarga'.repeat(30);tables.configurable_catalog_items[0].label_es='Descripción extensa de catálogo '.repeat(15);
+ let html=fs.readFileSync('src/index.html','utf8').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,'').replace(/<link[^>]+(?:https:|manifest)[^>]*>/gi,'');
+ const bootstrap=`document.querySelector('.app-shell').hidden=false;document.getElementById('login-screen').hidden=true;for(const view of document.querySelectorAll('[data-view]'))view.hidden=view.id!=='configuracion';let role='superadmin';const tables=${JSON.stringify(tables)};window.ElaraAuth={getCurrentUser:()=>({id:'local-actor',appSessionId:'local-session'}),getActiveContext:()=>role};window.ElaraSupabase={client:(${readClient.toString()})(tables,[])};for(const key of ['ElaraUsersMock','ElaraCollaboratorsMock'])Object.defineProperty(window,key,{get(){throw Error('Mock used')}});`;
+ html=html.replace('</body>',`<script>${bootstrap}</script><script src="js/operational-data.js"></script><script src="js/settings.js"></script><script>ElaraSettings.showSettings().then(()=>window.ready=true)</script></body>`);
+ const server=http.createServer((req,res)=>{const p=new URL(req.url,'http://localhost').pathname;if(p==='/'){res.setHeader('Content-Type','text/html; charset=utf-8');res.end(html);return;}const file=path.join(process.cwd(),'src',p);if(!fs.existsSync(file)){res.statusCode=404;res.end();return;}res.setHeader('Content-Type',file.endsWith('.css')?'text/css':file.endsWith('.js')?'text/javascript':'image/svg+xml');res.end(fs.readFileSync(file));});await new Promise(r=>server.listen(0,'127.0.0.1',r));
+ const chrome=spawn('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',['--headless=new','--disable-gpu','--no-sandbox','--remote-debugging-pipe',`--user-data-dir=${path.join(out,'profile')}`,'--no-first-run','--no-default-browser-check','about:blank'],{windowsHide:true,stdio:['ignore','ignore','pipe','pipe','pipe']});
+ let id=0,sessionId,buffer='';const pending=new Map();chrome.stdio[4].on('data',d=>{buffer+=d;let i;while((i=buffer.indexOf('\0'))>=0){const m=JSON.parse(buffer.slice(0,i));buffer=buffer.slice(i+1);if(m.id){const p=pending.get(m.id);pending.delete(m.id);m.error?p.reject(Error(JSON.stringify(m.error))):p.resolve(m.result);}}});
+ const send=(method,params={},root=false)=>new Promise((resolve,reject)=>{const n=++id,timer=setTimeout(()=>reject(Error('CDP timeout '+method)),15000);pending.set(n,{resolve:v=>{clearTimeout(timer);resolve(v);},reject});chrome.stdio[3].write(JSON.stringify({id:n,method,params,...(!root&&sessionId?{sessionId}:{})})+'\0');});
+ const evaluate=async expression=>{const r=await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value;};
+ const wait=async expression=>{for(let i=0;i<100;i++){if(await evaluate(expression))return;await new Promise(r=>setTimeout(r,50));}throw Error('Condition timed out: '+expression);};
+ const screenshot=async name=>fs.writeFileSync(path.join(out,name+'.png'),Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
+ try{
+ const {targetInfos}=await send('Target.getTargets',{},true);({sessionId}=await send('Target.attachToTarget',{targetId:targetInfos.find(t=>t.type==='page').targetId,flatten:true},true));await send('Page.enable');const results=[];
+ for(const width of [390,640,768,1024,1440]){
+ await send('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:false});await send('Page.navigate',{url:`http://127.0.0.1:${server.address().port}/`});await wait('Boolean(window.ready)');
+ const metrics=await evaluate(`(()=>{const v=document.getElementById('configuracion');return {width:innerWidth,body:document.documentElement.scrollWidth,scroll:v.scrollWidth,client:v.clientWidth,cards:document.querySelectorAll('#settings-grid .settings-card').length,controls:document.getElementById('settings-grid').querySelectorAll('button,input,select,form').length,gridColumns:getComputedStyle(document.getElementById('settings-grid')).gridTemplateColumns}})()`);
+ if(metrics.body>width+1||metrics.scroll>metrics.client+1||metrics.cards!==5||metrics.controls!==0)throw Error(JSON.stringify(metrics));await screenshot(width+'-settings');
+ await evaluate(`role='administrativo';dispatchEvent(new CustomEvent('elara:auth-session-updated'))`);if(!await evaluate(`document.getElementById('configuracion').hidden&&document.getElementById('settings-grid').textContent===''`))throw Error('Role cleanup');results.push(metrics);
+ }console.log(JSON.stringify({out,results}));
+ }finally{chrome.kill();await new Promise(r=>server.close(r));}
+})().catch(e=>{console.error(e);process.exitCode=1;});

@@ -29,10 +29,15 @@ jobs:
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
+      - name: Build and verify authorized frontend
+        run: |
+          node scripts/package-pages.cjs build
+          node scripts/package-pages.cjs verify
+
       - name: Upload static frontend
         uses: actions/upload-pages-artifact@v4
         with:
-          path: ./src
+          path: ./dist/pages
 
       - name: Deploy to GitHub Pages
         id: deployment

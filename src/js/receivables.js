@@ -903,13 +903,132 @@ window.ElaraReceivables = {
   showReceivables,
 };
 
-// Read-only operational route. Legacy renderer below/above is retained for demo dependencies.
+// Operational route: debt comes only from the administrative overview; 0050 owns collection.
+let operationalReceivablesView = null;
+let operationalReceivableTicket = 0;
+let operationalReceivablesObserver = null;
+let operationalReceivablesElements = null;
+const operationalReceivableLabels = {open:'Pendiente',overdue:'Vencida',partial:'Cobro parcial',paid:'Cobrada',cancelled:'Anulada',written_off:'Incobrable'};
+function receivableMinor(value) {
+  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(String(value ?? ''));
+  return match ? BigInt(match[1])*100n + BigInt((match[2]||'').padEnd(2,'0')) : null;
+}
+function receivableExactMoney(value, currency) {
+  const minor = typeof value === 'bigint' ? value : receivableMinor(value);
+  if (minor === null || !/^[A-Z]{3}$/.test(currency||'')) return 'Sin información disponible';
+  return new Intl.NumberFormat('es-ES').format(minor/100n)+','+String(minor%100n).padStart(2,'0')+' '+currency;
+}
+function receivableRemoteDate(value) {
+  if (!value) return 'Sin fecha';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'Sin fecha' : new Intl.DateTimeFormat('es-ES',{timeZone:'Europe/Madrid',dateStyle:'short',timeStyle:'short'}).format(date);
+}
+function receivableAmountsValid(row) {
+  const amounts = ['original_amount','collected_amount','pending_amount'].map(k=>receivableMinor(row[k]));
+  return amounts.every(v=>v!==null) && amounts[0]>0n && amounts[0]===amounts[1]+amounts[2];
+}
+function receivableOverdue(row) {
+  return ['open','overdue','partial'].includes(row.status) && receivableMinor(row.pending_amount)>0n && Boolean(row.due_at) && new Date(row.due_at).getTime()<Date.now();
+}
+function closeOperationalReceivable() {
+  operationalReceivableTicket++;
+  const modal=document.getElementById('receivable-detail-modal');
+  if(modal)modal.hidden=true;
+}
+function receivableScope() {
+  const auth=window.ElaraAuth;
+  return (auth?.getCurrentUser?.()?.supabaseUserId||auth?.getCurrentUser?.()?.id||'')+'/'+auth?.getActiveContext?.();
+}
+async function openOperationalReceivable(row, {isCurrent}) {
+  const ticket=++operationalReceivableTicket, scope=receivableScope(), op=window.ElaraOperationalData;
+  const modal=document.getElementById('receivable-detail-modal'),content=document.getElementById('receivable-detail-content'),actions=document.getElementById('receivable-detail-actions');
+  const current=()=>ticket===operationalReceivableTicket&&scope===receivableScope()&&isCurrent()&&!document.getElementById('cuentas-por-cobrar').hidden;
+  if(!current())return;
+  modal.hidden=false;content.textContent='Consultando cuenta y cobros…';actions.replaceChildren();
+  document.getElementById('receivable-detail-title').textContent='Detalle '+row.human_code;
+  document.getElementById('receivable-detail-description').textContent=row.service_human_code+' · '+row.customer_display_name;
+  modal.onclick=e=>{if(e.target===modal||e.target.closest('[data-receivable-modal-close]'))closeOperationalReceivable();};
+  try {
+    const response=await window.ElaraSupabase.client.rpc('get_service_financial_close_context',{p_service_id:row.service_id});
+    if(!current())return;
+    if(response.error||!response.data||response.data.service_id!==row.service_id)throw Error('No se pudo confirmar el detalle financiero.');
+    const context=response.data;
+    const [allocations,payments,movements]=await Promise.all([op.readAll('receivable_allocations'),op.readAll('service_payments'),op.readRpc('get_admin_cash_movements')]);
+    if(!current())return;
+    op.indexRecords({receivable_allocations:allocations,service_payments:payments,cash_movements:movements});
+    const ids=new Set(allocations.filter(a=>a.receivable_id===row.receivable_id&&op.isOperationalRecord(a)).map(a=>a.payment_id));
+    const history=payments.filter(p=>ids.has(p.id)&&p.service_id===row.service_id&&op.isOperationalRecord(p)).sort((a,b)=>String(b.paid_at).localeCompare(String(a.paid_at)));
+    // Re-read the authoritative debt after loading history, rather than displaying the list snapshot.
+    const fresh=(await op.readAll('v_admin_receivable_overview','receivable_id')).find(r=>r.receivable_id===row.receivable_id);
+    if(!current())return;
+    if(!fresh||!op.isOperationalRecord(fresh)||fresh.service_id!==row.service_id||fresh.customer_id!==row.customer_id||!receivableAmountsValid(fresh))throw Error('El saldo requiere una nueva consulta. Actualiza el listado.');
+    const service=op.getCollection('services').find(s=>s.id===fresh.service_id);
+    const section=renderReceivableDetailSection;
+    content.innerHTML=section('Cuenta y saldo',[
+      ['Cuenta',fresh.human_code],['Estado',operationalReceivableLabels[fresh.status]||'Sin información disponible'],
+      ['Importe exigible',receivableExactMoney(fresh.original_amount,fresh.currency_code)],['Cobrado aplicado a esta cuenta',receivableExactMoney(fresh.collected_amount,fresh.currency_code)],
+      ['Saldo pendiente',receivableExactMoney(fresh.pending_amount,fresh.currency_code)],['Importe vencido',receivableExactMoney(receivableOverdue(fresh)?fresh.pending_amount:'0',fresh.currency_code)],
+      ['Apertura',receivableRemoteDate(fresh.opened_at)],['Vencimiento',fresh.due_at?receivableRemoteDate(fresh.due_at):'Sin vencimiento registrado'],['Cierre',receivableRemoteDate(fresh.closed_at)]
+    ])+section('Origen y cliente',[
+      ['Servicio',fresh.service_human_code],['Cliente',fresh.customer_display_name],['Código de cliente',fresh.customer_human_code],
+      ['Origen',service?.origin],['Destino',service?.destination],['Precio del servicio',context.pricing_status==='finalized'?'Definitivo':'Pendiente de confirmar'],
+      ['Facturación','Sin información de factura en esta cuenta']
+    ])+'<h3 class="modal__section-title">Historial de cobros asociados</h3><p>Los importes de los pagos no se suman de nuevo al saldo. Los cobros anulados o revertidos no son cobros efectivos.</p>'+ (history.length?history.map(p=>section(p.human_code||'Cobro',[
+      ['Estado',({completed:'Registrado',pending:'Pendiente',failed:'Fallido',cancelled:'Anulado',reversed:'Revertido'})[p.payment_status]||'Sin información disponible'],
+      ['Importe del pago',receivableExactMoney(p.amount,p.currency_code)],['Fecha',receivableRemoteDate(p.paid_at)],['Método',p.payment_method==='cash'?'Efectivo':p.payment_method],['Referencia',p.external_reference||'Sin referencia'],
+      ['Movimientos de Caja',movements.filter(m=>m.source_type==='service_payment'&&m.source_id===p.id&&op.isOperationalRecord(m)).map(m=>(m.human_code||m.cash_movement_id)+' · '+(m.cash_account_name||'Cuenta sin nombre')).join(' · ')||'Sin movimientos asociados disponibles']
+    ])).join(''):'<p>No hay cobros asociados a esta cuenta.</p>')+'<p>La anulación de cobros, la edición de vencimientos y los cambios manuales de estado no están disponibles en esta ficha.</p>';
+    if(['open','overdue','partial'].includes(fresh.status)&&receivableMinor(fresh.pending_amount)>0n&&context.pricing_status==='finalized'&&context.operational_status==='completed'&&context.receivable?.id===fresh.receivable_id){
+      actions.innerHTML='<div></div><div class="receivable-detail-actions__group receivable-detail-actions__group--right"><button type="button" class="button button--primary">Registrar cobro en efectivo</button></div>';
+      actions.querySelector('button').onclick=()=>{if(!current())return;const view=operationalReceivablesView;closeOperationalReceivable();void window.ElaraFinancialClose?.open('receivable',fresh.service_id,fresh.receivable_id,false,()=>view?.isCurrent()&&scope===receivableScope()&&!document.getElementById('cuentas-por-cobrar').hidden);};
+    }
+  }catch(error){if(current()){content.textContent=error.message||'No se pudo cargar la cuenta. Cierra y vuelve a consultar.';actions.replaceChildren();}}
+}
+function operationalReceivableSummary(rows) {
+  const esc=escapeReceivableHtml, groups=new Map();
+  for(const r of rows){if(!groups.has(r.currency_code))groups.set(r.currency_code,{pending:0n,collected:0n,overdue:0n,valid:true});const g=groups.get(r.currency_code);if(!receivableAmountsValid(r)){g.valid=false;continue;}if(['open','overdue','partial'].includes(r.status)){g.pending+=receivableMinor(r.pending_amount);if(receivableOverdue(r))g.overdue+=receivableMinor(r.pending_amount);}g.collected+=receivableMinor(r.collected_amount);}
+  const total=key=>groups.size?[...groups].map(([currency,g])=>g.valid?receivableExactMoney(g[key],currency):'Saldo sin confirmar').join(' · '):'Sin cuentas registradas';
+  const active=rows.filter(r=>['open','overdue','partial'].includes(r.status));
+  return [['Importe pendiente',total('pending'),'warning'],['Cuentas pendientes',String(active.length),'warning'],['Clientes con deuda',String(new Set(active.map(r=>r.customer_id)).size),'info'],['Cobrado aplicado',total('collected'),'success'],['Importe vencido',total('overdue'),'warning']].map(([label,value,tone])=>`<article class="summary-card summary-card--${tone}"><span>${esc(label)}</span><strong>${esc(value)}</strong></article>`).join('');
+}
 function showOperationalReceivables() {
   const op = window.ElaraOperationalData;
   if (!op) throw new Error('Lectura operativa no disponible.');
-  return op.show('cuentas-por-cobrar', {title: 'Cuentas por cobrar', collection: 'receivables', load: () => op.readAll('v_admin_receivable_overview','receivable_id'),
-notice: 'Cobro administrativo en efectivo, completo o parcial. Anulación no disponible.',
-columns: [['CxC','human_code'],['Servicio','service_human_code'],['Cliente','customer_display_name'],['Estado','status'],['Original','original_amount'],['Cobrado','collected_amount'],['Pendiente','pending_amount'],['Moneda','currency_code']],
-summary: rows=>'Original global: '+op.money(rows,'original_amount')+' · Pendiente global: '+op.money(rows,'pending_amount'),
-detail: async r=>op.fields(r,[['UUID','receivable_id'],['Apertura','opened_at'],['Vencimiento','due_at'],['Cierre','closed_at'],['Último pago','last_payment_code'],['Fecha Último pago','last_payment_at']])+(['open','overdue','partial'].includes(r.status)?`<button type="button" class="button button--secondary" data-financial-kind="receivable" data-financial-id="${r.service_id}" data-receivable-id="${r.receivable_id}">Registrar cobro en efectivo</button>`:'')});
+  closeOperationalReceivable();
+  operationalReceivablesElements ||= {summary:document.getElementById('receivables-summary'),panel:document.querySelector('.receivables-panel')};
+  const {summary,panel}=operationalReceivablesElements, esc=escapeReceivableHtml;
+  if(!operationalReceivablesObserver&&window.MutationObserver){operationalReceivablesObserver=new window.MutationObserver(()=>{if(document.getElementById('cuentas-por-cobrar').hidden||operationalReceivablesView?.scope!==receivableScope()){closeOperationalReceivable();window.ElaraFinancialClose?.reset();}});operationalReceivablesObserver.observe(document.getElementById('cuentas-por-cobrar'),{attributes:true,attributeFilter:['hidden']});}
+  return op.show('cuentas-por-cobrar', {title:'Cuentas por cobrar',collection:'receivables',defaultFilters:false,
+    load:()=>op.readAll('v_admin_receivable_overview','receivable_id'),
+    columns:[['Cuenta','human_code'],['Servicio','service_human_code'],['Cliente','customer_display_name']],
+    searchText:r=>[r.human_code,r.service_human_code,r.customer_display_name,r.customer_human_code].join(' '),
+    filters:[{label:'Estado',value:r=>r.status,text:r=>operationalReceivableLabels[r.status]||'Sin información disponible'},{label:'Cliente',value:r=>r.customer_id,text:r=>r.customer_display_name},{label:'Vencimiento',value:r=>!r.due_at?'none':receivableOverdue(r)?'overdue':'dated',text:r=>!r.due_at?'Sin vencimiento':receivableOverdue(r)?'Con saldo vencido':'Con fecha registrada'}],
+    openDetail:openOperationalReceivable,
+    presentation:{panelClassName:'receivables-operational-panel',
+      mount(host,{controls}){
+        const temp=document.createElement('div');temp.innerHTML=controls;
+        host.replaceChildren(summary,panel);summary.hidden=false;panel.hidden=false;summary.setAttribute('data-operational-summary','');
+        const menu=panel.querySelector('.receivables-filter-grid');menu.replaceChildren();
+        for(const e of temp.querySelectorAll('label')){e.classList.add('field');menu.append(e);}
+        const retry=temp.querySelector('[data-operational-retry]');menu.append(retry);
+        const results=document.getElementById('receivables-list');results.setAttribute('data-operational-results','');
+        const pagination=document.getElementById('receivables-pagination');pagination.replaceChildren();pagination.hidden=false;
+        for(const selector of ['[data-operational-prev]','[data-operational-page]','[data-operational-next]']){const e=temp.querySelector(selector);if(e.tagName==='BUTTON')e.className='button button--compact button--muted';pagination.append(e);}
+        host.append(temp.querySelector('[data-operational-detail-content]'));
+        document.getElementById('receivables-results-meta').textContent='Deudas confirmadas · Los importes previstos no se incluyen. Resumen según los filtros.';
+        panel.querySelector('.receivables-list-header span:nth-child(4)').textContent='Vencimiento';
+      },
+      summary:operationalReceivableSummary,
+      rows:rows=>rows.map((r,i)=>`<article class="receivables-row receivables-list-grid" data-operational-receivable-id="${esc(r.receivable_id)}"><div class="receivables-row__main"><strong>${esc(r.human_code)}</strong><small>Apertura: ${esc(receivableRemoteDate(r.opened_at))}</small></div><div class="receivables-row__stack"><strong>${esc(r.service_human_code)}</strong></div><div class="receivables-row__stack"><strong>${esc(r.customer_display_name)}</strong><small>${esc(r.customer_human_code)}</small></div><time>${esc(r.due_at?receivableRemoteDate(r.due_at):'Sin vencimiento')}</time><div class="receivables-row__stack receivables-row__amount"><strong>${esc(receivableExactMoney(r.pending_amount,r.currency_code))}</strong><small>Exigible: ${esc(receivableExactMoney(r.original_amount,r.currency_code))}</small><small>Cobrado: ${esc(receivableExactMoney(r.collected_amount,r.currency_code))}</small>${receivableAmountsValid(r)?'':'<small>Saldo sin confirmar</small>'}</div><span class="receivable-status-badge receivable-status-badge--${r.status==='paid'?'success':['open','partial','overdue'].includes(r.status)?'warning':'neutral'}">${esc(operationalReceivableLabels[r.status]||'Sin información disponible')}</span><div class="receivables-row__actions"><button class="button button--compact button--muted" type="button" data-operational-detail="${i}">Detalle</button></div></article>`).join(''),
+      ready(rows,context){
+        operationalReceivablesView={...context,scope:receivableScope()};
+        document.getElementById('page-eyebrow').textContent='GESTIÓN FINANCIERA';
+        document.getElementById('page-summary').textContent='Consulta deudas confirmadas y cobros registrados por cliente.';
+        if(pendingReceivablesCustomerFilter){const s=context.panel.querySelector('[data-operational-filter="1"]');if(s){if(![...s.querySelectorAll('option')].some(o=>o.value===pendingReceivablesCustomerFilter)){const o=document.createElement('option');o.value=pendingReceivablesCustomerFilter;o.textContent='Cliente seleccionado';s.append(o);}s.value=pendingReceivablesCustomerFilter;s.onchange();}pendingReceivablesCustomerFilter='';}
+      }
+    }
+  });
 }
+window.ElaraReceivables.refreshReceivables=async()=>{const view=operationalReceivablesView;if(!view||!view.isCurrent()||document.getElementById('cuentas-por-cobrar').hidden)return;await view.refreshRows(()=>view.scope===receivableScope()&&!document.getElementById('cuentas-por-cobrar').hidden);};
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeOperationalReceivable();});
+window.addEventListener('elara:auth-session-updated',()=>{if(operationalReceivablesView?.scope!==receivableScope()){closeOperationalReceivable();window.ElaraFinancialClose?.reset();}});

@@ -9,8 +9,8 @@
 const ELARA_LEGACY_MOCK_SESSION_STORAGE_KEY = "elara.mock.activeUser";
 const VALID_AUTH_CONTEXTS = ["superadmin", "administrativo", "conductor"];
 const AUTH_CONTEXT_LABELS = {
-  superadmin: "Superadmin",
-  administrativo: "Administrativo",
+  superadmin: "Superadministrador",
+  administrativo: "Administrador",
   conductor: "Conductor",
 };
 const INACTIVE_ACCOUNT_MESSAGE = "Tu cuenta esta inactiva. Contacta con administracion.";
@@ -31,6 +31,75 @@ let isLoginSubmitting = false;
 let isRestoringSession = false;
 let isSigningOut = false;
 let tokenRefreshSyncTimeoutId = 0;
+let authRevision = 0;
+let contextSuspended = false;
+let contextTask = null;
+let contextChannel = null;
+const CONTEXT_SIGNAL_KEY = "elara.auth.context-signal";
+
+function authSessionKey(session) {
+  try {
+    const payload = session.access_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const id = JSON.parse(window.atob(payload)).session_id;
+    return id && session.user?.id ? `${session.user.id}/${id}` : "";
+  } catch (_) { return ""; }
+}
+
+function withContextLock(session, task) {
+  const locks = window.navigator?.locks;
+  return locks ? locks.request(`elara-context/${authSessionKey(session)}`, task) : task();
+}
+
+function invalidateContextViews() {
+  window.ElaraAdminControls?.reset();
+  window.ElaraFinancialClose?.reset();
+  window.ElaraOperationalData?.reset();
+  document.querySelectorAll('.modal-backdrop').forEach(modal => { modal.hidden = true; });
+  document.querySelectorAll('[data-view]').forEach(view => { view.hidden = true; });
+  document.getElementById('sidebar-nav')?.replaceChildren();
+  document.body.classList.remove('modal-open');
+  emitAuthSessionUpdatedEvent('context-invalidated');
+}
+
+function suspendContext() {
+  contextSuspended = true;
+  authRevision++;
+  currentDriverIdentity = null;
+  driverIdentityPromise = null;
+  invalidateContextViews();
+  renderAuthState();
+}
+
+function signalContextChange(session) {
+  // Notification only. Neither storage nor messages contain roles, tokens or authority.
+  const signal = {session: authSessionKey(session), nonce: `${Date.now()}/${Math.random()}`};
+  if (contextChannel) contextChannel.postMessage(signal);
+  else { try { localStorage.setItem(CONTEXT_SIGNAL_KEY, JSON.stringify(signal)); } catch (_) { /* Focus revalidation remains active. */ } }
+}
+
+function bindContextSynchronization() {
+  if (bindContextSynchronization.isBound) return;
+  bindContextSynchronization.isBound = true;
+  const receive = signal => {
+    if (activeAuthSession && signal?.session === authSessionKey(activeAuthSession) && !contextTask) {
+      suspendContext();
+      void synchronizeContext();
+    }
+  };
+  if (window.BroadcastChannel) {
+    contextChannel = new window.BroadcastChannel('elara-auth-context');
+    contextChannel.onmessage = event => receive(event.data);
+  } else window.addEventListener('storage', event => {
+    if (event.key === CONTEXT_SIGNAL_KEY) { try { receive(JSON.parse(event.newValue)); } catch (_) { /* Ignore malformed notifications. */ } }
+  });
+  window.addEventListener('focus', () => { if (activeUser) void synchronizeContext(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && activeUser) void synchronizeContext();
+  });
+  window.setInterval(() => {
+    if (document.visibilityState === 'visible' && activeUser) void synchronizeContext();
+  }, 30000);
+}
 
 function initAuth(callbacks = {}) {
   authCallbacks = callbacks;
@@ -38,6 +107,7 @@ function initAuth(callbacks = {}) {
   bindLoginForm();
   bindLogoutButton();
   bindContextSwitcher();
+  bindContextSynchronization();
   bindSupabaseAuthState();
   authReadyPromise = restoreExistingSession();
 
@@ -98,6 +168,7 @@ async function handleLoginSubmit(form) {
 }
 
 async function signInAndInitializeAppSession(email, password) {
+  const revision = authRevision;
   const supabaseClient = getSupabaseClient();
   const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
 
@@ -112,6 +183,7 @@ async function signInAndInitializeAppSession(email, password) {
   try {
     return await initializeAuthenticatedAppSession(data.session, data.user);
   } catch (error) {
+    if (revision !== authRevision || error?.code === 'STALE_AUTH') throw error;
     await handleAppSessionFailure(error);
     clearAuthenticatedState();
     throw markAuthStage(error, "app-session");
@@ -119,6 +191,7 @@ async function signInAndInitializeAppSession(email, password) {
 }
 
 async function restoreExistingSession() {
+  const revision = authRevision;
   isRestoringSession = true;
   renderAuthState({ isRestoring: true });
 
@@ -142,6 +215,7 @@ async function restoreExistingSession() {
     notifyLogin();
     return restoredUser;
   } catch (error) {
+    if (revision !== authRevision || error?.code === 'STALE_AUTH') return null;
     logAuthError("restore", error);
     await handleAppSessionFailure(error);
     clearAuthenticatedState();
@@ -155,17 +229,13 @@ async function restoreExistingSession() {
 }
 
 function initializeAuthenticatedAppSession(authSession, authUser) {
-  let sessionId;
-  try {
-    const payload = authSession.access_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-    sessionId = JSON.parse(window.atob(payload)).session_id;
-  } catch (_) { /* Missing identity must not share another session's initialization. */ }
-  if (!sessionId || !authUser?.id || authSession.user?.id !== authUser.id) {
+  const key = authSessionKey(authSession);
+  if (!key || !authUser?.id || authSession.user?.id !== authUser.id) {
     return Promise.reject(markAuthStage(Object.assign(new Error("Invalid Auth session identity."), {code:"28000"}), "app-session"));
   }
-  const key = `${authUser.id}/${sessionId}`;
   if (appSessionInitializations.has(key)) return appSessionInitializations.get(key);
-  const pending = performAuthenticatedAppSessionInitialization(authSession, authUser)
+  const revision = authRevision;
+  const pending = withContextLock(authSession, () => performAuthenticatedAppSessionInitialization(authSession, authUser, revision))
     .finally(() => { if (appSessionInitializations.get(key) === pending) appSessionInitializations.delete(key); });
   appSessionInitializations.set(key, pending);
   return pending;
@@ -179,7 +249,38 @@ async function handleAppSessionFailure(error) {
   }
 }
 
-async function performAuthenticatedAppSessionInitialization(authSession, authUser) {
+async function readAuthorizedRoles(appUserId) {
+  const client = getSupabaseClient();
+  const [assignments, catalog] = await Promise.all([
+    client.from('user_roles').select('user_id, role_key, status, starts_at, ends_at, revoked_at')
+      .eq('user_id', appUserId).eq('status', 'active').limit(100),
+    client.from('roles').select('key, is_active').eq('is_active', true).limit(100),
+  ]);
+  if (assignments.error || catalog.error) throw markAuthStage(assignments.error || catalog.error, 'authorized-roles');
+  if (!Array.isArray(assignments.data) || !Array.isArray(catalog.data) || assignments.data.length >= 100 || catalog.data.length >= 100) {
+    throw markAuthStage(new Error('Cannot confirm own role assignments.'), 'authorized-roles');
+  }
+  const enabled = new Set(catalog.data.filter(row => row.is_active === true).map(row => row.key));
+  const now = Date.now();
+  return VALID_AUTH_CONTEXTS.filter(role => enabled.has(role) && assignments.data.some(row =>
+    row.user_id === appUserId && row.role_key === role && row.status === 'active' && !row.revoked_at &&
+    Number.isFinite(Date.parse(row.starts_at)) && Date.parse(row.starts_at) <= now &&
+    (row.ends_at == null || Date.parse(row.ends_at) > now)));
+}
+
+async function confirmAppContext(authSession, requestedContext) {
+  const result = await getSupabaseClient().rpc('initialize_app_session', requestedContext ? {p_requested_context: requestedContext} : undefined);
+  if (result.error) throw markAuthStage(result.error, 'app-session');
+  const appSession = normalizeAppSessionPayload(result.data);
+  if (!appSession || (requestedContext && appSession.activeContext !== requestedContext) ||
+      (activeAuthSession && authSessionKey(activeAuthSession) === authSessionKey(authSession) &&
+       activeAppSession && (appSession.appUserId !== activeAppSession.appUserId || appSession.appSessionId !== activeAppSession.appSessionId))) {
+    throw markAuthStage(new Error('Unconfirmed application session identity or context.'), 'app-session');
+  }
+  return appSession;
+}
+
+async function performAuthenticatedAppSessionInitialization(authSession, authUser, revision = authRevision) {
   const supabaseClient = getSupabaseClient();
   let { data, error } = await supabaseClient.rpc("initialize_app_session");
   // Recover the old deployment's missing-row race only, never an ownership collision.
@@ -197,10 +298,15 @@ async function performAuthenticatedAppSessionInitialization(authSession, authUse
     throw markAuthStage(new Error("initialize_app_session did not return an app session."), "app-session");
   }
 
+  const roles = await readAuthorizedRoles(appSession.appUserId);
+  if (!roles.includes(appSession.activeContext)) throw markAuthStage(new Error('The confirmed context has no active role.'), 'authorized-roles');
+  if (revision !== authRevision) throw Object.assign(new Error('Obsolete application session response.'), {code: 'STALE_AUTH'});
+
   activeAuthSession = authSession;
   activeAppSession = appSession;
-  activeUser = toSessionUser(authUser, appSession);
+  activeUser = toSessionUser(authUser, appSession, roles);
   await getCurrentDriverIdentity({ force: true });
+  if (revision !== authRevision) throw Object.assign(new Error('Obsolete driver identity response.'), {code: 'STALE_AUTH'});
   emitAuthSessionUpdatedEvent("app-session-initialized");
 
   return activeUser;
@@ -221,7 +327,7 @@ function normalizeAppSessionPayload(data) {
   };
 }
 
-function toSessionUser(authUser, appSession) {
+function toSessionUser(authUser, appSession, roles) {
   const email = String(authUser?.email || "").trim();
   const activeContext = appSession.activeContext;
 
@@ -233,7 +339,7 @@ function toSessionUser(authUser, appSession) {
     lastName: "",
     name: email || "Usuario ELARA",
     email,
-    roles: [activeContext],
+    roles: roles.slice(),
     defaultContext: activeContext,
     activeContext,
     role: activeContext,
@@ -245,7 +351,7 @@ function toSessionUser(authUser, appSession) {
 }
 
 async function getCurrentDriverIdentity(options = {}) {
-  if (!activeUser || !isUserActive() || getActiveContext() !== "conductor") {
+  if (!activeUser || activeUser.status !== 'activo' || activeUser.activeContext !== "conductor") {
     currentDriverIdentity = null;
     return null;
   }
@@ -259,15 +365,18 @@ async function getCurrentDriverIdentity(options = {}) {
   }
 
   activeUser.driverIdentityStatus = "pending";
-  driverIdentityPromise = fetchCurrentDriverIdentity().finally(() => {
-    driverIdentityPromise = null;
+  const pending = fetchCurrentDriverIdentity().finally(() => {
+    if (driverIdentityPromise === pending) driverIdentityPromise = null;
   });
+  driverIdentityPromise = pending;
 
   return driverIdentityPromise;
 }
 
 async function fetchCurrentDriverIdentity() {
   const supabaseClient = getSupabaseClient();
+  const owner = activeUser, revision = authRevision;
+  const valid = () => owner === activeUser && revision === authRevision && activeUser?.activeContext === 'conductor';
   const appUserId = activeUser?.id || "";
 
   if (!appUserId) {
@@ -286,9 +395,11 @@ async function fetchCurrentDriverIdentity() {
     throw markAuthStage(linkError, "driver-identity");
   }
 
+  if (!valid()) return null;
   const link = Array.isArray(links) ? links[0] : links;
 
-  if (!link?.driver_id) {
+  if (!link?.driver_id || Date.parse(link.started_at) > Date.now() || !Number.isFinite(Date.parse(link.started_at)) ||
+      (link.ended_at != null && !(Date.parse(link.ended_at) > Date.now()))) {
     return markMissingCurrentDriverIdentity("missing-link");
   }
 
@@ -302,11 +413,13 @@ async function fetchCurrentDriverIdentity() {
     throw markAuthStage(driverError, "driver-identity");
   }
 
-  if (!driver?.id) {
+  if (!valid()) return null;
+  if (!driver?.id || driver.administrative_status !== 'active') {
     return markMissingCurrentDriverIdentity("driver-not-visible");
   }
 
   const person = await fetchCurrentDriverPerson(driver.person_id);
+  if (!valid()) return null;
   currentDriverIdentity = {
     appUserId,
     driverId: driver.id,
@@ -388,6 +501,9 @@ async function logout() {
   const hadUser = Boolean(activeUser);
 
   isSigningOut = true;
+  const session = activeAuthSession;
+  suspendContext();
+  signalContextChange(session);
   setLogoutLoading(true);
 
   try {
@@ -412,6 +528,9 @@ async function logout() {
   } catch (error) {
     logAuthError("logout", error);
     notifyAuthAction("No se pudo cerrar la sesion. Intentalo de nuevo.", "error");
+    clearAuthenticatedState();
+    renderAuthState();
+    authCallbacks.onLogout?.();
   } finally {
     isSigningOut = false;
     setLogoutLoading(false);
@@ -445,6 +564,10 @@ function bindSupabaseAuthState() {
     }
 
     if ((event === "TOKEN_REFRESHED" || event === "SIGNED_IN") && session && !isLoginSubmitting && !isRestoringSession) {
+      if (activeAuthSession && authSessionKey(session) !== authSessionKey(activeAuthSession)) {
+        clearAuthenticatedState();
+        renderAuthState();
+      }
       scheduleAppSessionRefresh(session, event.toLowerCase());
     }
   });
@@ -469,11 +592,15 @@ function scheduleAppSessionRefresh(session, reason) {
 }
 
 async function refreshAuthenticatedAppSession(session, reason) {
+  if (contextTask && authSessionKey(session) === authSessionKey(activeAuthSession)) return contextTask;
+  if (activeUser) return synchronizeContext();
+  const revision = authRevision;
   try {
     await initializeAuthenticatedAppSession(session, session.user);
     renderAuthState();
     emitAuthSessionUpdatedEvent(reason || "auth-session-refreshed");
   } catch (error) {
+    if (revision !== authRevision || error?.code === 'STALE_AUTH') return;
     logAuthError(reason || "auth-session-refresh", error);
     await handleAppSessionFailure(error);
     clearAuthenticatedState();
@@ -495,6 +622,7 @@ async function requireAuth(options = {}) {
   const activeContext = getActiveContext();
   const isAllowed = Boolean(activeUser && isUserActive() && (!allowedContexts.length || allowedContexts.includes(activeContext)));
 
+  if (contextSuspended) return null;
   if (!isAllowed && options.redirect !== false) {
     clearAuthenticatedState();
     renderAuthState();
@@ -508,7 +636,7 @@ function renderAuthState(options = {}) {
   const appShell = document.querySelector(".app-shell");
   const userName = document.getElementById("session-user-name");
   const userRole = document.getElementById("session-user-role");
-  const isRestoring = Boolean(options.isRestoring || isRestoringSession);
+  const isRestoring = Boolean(options.isRestoring || isRestoringSession || contextSuspended);
 
   document.body.classList.toggle("auth-pending", isRestoring);
 
@@ -532,6 +660,8 @@ function renderAuthState(options = {}) {
 }
 
 function bindContextSwitcher() {
+  if (bindContextSwitcher.isBound) return;
+  bindContextSwitcher.isBound = true;
   document.addEventListener("click", (event) => {
     const toggleButton = event.target.closest("[data-auth-context-toggle]");
     const switcher = document.getElementById("session-context-switcher");
@@ -541,9 +671,10 @@ function bindContextSwitcher() {
       return;
     }
 
-    if (event.target.closest("[data-auth-context-option]")) {
+    const option = event.target.closest("[data-auth-context-option]");
+    if (option && switcher?.contains(option)) {
       closeContextSwitcher();
-      notifyAuthAction("El cambio de contexto real se integrara en una fase posterior.", "info");
+      void setActiveContext(option.dataset.authContextOption);
       return;
     }
 
@@ -553,8 +684,23 @@ function bindContextSwitcher() {
   });
 
   document.addEventListener("keydown", (event) => {
+    const switcher = document.getElementById('session-context-switcher');
+    if (!switcher?.contains(event.target)) return;
     if (event.key === "Escape") {
       closeContextSwitcher();
+      switcher.querySelector('[data-auth-context-toggle]')?.focus();
+    } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+      event.preventDefault();
+      const menu = switcher.querySelector('.sidebar-context__menu');
+      if (menu.hidden) toggleContextSwitcher();
+      const options = [...switcher.querySelectorAll('[data-auth-context-option]')];
+      const index = options.indexOf(event.target);
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? options.length - 1 :
+        event.key === 'ArrowDown' ? (index + 1) % options.length : index < 0 ? options.length - 1 : (index - 1 + options.length) % options.length;
+      options[next]?.focus();
+    } else if (event.key === 'Tab') {
+      closeContextSwitcher();
+      switcher.querySelector('[data-auth-context-toggle]')?.focus();
     }
   });
 }
@@ -566,8 +712,15 @@ function renderContextSwitcher() {
     return;
   }
 
-  switcher.hidden = true;
-  switcher.innerHTML = "";
+  const roles = getAvailableRoles();
+  switcher.hidden = roles.length <= 1;
+  if (switcher.hidden) { switcher.replaceChildren(); return; }
+  switcher.innerHTML = `<button class="sidebar-context__toggle" type="button" data-auth-context-toggle aria-expanded="false" aria-haspopup="menu" aria-controls="session-context-menu">
+    <span>Usar ELARA como…</span><strong>${getAuthContextLabel(activeUser.activeContext)}</strong></button>
+    <div class="sidebar-context__menu" id="session-context-menu" role="menu" aria-label="Contexto de trabajo" hidden>${roles.map(role => {
+      const selected = role === activeUser.activeContext;
+      return `<button class="sidebar-context__option${selected ? ' sidebar-context__option--active' : ''}" type="button" role="menuitemradio" aria-checked="${selected}" data-auth-context-option="${role}">${getAuthContextLabel(role)}</button>`;
+    }).join('')}</div>`;
 }
 
 function toggleContextSwitcher() {
@@ -582,6 +735,7 @@ function toggleContextSwitcher() {
   const shouldOpen = menu.hidden;
   menu.hidden = !shouldOpen;
   button.setAttribute("aria-expanded", String(shouldOpen));
+  if (shouldOpen) menu.querySelector('[aria-checked="true"]')?.focus();
 }
 
 function closeContextSwitcher() {
@@ -623,11 +777,17 @@ function redirectToActiveContext(options = {}) {
 }
 
 function clearAuthenticatedState() {
+  contextSuspended = true;
+  authRevision++;
+  invalidateContextViews();
   activeUser = null;
   activeAuthSession = null;
   activeAppSession = null;
   currentDriverIdentity = null;
   driverIdentityPromise = null;
+  contextTask = null;
+  appSessionInitializations.clear();
+  contextSuspended = false;
   clearLegacyMockSession();
 }
 
@@ -737,11 +897,11 @@ function getOptionalSupabaseClient() {
 }
 
 function getCurrentUser() {
-  return activeUser;
+  return contextSuspended || isSigningOut ? null : activeUser;
 }
 
 function getAvailableRoles() {
-  return activeUser?.roles ? activeUser.roles.slice() : [];
+  return !contextSuspended && activeUser?.roles ? activeUser.roles.slice() : [];
 }
 
 function getDefaultContext() {
@@ -749,27 +909,120 @@ function getDefaultContext() {
 }
 
 function getActiveContext() {
-  return activeUser?.activeContext || "";
+  return !contextSuspended && !isSigningOut ? activeUser?.activeContext || "" : "";
 }
 
 function hasRole(role) {
   const normalizedRole = normalizeAuthContext(role);
 
-  return Boolean(normalizedRole && activeUser?.roles?.includes(normalizedRole));
+  return Boolean(!contextSuspended && normalizedRole && activeUser?.roles?.includes(normalizedRole));
 }
 
 function isUserActive() {
-  return activeUser?.status === "activo";
+  return !contextSuspended && !isSigningOut && activeUser?.status === "activo";
 }
 
 function setActiveContext(context) {
   const normalizedContext = normalizeAuthContext(context);
-
-  if (!activeUser || !isUserActive() || !normalizedContext || normalizedContext !== activeUser.activeContext) {
-    return false;
+  if (contextTask && !contextSuspended && !isSigningOut) {
+    const sessionKey = authSessionKey(activeAuthSession), revision = authRevision;
+    return contextTask.then(() => revision === authRevision && sessionKey === authSessionKey(activeAuthSession) ? setActiveContext(context) : false);
   }
+  if (contextTask || !isUserActive() || !normalizedContext || !activeUser.roles.includes(normalizedContext)) return Promise.resolve(false);
+  if (normalizedContext === activeUser.activeContext) return Promise.resolve(true);
+  if (!window.navigator?.locks) {
+    notifyAuthAction('Este navegador no permite sincronizar el cambio de vista de forma segura. Utiliza un navegador actualizado.', 'error');
+    return Promise.resolve(false);
+  }
+  return runContextTask(normalizedContext);
+}
 
-  return true;
+function synchronizeContext() {
+  if (contextTask) return contextTask;
+  if (!activeAuthSession || isSigningOut) return Promise.resolve(false);
+  return runContextTask(null);
+}
+
+function runContextTask(requested) {
+  const session = activeAuthSession, previous = activeUser;
+  if (requested) suspendContext();
+  let revision = authRevision;
+  const suspend = () => { if (!contextSuspended) { suspendContext(); revision = authRevision; } };
+  const valid = () => revision === authRevision && authSessionKey(activeAuthSession) === authSessionKey(session) && !isSigningOut;
+  const work = withContextLock(session, async () => {
+    if (!valid()) return false;
+    if (requested) signalContextChange(session);
+    let rejected = false, confirmed;
+    try {
+      const auth = await getSupabaseClient().auth.getSession();
+      if (!valid()) return false;
+      if (auth.error || authSessionKey(auth.data?.session) !== authSessionKey(session)) throw new Error('Authentication session changed.');
+      try {
+        if (requested) {
+          const roles = await readAuthorizedRoles(previous.id);
+          if (!valid()) return false;
+          if (!roles.includes(requested)) throw Object.assign(new Error('Requested role is no longer available.'), {code: '42501'});
+        }
+        confirmed = await confirmAppContext(session, requested);
+      } catch (error) {
+        if (!valid()) return false;
+        rejected = true;
+        // A transport error may follow a committed change. Reconcile, never repeat that change.
+        try { confirmed = await confirmAppContext(session, null); }
+        catch (readError) {
+          if (readError?.code !== '42501' || error?.elaraStage === 'authorized-roles') throw readError;
+          // A revoked current context can prevent own-role reads under RLS. Only the server
+          // can authorize an alternative from assignments previously read for this account.
+          suspend();
+          signalContextChange(session);
+          for (const candidate of previous.roles.filter(role => role !== previous.activeContext)) {
+            if (!valid()) return false;
+            try { confirmed = await confirmAppContext(session, candidate); break; }
+            catch (fallbackError) { if (fallbackError?.code !== '42501') throw fallbackError; }
+          }
+          if (!confirmed) throw readError;
+        }
+      }
+      if (!valid()) return false;
+      const roles = await readAuthorizedRoles(confirmed.appUserId);
+      if (!valid()) return false;
+      if (!roles.includes(confirmed.activeContext)) throw new Error('Confirmed role assignments are unavailable.');
+      if (!contextSuspended && confirmed.activeContext === previous.activeContext && confirmed.appUserId === previous.id) {
+        activeAppSession = confirmed;
+        activeUser.roles = roles;
+        renderContextSwitcher();
+        return !rejected;
+      }
+      suspend();
+      activeAppSession = confirmed;
+      activeUser = toSessionUser(session.user, confirmed, roles);
+      // Keep the UI closed until driver identity has also been refreshed.
+      await getCurrentDriverIdentity({force: true});
+      if (!valid()) return false;
+      contextSuspended = false;
+      renderAuthState();
+      emitAuthSessionUpdatedEvent('context-confirmed');
+      window.ElaraRouter?.refreshNavigationForActiveContext?.();
+      if (requested) notifyAuthAction(rejected ?
+        `No se pudo confirmar el cambio solicitado. La vista verificada es ${getAuthContextLabel(confirmed.activeContext)}.` :
+        `Ahora usas ELARA como ${getAuthContextLabel(confirmed.activeContext)}.`, rejected ? 'info' : 'success');
+      return !rejected && (!requested || confirmed.activeContext === requested);
+    } catch (error) {
+      if (!valid()) return false;
+      logAuthError('context-verification', error);
+      clearAuthenticatedState();
+      renderAuthState();
+      authCallbacks.onLogout?.();
+      showLoginError('No se pudo verificar una vista autorizada. Vuelve a iniciar sesión.');
+      notifyAuthAction('El acceso se ha bloqueado hasta verificar la sesión y sus roles.', 'error');
+      return false;
+    } finally {
+      if (requested || rejected) signalContextChange(session);
+    }
+  });
+  const pending = work.finally(() => { if (contextTask === pending) contextTask = null; });
+  contextTask = pending;
+  return pending;
 }
 
 function reconcileCurrentSessionWithUser() {

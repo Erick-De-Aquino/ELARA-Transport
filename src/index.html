@@ -3146,135 +3146,89 @@
     <div class="modal-backdrop" id="new-customer-modal" role="dialog" aria-modal="true" aria-labelledby="new-customer-modal-title" hidden>
       <section class="modal modal--summary">
         <header class="modal__header">
-          <div>
-            <p class="panel__eyebrow">M&oacute;dulo Clientes</p>
-            <h2 id="new-customer-modal-title">Nuevo cliente</h2>
-            <p id="new-customer-description">Selecciona el tipo de cliente para continuar.</p>
-          </div>
-          <button class="button button--compact button--muted" id="new-customer-close-button" type="button" data-modal-close>Cerrar</button>
+          <div><p class="panel__eyebrow">M&oacute;dulo Clientes</p><h2 id="new-customer-modal-title">Nuevo cliente</h2><p id="new-customer-description">Introduce los datos del cliente. Los campos con * son obligatorios.</p></div>
+          <button class="button button--compact button--muted" id="new-customer-close-button" type="button" data-modal-close data-catalog-close>Cerrar</button>
         </header>
-
         <form class="modal__body modal__body--summary service-summary new-customer-form" id="new-customer-form" novalidate>
-          <section class="new-customer-form__section" aria-labelledby="new-customer-type-title">
-            <h3 class="modal__section-title" id="new-customer-type-title">Tipo de cliente</h3>
-            <div class="new-customer-type-options" role="radiogroup" aria-label="Tipo de cliente">
-              <label class="filter-chip customer-type-chip">
-                <input type="radio" name="new-customer-type" value="Particular" data-new-customer-type />
-                <span>Particular</span>
-              </label>
-              <label class="filter-chip customer-type-chip">
-                <input type="radio" name="new-customer-type" value="Empresa" data-new-customer-type />
-                <span>Empresa</span>
-              </label>
-            </div>
-          </section>
-
-          <section class="new-customer-form__section" id="new-customer-particular-fields" data-new-customer-section="Particular" hidden>
-            <div class="form-grid form-grid--customer-two">
-              <label class="field">
-                <span>Nombre/s *</span>
-                <input id="new-customer-first-name" type="text" autocomplete="given-name" />
-              </label>
-              <label class="field">
-                <span>Apellido/s *</span>
-                <input id="new-customer-last-name" type="text" autocomplete="family-name" />
-              </label>
-            </div>
-
-            <div class="form-grid form-grid--customer-contact">
-              <label class="field">
-                <span>C&oacute;digo de pa&iacute;s *</span>
-                <input id="new-customer-country-code" type="text" value="+34" inputmode="tel" />
-              </label>
-              <label class="field">
-                <span>Tel&eacute;fono *</span>
-                <input id="new-customer-phone" type="tel" autocomplete="tel" />
-              </label>
-              <label class="field">
-                <span>Email *</span>
-                <input id="new-customer-email" type="email" autocomplete="email" />
-              </label>
-            </div>
-
-            <div class="form-grid form-grid--customer-two">
-              <label class="field field--optional field--compact-textarea">
-                <span>Observaciones internas</span>
-                <textarea id="new-customer-notes" rows="2"></textarea>
-              </label>
-              <label class="field field--optional field--compact-textarea">
-                <span>Necesidades frecuentes</span>
-                <textarea id="new-customer-needs" rows="2"></textarea>
-              </label>
-            </div>
-          </section>
-
-          <section class="new-customer-form__section" id="new-customer-company-fields" data-new-customer-section="Empresa" hidden>
-            <div class="form-grid form-grid--customer-two">
-              <label class="field">
-                <span>Raz&oacute;n social *</span>
-                <input id="new-customer-company-name" type="text" />
-              </label>
-              <label class="field field--optional">
-                <span>Nombre comercial</span>
-                <input id="new-customer-trade-name" type="text" />
-              </label>
-            </div>
-
-            <div class="form-grid form-grid--customer-three">
-              <label class="field">
-                <span>NIF/CIF *</span>
-                <input id="new-customer-tax-id" type="text" />
-              </label>
-              <label class="field field--optional">
-                <span>Contacto principal</span>
-                <input id="new-customer-main-contact" type="text" autocomplete="name" />
-              </label>
-            </div>
-
-            <div class="form-grid form-grid--customer-contact">
-              <label class="field">
-                <span>C&oacute;digo de pa&iacute;s *</span>
-                <input id="new-customer-company-country-code" type="text" value="+34" inputmode="tel" />
-              </label>
-              <label class="field">
-                <span>Tel&eacute;fono *</span>
-                <input id="new-customer-company-phone" type="tel" autocomplete="tel" />
-              </label>
-              <label class="field">
-                <span>Email *</span>
-                <input id="new-customer-company-email" type="email" autocomplete="email" />
-              </label>
-            </div>
-
-            <label class="field field--optional field--compact-textarea">
-              <span>Datos de facturaci&oacute;n</span>
-              <textarea id="new-customer-billing" rows="2"></textarea>
-            </label>
-
-            <div class="form-grid form-grid--customer-two">
-              <label class="field field--optional field--compact-textarea">
-                <span>Observaciones internas</span>
-                <textarea id="new-customer-company-notes" rows="2"></textarea>
-              </label>
-              <label class="field field--optional field--compact-textarea">
-                <span>Necesidades frecuentes</span>
-                <textarea id="new-customer-company-needs" rows="2"></textarea>
-              </label>
-            </div>
-          </section>
-
-          <div class="new-customer-type-confirm" id="new-customer-type-confirm" hidden>
-            <p>Cambiar el tipo de cliente borrar&aacute; los datos introducidos.</p>
+          <div class="new-customer-type-options" role="radiogroup" aria-label="Tipo de cliente">
+            <label class="filter-chip customer-type-chip"><input type="radio" name="customerType" value="individual" data-customer-type="individual" checked /><span>Particular</span></label>
+            <label class="filter-chip customer-type-chip"><input type="radio" name="customerType" value="company" data-customer-type="company" /><span>Empresa</span></label>
+          </div>
+          <div class="new-customer-type-confirm" data-type-confirm hidden role="alert">
+            <p>Al cambiar de tipo se descartan los datos introducidos. ¿Deseas continuar?</p>
             <div class="new-customer-type-confirm__actions">
-              <button class="button button--compact button--muted" id="new-customer-type-cancel" type="button">Cancelar</button>
-              <button class="button button--compact" id="new-customer-type-accept" type="button">Cambiar tipo</button>
+              <button class="button button--compact" type="button" data-type-discard>Descartar y cambiar</button>
+              <button class="button button--compact button--muted" type="button" data-type-keep>Conservar datos</button>
             </div>
           </div>
-
-          <div class="new-customer-duplicate" id="new-customer-duplicate" hidden></div>
-
-          <div class="collaborator-form-actions" id="new-customer-actions" hidden>
-            <button class="button button--compact button--muted" id="new-customer-cancel-button" type="button" data-modal-close>Cancelar</button>
+          <div data-customer-fields="individual">
+          <section class="new-customer-form__section" aria-labelledby="new-customer-personal-title">
+            <h3 class="modal__section-title" id="new-customer-personal-title">Datos personales</h3>
+            <div class="form-grid form-grid--customer-two">
+              <label class="field"><span>Nombre/s *</span><input id="new-customer-first-name" name="firstName" type="text" autocomplete="given-name" required /></label>
+              <label class="field"><span>Apellido/s *</span><input id="new-customer-last-name" name="lastName" type="text" autocomplete="family-name" required /></label>
+            </div>
+          </section>
+          <section class="new-customer-form__section" aria-labelledby="new-customer-contact-title">
+            <h3 class="modal__section-title" id="new-customer-contact-title">Contacto</h3>
+            <div class="form-grid form-grid--customer-contact">
+              <label class="field field--optional"><span>Prefijo telef&oacute;nico</span><input id="new-customer-country-code" name="countryCode" type="text" value="+34" inputmode="tel" /></label>
+              <label class="field field--optional"><span>Tel&eacute;fono</span><input id="new-customer-phone" name="phone" type="tel" autocomplete="tel" /></label>
+              <label class="field field--optional"><span>Correo electr&oacute;nico</span><input id="new-customer-email" name="email" type="email" autocomplete="email" /></label>
+            </div>
+          </section>
+          <section class="new-customer-form__section" aria-labelledby="new-customer-observations-title">
+            <h3 class="modal__section-title" id="new-customer-observations-title">Observaciones</h3>
+            <div class="form-grid form-grid--customer-two">
+              <label class="field field--optional field--compact-textarea"><span>Notas de persona</span><textarea id="new-customer-notes" name="notes" rows="2"></textarea></label>
+              <label class="field field--optional field--compact-textarea"><span>Observaciones internas del cliente</span><textarea id="new-customer-internal-notes" name="internalNotes" rows="2"></textarea></label>
+            </div>
+          </section>
+          </div>
+          <div data-customer-fields="company" hidden>
+            <section class="new-customer-form__section" aria-labelledby="new-customer-company-title">
+              <h3 class="modal__section-title" id="new-customer-company-title">Datos de empresa</h3>
+              <div class="form-grid form-grid--customer-two">
+                <label class="field"><span>Razón social *</span><input id="new-customer-legal-name" name="legalName" type="text" required /></label>
+                <label class="field"><span>NIF/CIF *</span><input id="new-customer-tax-id" name="taxId" type="text" required /></label>
+                <label class="field"><span>Nombre comercial</span><input id="new-customer-trade-name" name="tradeName" type="text" /></label>
+              </div>
+            </section>
+            <section class="new-customer-form__section" aria-labelledby="new-customer-billing-title">
+              <h3 class="modal__section-title" id="new-customer-billing-title">Facturación</h3>
+              <div class="form-grid form-grid--customer-two">
+                <label class="field"><span>Teléfono de facturación</span><input id="new-customer-billing-phone" name="billingPhone" type="tel" /></label>
+                <label class="field"><span>Correo de facturación</span><input id="new-customer-billing-email" name="billingEmail" type="email" /></label>
+                <label class="field"><span>Dirección de facturación</span><textarea id="new-customer-billing-address" name="billingAddress" rows="2"></textarea></label>
+              </div>
+            </section>
+            <section class="new-customer-form__section" aria-labelledby="new-customer-company-notes-title">
+              <h3 class="modal__section-title" id="new-customer-company-notes-title">Observaciones</h3>
+              <div class="form-grid form-grid--customer-two">
+                <label class="field"><span>Notas empresariales</span><textarea id="new-customer-company-notes" name="companyNotes" rows="2"></textarea></label>
+                <label class="field"><span>Observaciones internas del cliente</span><textarea id="new-customer-company-internal-notes" name="customerInternalNotes" rows="2"></textarea></label>
+                <label class="field"><span>Notas de facturación</span><textarea id="new-customer-billing-notes" name="customerBillingNotes" rows="2"></textarea></label>
+              </div>
+            </section>
+            <section class="new-customer-form__section" aria-labelledby="new-customer-main-contact-title">
+              <h3 class="modal__section-title" id="new-customer-main-contact-title">Contacto principal (opcional)</h3>
+              <label class="field"><span>Contacto</span><select id="new-customer-contact-mode" name="contactMode"><option value="none" selected>Sin contacto</option><option value="new">Persona nueva</option><option value="existing" disabled>Persona existente (no disponible)</option></select></label>
+              <p>No hay un selector operativo de personas existentes. Esta modalidad permanece deshabilitada.</p>
+              <div class="form-grid form-grid--customer-two" data-new-contact hidden>
+                <label class="field"><span>Nombre/s del contacto *</span><input id="new-customer-contact-first-name" name="contactFirstName" type="text" required /></label>
+                <label class="field"><span>Apellido/s del contacto *</span><input id="new-customer-contact-last-name" name="contactLastName" type="text" required /></label>
+                <label class="field"><span>Teléfono del contacto</span><input id="new-customer-contact-phone" name="contactPhone" type="tel" /></label>
+                <label class="field"><span>Correo del contacto</span><input id="new-customer-contact-email" name="contactEmail" type="email" /></label>
+                <label class="field"><span>Función / cargo</span><input id="new-customer-contact-role" name="contactRole" type="text" /></label>
+              </div>
+              <p data-contact-requirement hidden>Indica al menos teléfono o correo del contacto.</p>
+            </section>
+            <p>Estado inicial: empresa activa; cliente nuevo.</p>
+            <button class="button button--compact button--muted" type="button" data-company-validate>Validar datos</button>
+          </div>
+          <p role="status" aria-live="polite" data-catalog-status></p>
+          <div class="collaborator-form-actions">
+            <button class="button button--compact button--muted" type="button" data-catalog-close>Cancelar</button>
             <button class="button button--compact" type="submit">Guardar cliente</button>
           </div>
         </form>
@@ -3797,9 +3751,6 @@
     <script src="js/mock/collaborators.mock.js"></script>
     <script src="js/mock/customers.mock.js"></script>
     <script src="js/mock/vehicles.mock.js"></script>
-    <script src="js/mock/reports.mock.js"></script>
-    <script src="js/mock/reports-history.mock.js"></script>
-    <script src="js/mock/users.mock.js"></script>
     <script src="js/mock/driver.mock.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -3826,6 +3777,7 @@
     <script src="js/vehicles.js"></script>
     <script src="js/reports.js"></script>
     <script src="js/users.js"></script>
+    <script src="js/users-admin.js"></script>
     <script src="js/settings.js"></script>
     <script src="js/icons.js"></script>
     <script src="js/driver.js"></script>

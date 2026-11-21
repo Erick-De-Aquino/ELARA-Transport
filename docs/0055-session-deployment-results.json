@@ -1,0 +1,243 @@
+{
+  "date": "2026-11-17",
+  "result": "DESPLIEGUE CORRECTO",
+  "project": {
+    "name": "ELARA Transport",
+    "ref": "pfdvehcyauoncxeolcjc",
+    "organization_id": "xvasmgenedxtyosexfex",
+    "region": "eu-west-3"
+  },
+  "preflight": {
+    "date": "2026-11-17",
+    "mode": "preflight",
+    "project_ref": "pfdvehcyauoncxeolcjc",
+    "method": "Session pooler 5432; psql 17; verify-full",
+    "artifact_sha256": "eb18779bbfbdc36bab3edadb437edc2af306402fb0e2ef2e504af779fb854da6",
+    "ca_sha256": "700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7",
+    "checks": {
+      "columns": true,
+      "constraints": true,
+      "indexes": true,
+      "triggers": true,
+      "policies": true,
+      "schemas": true,
+      "roles": true,
+      "old_functions": true,
+      "history": true,
+      "business_table_acl": true,
+      "connection": true,
+      "session_backend_stable": true,
+      "read_only": true,
+      "target_database": true,
+      "privileges": true,
+      "no_history_trigger": true,
+      "absent_version": true,
+      "absent_company_rpc": true,
+      "no_direct_api_writes": true,
+      "no_incompatible_activity": true,
+      "history_shape": true
+    },
+    "pass": true,
+    "history_count": 56,
+    "history_latest": {
+      "name": "0054_driver_accept_confirms_service",
+      "version": "20261106145018"
+    },
+    "aux": {
+      "aux": true,
+      "pid": 2501373,
+      "read_only": "on",
+      "can_create": true,
+      "private_usage": true,
+      "version_count": 0,
+      "history_insert": true,
+      "history_select": true,
+      "history_update": true,
+      "history_columns": [
+        {
+          "name": "version",
+          "type": "text",
+          "default": null,
+          "nullable": "NO"
+        },
+        {
+          "name": "statements",
+          "type": "_text",
+          "default": null,
+          "nullable": "YES"
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "default": null,
+          "nullable": "YES"
+        },
+        {
+          "name": "created_by",
+          "type": "text",
+          "default": null,
+          "nullable": "YES"
+        },
+        {
+          "name": "idempotency_key",
+          "type": "text",
+          "default": null,
+          "nullable": "YES"
+        },
+        {
+          "name": "rollback",
+          "type": "_text",
+          "default": null,
+          "nullable": "YES"
+        }
+      ],
+      "history_triggers": 0,
+      "company_overloads": 0,
+      "conflicting_locks": 0,
+      "direct_api_writes": 0,
+      "migration_activity": 0
+    },
+    "errors": {
+      "exit": 0,
+      "failure": null,
+      "sqlstates": [],
+      "processError": null
+    }
+  },
+  "execution": {
+    "date": "2026-11-17",
+    "mode": "deploy",
+    "project_ref": "pfdvehcyauoncxeolcjc",
+    "artifact_sha256": "eb18779bbfbdc36bab3edadb437edc2af306402fb0e2ef2e504af779fb854da6",
+    "exit": 0,
+    "tls": true,
+    "commit_acknowledged": true,
+    "failure": null,
+    "sqlstates": [],
+    "processError": null
+  },
+  "postverification": {
+    "date": "2026-11-17",
+    "mode": "post",
+    "project_ref": "pfdvehcyauoncxeolcjc",
+    "checks": {
+      "columns": true,
+      "constraints": true,
+      "indexes": true,
+      "triggers": true,
+      "policies": true,
+      "schemas": true,
+      "roles": true,
+      "old_functions": true,
+      "history": true,
+      "business_table_acl": true,
+      "connection": true,
+      "verification": true
+    },
+    "pass": true,
+    "verification": {
+      "rpc": {
+        "owner": "postgres",
+        "result": "TABLE(company_id uuid, customer_id uuid, customer_human_code text, company_status text, customer_status text, contact_person_id uuid, company_contact_id uuid)",
+        "definer": true,
+        "defaults": 8,
+        "search_path": [
+          "search_path=pg_catalog"
+        ],
+        "anon_execute": false,
+        "body_matches": true,
+        "public_execute": false,
+        "service_role_execute": false,
+        "authenticated_execute": true
+      },
+      "read_only": "on",
+      "history_exact": true,
+      "old_functions_intact": true,
+      "recorded_source_matches": true
+    },
+    "parameters": {
+      "result": "TABLE(company_id uuid, customer_id uuid, customer_human_code text, company_status text, customer_status text, contact_person_id uuid, company_contact_id uuid)",
+      "defaults": 8,
+      "arguments": "p_request_id uuid, p_legal_name text, p_tax_id text, p_trade_name text DEFAULT NULL::text, p_billing_phone text DEFAULT NULL::text, p_billing_email text DEFAULT NULL::text, p_billing_address text DEFAULT NULL::text, p_company_notes text DEFAULT NULL::text, p_customer_internal_notes text DEFAULT NULL::text, p_customer_billing_notes text DEFAULT NULL::text, p_contact jsonb DEFAULT NULL::jsonb",
+      "input_count": 11,
+      "set_returning": true,
+      "argument_modes": [
+        "i",
+        "i",
+        "i",
+        "i",
+        "i",
+        "i",
+        "i",
+        "i",
+        "i",
+        "i",
+        "i",
+        "t",
+        "t",
+        "t",
+        "t",
+        "t",
+        "t",
+        "t"
+      ],
+      "argument_names": [
+        "p_request_id",
+        "p_legal_name",
+        "p_tax_id",
+        "p_trade_name",
+        "p_billing_phone",
+        "p_billing_email",
+        "p_billing_address",
+        "p_company_notes",
+        "p_customer_internal_notes",
+        "p_customer_billing_notes",
+        "p_contact",
+        "company_id",
+        "customer_id",
+        "customer_human_code",
+        "company_status",
+        "customer_status",
+        "contact_person_id",
+        "company_contact_id"
+      ],
+      "signature_details": true,
+      "identity_arguments": "p_request_id uuid, p_legal_name text, p_tax_id text, p_trade_name text, p_billing_phone text, p_billing_email text, p_billing_address text, p_company_notes text, p_customer_internal_notes text, p_customer_billing_notes text, p_contact jsonb"
+    },
+    "history_count": 57,
+    "history_0053_0054": [
+      {
+        "name": "0053_app_session_concurrency",
+        "version": "20261105141040"
+      },
+      {
+        "name": "0054_driver_accept_confirms_service",
+        "version": "20261106145018"
+      }
+    ],
+    "rpc": [
+      {
+        "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+        "name": "admin_create_company_customer",
+        "owner": "postgres",
+        "config": [
+          "search_path=pg_catalog"
+        ],
+        "schema": "public",
+        "definer": true,
+        "signature": "admin_create_company_customer(uuid,text,text,text,text,text,text,text,text,text,jsonb)"
+      }
+    ],
+    "errors": {
+      "exit": 0,
+      "failure": null,
+      "sqlstates": [],
+      "processError": null
+    }
+  },
+  "parameters_correct": true,
+  "source_sha256": "31d5747d750b084055bc2f2628052df92e68e634c132402e73aa9300e7504723",
+  "artifact_sha256": "eb18779bbfbdc36bab3edadb437edc2af306402fb0e2ef2e504af779fb854da6",
+  "frontend_creation_enabled": false,
+  "no_business_rpc_invoked": true
+}

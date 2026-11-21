@@ -29,7 +29,7 @@ window.ElaraFinancialClose = (() => {
     for(const [cachedKey,cached] of attempts)if(cached.id===a.id&&cached.actor===a.actor&&cached.context===a.context)attempts.delete(cachedKey);
   }
   function operation(kind,id,receivableId=null){if(!['driver','admin','receivable'].includes(kind)||!uuid(id)||!actor())throw Error('Operación o sesión no válida.');return restore(id)||{kind,id,receivableId,actor:actor(),context:auth().getActiveContext(),key:null,sent:null,result:null,busy:false,operationalDone:false,refreshPending:false};}
-  function check(a){if(a.actor!==actor()||a.context!==auth()?.getActiveContext?.())throw Error('La sesión/contexto cambió. Vuelve a la misma sesión y revisa el intento.');if(a.kind==='driver'?auth().getActiveContext()!=='conductor':!isAdmin())throw Error('Contexto no autorizado.');}
+  function check(a){if(a.isCurrent&&!a.isCurrent())throw Error('La vista cambió. Vuelve a consultar la cuenta antes de cobrar.');if(a.actor!==actor()||a.context!==auth()?.getActiveContext?.())throw Error('La sesión/contexto cambió. Vuelve a la misma sesión y revisa el intento.');if(a.kind==='driver'?auth().getActiveContext()!=='conductor':!isAdmin())throw Error('Contexto no autorizado.');}
   function args(a,v,c){
     if(c.pricing_status!=='finalized')throw Error('Precio pendiente de Administración. El cierre financiero está bloqueado.');
     const result=c.no_charge?'no_charge':v.result,amount=result==='full'?Number(c.pending_amount):['unpaid','no_charge'].includes(result)?0:Number(v.amount),reason=String(v.reason||'').trim()||null;
@@ -93,7 +93,7 @@ window.ElaraFinancialClose = (() => {
     }else{
       const op=window.ElaraOperationalData;
       await Promise.all([op.readAll('v_admin_receivable_overview','receivable_id'),op.readRpc('get_admin_cash_movements')]);
-      if(a.kind==='receivable')await window.ElaraReceivables?.showReceivables?.();else await window.ElaraServices?.showServices?.();
+      if(a.kind==='receivable'||(a.kind==='admin'&&a.isCurrent))await (window.ElaraReceivables?.refreshReceivables?.() ?? window.ElaraReceivables?.showReceivables?.());else await window.ElaraServices?.showServices?.();
     }
   }
   function reset(){if(dialog){dialog.element.remove();dialog=null;}/* uncertain receipts remain keyed by actor in memory */}
@@ -107,12 +107,12 @@ window.ElaraFinancialClose = (() => {
     const review=document.createElement('button');review.type='button';review.textContent='Revisar estado del cobro';body.append(review);
     review.onclick=async()=>{review.disabled=true;try{const c=await context(id);body.textContent=`Estado remoto: ${c.financial_close}. Pagado: ${c.paid_amount}; pendiente: ${c.pending_amount} ${c.currency_code}. ${c.last_receipt?'Existe un recibo propio aplicado.':'No se puede identificar inequívocamente el intento anterior.'} El intento local requiere revisión; no se habilita otro cobro.`;}catch(error){body.textContent=error.message;review.disabled=false;body.append(review);}};
   }
-  async function open(kind,id,receivableId=null,additional=false){
+  async function open(kind,id,receivableId=null,additional=false,isCurrent=null){
     if(writing)return;
     if(dialog){if(dialog.attempt?.busy)return;dialog.element.remove();dialog=null;}
     const requestedKind=kind,requestedReceivableId=receivableId;
     const mapKey=`${actor()}/${auth()?.getActiveContext?.()}/${kind}/${id}`;
-    let a;try{a=attempts.get(mapKey);if(!a){a=operation(kind,id,receivableId);attempts.set(mapKey,a);}check(a);}catch(error){return reviewOnly(id,error.message);}kind=a.kind;receivableId=a.receivableId;
+    let a;try{a=attempts.get(mapKey);if(!a){a=operation(kind,id,receivableId);attempts.set(mapKey,a);}if(isCurrent)a.isCurrent=isCurrent;check(a);}catch(error){return reviewOnly(id,error.message);}kind=a.kind;receivableId=a.receivableId;
     const element=document.createElement('div');element.className='modal-backdrop';element.id='financial-close-dialog';
     element.innerHTML='<section class="modal financial-close-modal" role="dialog" aria-modal="true" aria-labelledby="financial-close-title"><header class="modal__header"><h2 id="financial-close-title">Cierre financiero · efectivo</h2><button type="button" data-financial-dismiss>Cerrar</button></header><div class="modal__body" data-financial-body role="status">Consultando precio y saldo remotos…</div></section>';
     document.body.append(element);dialog={element,attempt:a};
@@ -127,7 +127,7 @@ window.ElaraFinancialClose = (() => {
       else if(!additional&&c.last_receipt)recovered=c.last_receipt.result;
       if(recovered){
         body.textContent=`${c.no_charge?'Sin importe a cobrar. ':''}Cierre financiero resuelto. Resultado remoto: ${recovered.payment_result}; recibido ${recovered.amount_received} ${c.currency_code}. Pendiente actual: ${c.pending_amount} ${c.currency_code}.`;
-        if(kind!=='driver'&&Number(c.pending_amount)>0){const next=document.createElement('button');next.type='button';next.textContent='Iniciar un nuevo cobro adicional sobre el saldo';body.append(next);next.onclick=async()=>{try{forgetAttempt(a);await open(requestedKind,id,requestedReceivableId,true);}catch(error){window.ElaraNotifications?.showToast(error.message,'error');}};}return;
+        if(kind!=='driver'&&Number(c.pending_amount)>0){const next=document.createElement('button');next.type='button';next.textContent='Iniciar un nuevo cobro adicional sobre el saldo';body.append(next);next.onclick=async()=>{try{forgetAttempt(a);await open(requestedKind,id,requestedReceivableId,true,isCurrent);}catch(error){window.ElaraNotifications?.showToast(error.message,'error');}};}return;
       }
       if(kind==='driver'&&c.financial_close==='resolved'&&!a.sent){body.textContent=`Cierre financiero ya registrado. Pendiente: ${c.pending_amount} ${c.currency_code}. Los cobros posteriores corresponden a Administración.`;return;}
       if(c.pricing_status!=='finalized'){
@@ -143,7 +143,7 @@ window.ElaraFinancialClose = (() => {
         resolve.onclick=async()=>{if(writing||a.busy)return;resolve.disabled=true;try{await execute(a,{},()=>reload(a),()=>window.ElaraDriver?.refreshFinancialClose?.());body.textContent='Sin importe a cobrar. Cierre financiero resuelto.';}catch(e){body.textContent=e.message;resolve.disabled=false;body.append(resolve);}};return;
       }
       let accounts=[];if(kind!=='driver'){const op=window.ElaraOperationalData;op.indexRecords({cash_accounts:await op.readAll('cash_accounts')});accounts=op.getCollection('cash_accounts').filter(r=>r.status==='active'&&['central','administrative'].includes(r.account_type)&&r.currency_code===c.currency_code);}
-      if(!element.isConnected)return;
+      check(a);if(!element.isConnected)return;
       const frozen=a.sent?JSON.parse(a.sent):null;
       body.innerHTML=`<p data-financial-summary>Precio final: ${esc(c.total_amount)} ${esc(c.currency_code)} · Ya pagado: ${esc(c.paid_amount)} · Pendiente: ${esc(c.pending_amount)}</p>
        <p data-financial-payments>Pagos registrados: ${esc((c.payments||[]).map(p=>`${p.payment_id}: ${p.amount} (${p.status})`).join(' · ')||'Ninguno')}</p>
@@ -172,7 +172,7 @@ window.ElaraFinancialClose = (() => {
           if(!a.sent){controls.forEach(el=>el.disabled=false);update();}
           if(a.rejected&&!body.querySelector('[data-financial-correct]')){
             const correct=document.createElement('button');correct.type='button';correct.dataset.financialCorrect='';correct.textContent='Corregir datos del intento rechazado';body.append(correct);
-            correct.onclick=async()=>{if(writing)return;try{const receipt=await rpc('get_financial_close_receipt',{p_service_id:id,p_request_key:a.key});if(receipt.status!=='not_found')return open(kind,id,receivableId);forgetAttempt(a);await open(requestedKind,id,requestedReceivableId);}catch(error){status.textContent=error.message;}};
+            correct.onclick=async()=>{if(writing)return;try{const receipt=await rpc('get_financial_close_receipt',{p_service_id:id,p_request_key:a.key});if(receipt.status!=='not_found')return open(kind,id,receivableId,false,isCurrent);forgetAttempt(a);await open(requestedKind,id,requestedReceivableId,false,isCurrent);}catch(error){status.textContent=error.message;}};
           }
         }
       };

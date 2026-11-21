@@ -38,7 +38,7 @@ window.ElaraOperationalData = (() => {
     servicios: ["persons", "companies", "customers", "drivers", "vehicles", "services"],
     clientes: ["persons", "companies", "customers"],
     colaboradores: ["persons", "drivers"],
-    vehiculos: ["vehicles"],
+    vehiculos: ["vehicles", "drivers", "persons"],
   };
   function scopeIdentity() {
     const user = window.ElaraAuth?.getCurrentUser?.();
@@ -266,7 +266,7 @@ window.ElaraOperationalData = (() => {
       const loaded = parallelLoad ? (await loading)[1] : await spec.load({isCurrent: current, identityReady});
       if (!current()) return;
       indexRecords({loaded});
-      const rows = loaded.filter(isOperationalRecord);
+      let rows = loaded.filter(isOperationalRecord);
       collections[spec.collection || viewId] = rows;
       let query = "", page = 1;
       const filters = [...(spec.filters || []), ...(spec.defaultFilters === false ? [] : [
@@ -274,7 +274,7 @@ window.ElaraOperationalData = (() => {
         {label: "Conductor", value: (r) => r.driver_id || "", text: (r) => r.driver_name || r.driver_display_name ||
           personName(getCollection("drivers").find((d) => d.id === r.driver_id)?.person_id)},
         {label: "Cliente", value: (r) => r.customer_id || "", text: (r) => r.customer_display_name || r.customer_human_code || r.customer_id},
-      ])].filter((f) => rows.some((r) => f.value(r)));
+      ])].filter((f) => spec.keepEmptyFilters || rows.some((r) => f.value(r)));
       const selected = new Map();
       const filterControls = filters.map((f, i) => {
           const options = new Map(rows.filter((r) => f.value(r)).map((r) => [f.value(r), f.text ? f.text(r) : f.value(r)]));
@@ -289,7 +289,7 @@ window.ElaraOperationalData = (() => {
         <div data-operational-detail-content></div>`;
       if (presentation.mount) presentation.mount(panel, {controls});
       else panel.innerHTML = presentation.layout ? presentation.layout({filters: filterControls, notice: escape(spec.notice || unavailable)}) : controls;
-      const draw = () => {
+      const draw = (preserveDetail = false) => {
         if (!current()) return;
         const filtered = rows.filter((r) => filters.every((f, i) => !selected.get(i) || f.value(r) === selected.get(i)) &&
           (spec.searchText ? String(spec.searchText(r)).toLocaleLowerCase("es").includes(query) :
@@ -305,8 +305,10 @@ window.ElaraOperationalData = (() => {
         panel.querySelector("[data-operational-prev]").disabled = page === 1;
         panel.querySelector("[data-operational-next]").disabled = page * 25 >= filtered.length;
         const detail = panel.querySelector("[data-operational-detail-content]");
-        detail.dataset.request = String(Number(detail.dataset.request || 0) + 1);
-        detail.replaceChildren();
+        if (!preserveDetail) {
+          detail.dataset.request = String(Number(detail.dataset.request || 0) + 1);
+          detail.replaceChildren();
+        }
         results.onclick = async (event) => {
           const button = event.target.closest("[data-operational-detail]");
           if (!current() || !button || (!spec.detail && !spec.openDetail)) return;
@@ -336,7 +338,23 @@ window.ElaraOperationalData = (() => {
       panel.querySelector("[data-operational-next]").onclick = () => { page++; draw(); };
       panel.querySelector("[data-operational-retry]").onclick = () => show(viewId, spec);
       draw();
-      if (presentation.ready && current()) presentation.ready(rows, {panel, isCurrent: current});
+      if (presentation.ready && current()) presentation.ready(rows, {panel, isCurrent: current,
+        refreshRows: async (isCurrent = () => true) => {
+          await loadIdentity({tables: viewIdentityTables[viewId] || identityTables});
+          if (!current() || !isCurrent()) throw new Error('Lectura obsoleta.');
+          const next = await spec.load({isCurrent: current});
+          if (!current() || !isCurrent()) throw new Error('Lectura obsoleta.');
+          rows = next.filter(isOperationalRecord);
+          collections[spec.collection || viewId] = rows;
+          for (const select of panel.querySelectorAll('[data-operational-filter]')) {
+            const index=Number(select.dataset.operationalFilter), filter=filters[index], value=selected.get(index)||'';
+            const options=new Map(rows.filter(r=>filter.value(r)).map(r=>[filter.value(r),filter.text?filter.text(r):filter.value(r)]));
+            if(value&&!options.has(value))options.set(value,[...select.querySelectorAll('option')].find(o=>o.value===value)?.textContent||value);
+            select.innerHTML='<option value="">Todos</option>'+[...options].map(([v,label])=>`<option value="${escape(v)}">${escape(label)}</option>`).join('');
+            select.value=value;
+          }
+          draw(true);
+        }});
       return true;
     } catch (error) {
       if (!current()) return;

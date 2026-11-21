@@ -1,0 +1,26 @@
+{
+  "date": "2026-11-20T13:26:56.258Z",
+  "project_ref": "pfdvehcyauoncxeolcjc",
+  "verification": {
+    "version": "20261120005700",
+    "read_only": "on",
+    "verification": true
+  },
+  "unchanged": {
+    "auth.users": true,
+    "auth.sessions": true,
+    "public.persons": true,
+    "public.app_users": true,
+    "public.roles": true,
+    "public.user_roles": true,
+    "public.app_sessions": false,
+    "public.drivers": true,
+    "public.user_driver_links": true,
+    "public.audit_logs": true
+  },
+  "exit": 0,
+  "tls": true,
+  "pass": false,
+  "failure": null,
+  "sqlstates": []
+}

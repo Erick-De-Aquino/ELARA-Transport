@@ -160,3 +160,27 @@ test('0050 Caja UI: double submit, invalid state and non-admin do not send extra
 test('0050 Caja UI: lost committed reply is resolved by authoritative state without another RPC',async()=>{
  const s=cashSetup((name,args,c)=>{c.set('received');throw Error('lost');});assert.equal((await s.api.execute('receive',id)).replayed,true);assert.equal((await s.api.execute('receive',id)).replayed,true);assert.equal(s.calls.length,1);
 });
+
+test('0050 CxC UI: navigation during context read blocks the payment before dispatch',async()=>{
+ let release,current=true;const gate=new Promise(r=>release=r);
+ const s=setup(async name=>{if(name==='get_service_financial_close_context')await gate;});s.role('administrativo');s.ctx.operational_status='completed';
+ const a=s.api.operation('receivable',id,pid);a.isCurrent=()=>current;
+ const pending=s.api.execute(a,{result:'full',account});current=false;release();
+ await assert.rejects(pending,/vista cambió/);assert.equal(s.calls.some(c=>c.name==='collect_receivable_cash'),false);assert.equal(a.sent,null);
+});
+
+test('0050 CxC UI: actual form retains its navigation guard and does not dispatch a stale submit',async()=>{
+ let current=true;const s=setup();s.role('administrativo');s.ctx.operational_status='completed';
+ s.window.ElaraOperationalData={readAll:async()=>[],indexRecords(){},getCollection:()=>[]};
+ const ui=dom(s);await s.api.open('receivable',id,pid,false,()=>current);ui.form.elements.account.value=account;current=false;
+ await ui.form.onsubmit({preventDefault(){}});assert.match(ui.status.textContent,/vista cambió/);assert.equal(s.calls.some(c=>c.name==='collect_receivable_cash'),false);
+});
+
+test('0050 CxC UI: confirmed payment invokes the preserving refresh hook without remounting the view',async()=>{
+ const s=setup();s.role('administrativo');s.ctx.operational_status='completed';let refreshes=0;
+ s.window.ElaraOperationalData={readAll:async()=>[],indexRecords(){},getCollection:()=>[],readRpc:async()=>[]};
+ s.window.ElaraReceivables={refreshReceivables:async()=>{refreshes++;},showReceivables:()=>{throw Error('Unexpected remount');}};
+ const ui=dom(s);await s.api.open('receivable',id,pid,false,()=>true);ui.form.elements.account.value=account;
+ await ui.form.onsubmit({preventDefault(){}});assert.match(ui.status.textContent,/Cierre confirmado/);assert.equal(refreshes,1);assert.equal(s.calls.filter(c=>c.name==='collect_receivable_cash').length,1);
+ await ui.form.onsubmit({preventDefault(){}});assert.equal(s.calls.filter(c=>c.name==='collect_receivable_cash').length,1);
+});

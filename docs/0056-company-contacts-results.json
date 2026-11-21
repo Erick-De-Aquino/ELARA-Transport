@@ -1,0 +1,205 @@
+{
+  "phase": "Clientes 1C.3-A",
+  "date": "2026-11-17",
+  "status": "Local backend complete; stopped for approval before remote migration or UI integration",
+  "migration": "supabase/migrations/0056_admin_company_contacts.sql",
+  "migrationSha256": "2a4dfadbeae7834e15591eef1a016c7b50524e9b58477145b525cac05497d297",
+  "signatures": [
+    "public.admin_add_company_contact(uuid,uuid,jsonb,boolean,text)",
+    "public.admin_set_company_primary_contact(uuid,uuid,uuid,bigint,uuid,bigint,text)",
+    "public.admin_update_company_contact(uuid,uuid,uuid,bigint,jsonb,text)"
+  ],
+  "returns": "jsonb",
+  "global": {
+    "tests": 519,
+    "pass": 519,
+    "fail": 0,
+    "skipped": 0,
+    "cancelled": 0,
+    "log": "C:\\Users\\erick\\AppData\\Local\\Temp\\elara-0056-global.log"
+  },
+  "focusedPGlite": {
+    "tests": 19,
+    "pass": 19,
+    "fail": 0,
+    "independentSessionConcurrency": false,
+    "log": "C:\\Users\\erick\\AppData\\Local\\Temp\\elara-0056-semantic-final.log"
+  },
+  "nativePostgres": {
+    "image": "public.ecr.aws/supabase/postgres:17.6.1.165",
+    "tests": [
+      {
+        "name": "Native new secondary contact, required fields, normalized email, cargo and link notes",
+        "result": "PASS"
+      },
+      {
+        "name": "Native existing active shared person is linked without personal or commercial edits",
+        "result": "PASS"
+      },
+      {
+        "name": "Native first primary, explicit atomic replacement and no automatic substitution",
+        "result": "PASS"
+      },
+      {
+        "name": "Native designation without prior primary and idempotent already-primary operation",
+        "result": "PASS"
+      },
+      {
+        "name": "Native deactivation preserves history, dates and shared person; company may have no primary",
+        "result": "PASS"
+      },
+      {
+        "name": "Native missing/inactive persons, missing/individual/blocked/inactive customers and inactive companies",
+        "result": "PASS"
+      },
+      {
+        "name": "Native active duplicate links and existing person duplicate rules fail without leaked PII",
+        "result": "PASS"
+      },
+      {
+        "name": "Native patch whitelist, clearing fields, reason, positive versions and relation validation",
+        "result": "PASS"
+      },
+      {
+        "name": "Native stale target and stale expected primary versions fail; no optimistic timestamp reliance",
+        "result": "PASS"
+      },
+      {
+        "name": "Native all three receipts replay exact results after mutable state changes and reject payload/key collisions",
+        "result": "PASS"
+      },
+      {
+        "name": "Native actor-scoped receipts and existing 0048/0055 namespace survive",
+        "result": "PASS"
+      },
+      {
+        "name": "Native authorization, expired/absent/session-context checks and browser direct-write denial",
+        "result": "PASS"
+      },
+      {
+        "name": "Native security definer ownership, pinned paths, limited grants and unchanged RLS",
+        "result": "PASS"
+      },
+      {
+        "name": "Native operational audit includes actor/session/reason/versions and one immutable receipt per operation",
+        "result": "PASS"
+      },
+      {
+        "name": "Native injected link/receipt failures roll back person, previous primary, counter and all audit rows",
+        "result": "PASS"
+      },
+      {
+        "name": "Native deferred integrity at commit boundary and inactive person cannot become primary",
+        "result": "PASS"
+      },
+      {
+        "name": "Native 0048 individual, 0055 company and Services/history remain usable without lifecycle changes",
+        "result": "PASS"
+      },
+      {
+        "name": "Native temporary relation poisoning cannot redirect qualified writes",
+        "result": "PASS"
+      },
+      {
+        "name": "independent native backends authenticated as two real administrative contexts",
+        "result": "PASS"
+      },
+      {
+        "name": "simultaneous first primary: second administrator observes stale expected primary",
+        "result": "PASS"
+      },
+      {
+        "name": "simultaneous replacement of same primary: exactly one wins",
+        "result": "PASS"
+      },
+      {
+        "name": "concurrent existing-person link prevents active duplicate",
+        "result": "PASS"
+      },
+      {
+        "name": "new-person email locks prevent duplicate identity across different companies",
+        "result": "PASS"
+      },
+      {
+        "name": "concurrent same-version updates reject lost update",
+        "result": "PASS"
+      },
+      {
+        "name": "deactivation versus replacement detects changed principal and preserves no-primary state",
+        "result": "PASS"
+      },
+      {
+        "name": "same actor/request concurrent replay waits and returns identical single receipt",
+        "result": "PASS"
+      },
+      {
+        "name": "waiting same-request retry succeeds after first transaction rollback, without ghosts",
+        "result": "PASS"
+      },
+      {
+        "name": "commit-time injected deferred failure rolls back person/link/audit/receipt then permits clean retry",
+        "result": "PASS"
+      },
+      {
+        "name": "existing deferred integrity fails at real COMMIT with complete RPC rollback",
+        "result": "PASS"
+      }
+    ],
+    "cleanup": {
+      "container": "removed"
+    },
+    "remoteAccess": false,
+    "postgres": "PostgreSQL 17.6 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 15.2.0, 64-bit",
+    "independentBackends": [
+      99,
+      106
+    ],
+    "independentSessionConcurrency": true,
+    "lockWaitObserved": true,
+    "log": "C:\\Users\\erick\\AppData\\Local\\Temp\\elara-0056-native-verified.log"
+  },
+  "preservation": {
+    "baselineFiles": 122,
+    "changedExistingFiles": [],
+    "previousLocalChangesPreserved": true,
+    "branch": "backup/elara-restauracion-2026-11-15",
+    "backupCommit": "1be471170e2c62815f140300d050afc2a85b195f",
+    "previousFunctionsAclAndPolicies": "PASS"
+  },
+  "checks": {
+    "javascriptSyntax": "PASS",
+    "gitDiffCheck": "PASS",
+    "sqlCreationAndRuntime": "PASS in PGlite and native PostgreSQL 17.6"
+  },
+  "createdFiles": [
+    "supabase/migrations/0056_admin_company_contacts.sql",
+    "tests/company-contacts-0056-harness.cjs",
+    "tests/company-contacts-0056.test.cjs",
+    "scripts/qa/0056-company-contacts.local.cjs",
+    "docs/0056-company-contacts-contract.md",
+    "docs/0056-company-contacts-results.json"
+  ],
+  "remote": {
+    "queried": false,
+    "modified": false,
+    "migrationApplied": false,
+    "realBusinessRecordsCreated": false
+  },
+  "publication": {
+    "commit": false,
+    "push": false,
+    "merge": false,
+    "deploy": false
+  },
+  "limitations": [
+    "No authenticated UI integration in this phase.",
+    "CLI version/help failed on sandbox-denied telemetry file; no installation/configuration change or CLI advisor result.",
+    "Concurrency guarantees apply to these cooperative RPCs and existing helper locks; privileged external writers must follow compatible lock ordering.",
+    "Expected versions protect rows, not a global snapshot of the entire contact set.",
+    "Remote audit and deployment lock window require review in a later authorized phase."
+  ],
+  "documentationSources": [
+    "https://supabase.com/docs/guides/database/functions",
+    "https://supabase.com/changelog/supabase-cli-v3"
+  ]
+}

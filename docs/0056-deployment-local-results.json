@@ -1,0 +1,35 @@
+{
+  "tests": [
+    {
+      "name": "exact remote metadata baseline reproduced locally without business data",
+      "result": "PASS"
+    },
+    {
+      "name": "exact prepared artifact commits schema, three RPCs and sole history row together",
+      "result": "PASS"
+    },
+    {
+      "name": "prepared read-only postcheck validates bodies, grants, version trigger and unchanged prior metadata",
+      "result": "PASS"
+    },
+    {
+      "name": "repeat artifact rejects without reinstalling or adding history",
+      "result": "PASS"
+    },
+    {
+      "name": "emergency disable revokes only new RPC access and retains schema/history/0055",
+      "result": "PASS"
+    }
+  ],
+  "cleanup": {
+    "container": "removed"
+  },
+  "remoteAccess": false,
+  "artifact_sha256": "b791cac7942ca12de10fa21e40917ed068f101525872348d52feafb4a24d5342",
+  "postcheck": {
+    "version": "20261117005600",
+    "read_only": "on",
+    "verification": true,
+    "history_count": 58
+  }
+}

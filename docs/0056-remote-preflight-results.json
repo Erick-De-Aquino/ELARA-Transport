@@ -1,0 +1,1234 @@
+{
+  "date": "2026-11-17T13:27:25.611Z",
+  "project_ref": "pfdvehcyauoncxeolcjc",
+  "method": "Session pooler 5432; psql 17; sslmode=verify-full; certificate chain and hostname",
+  "ca_sha256": "700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7",
+  "checks": {
+    "connection": true,
+    "session": true,
+    "read_only": true,
+    "target": true,
+    "installed_0055": true,
+    "source_0055": true,
+    "absent_0056": true,
+    "dependencies": true,
+    "indexes": true,
+    "triggers": true,
+    "privileges": true,
+    "no_unsafe_create": true,
+    "no_direct_writes": true,
+    "no_conflicts": true
+  },
+  "pass": true,
+  "data": {
+    "pid": 2508040,
+    "user": "postgres",
+    "phase": "preflight",
+    "database": "postgres",
+    "snapshot": {
+      "history": [
+        {
+          "name": "extensions_and_base_helpers",
+          "version": "0001"
+        },
+        {
+          "name": "human_code_generation",
+          "version": "0002"
+        },
+        {
+          "name": "identity_roles_sessions",
+          "version": "0003"
+        },
+        {
+          "name": "identity_integrity_fixes",
+          "version": "00031"
+        },
+        {
+          "name": "people_customers_drivers_suppliers",
+          "version": "0004"
+        },
+        {
+          "name": "vehicles_documents_assignments",
+          "version": "0005"
+        },
+        {
+          "name": "human_code_padding_adjustments",
+          "version": "00051"
+        },
+        {
+          "name": "services_operations",
+          "version": "0006"
+        },
+        {
+          "name": "service_financials_payments",
+          "version": "0007"
+        },
+        {
+          "name": "cash_remittances_counts",
+          "version": "0008"
+        },
+        {
+          "name": "receivables",
+          "version": "0009"
+        },
+        {
+          "name": "expenses",
+          "version": "0010"
+        },
+        {
+          "name": "settlements",
+          "version": "0011"
+        },
+        {
+          "name": "incidents_settings_audit",
+          "version": "0012"
+        },
+        {
+          "name": "domain_secure_functions",
+          "version": "0013"
+        },
+        {
+          "name": "rls_policies",
+          "version": "0014"
+        },
+        {
+          "name": "storage_buckets_policies",
+          "version": "0015"
+        },
+        {
+          "name": "views_integrity_checks",
+          "version": "0016"
+        },
+        {
+          "name": "app_session_bootstrap",
+          "version": "0017"
+        },
+        {
+          "name": "driver_cash_finance_summary",
+          "version": "0018"
+        },
+        {
+          "name": "driver_expenses_read_api",
+          "version": "0019"
+        },
+        {
+          "name": "driver_customer_person_rls",
+          "version": "0020"
+        },
+        {
+          "name": "driver_accept_service_rpc",
+          "version": "0021"
+        },
+        {
+          "name": "driver_start_service_rpc",
+          "version": "0022"
+        },
+        {
+          "name": "driver_service_overview_rpc",
+          "version": "0023"
+        },
+        {
+          "name": "driver_service_progress_rpc",
+          "version": "0024"
+        },
+        {
+          "name": "driver_service_incident_rpc",
+          "version": "0025"
+        },
+        {
+          "name": "driver_create_expense_rpc",
+          "version": "0026"
+        },
+        {
+          "name": "driver_expenses_list_operational_relation",
+          "version": "0027"
+        },
+        {
+          "name": "driver_profile_update_rpcs",
+          "version": "0028"
+        },
+        {
+          "name": "driver_cash_discrepancy_rpc",
+          "version": "0029"
+        },
+        {
+          "name": "driver_cash_remittance_submit_rpc",
+          "version": "0030"
+        },
+        {
+          "name": "end_current_app_session_rpc",
+          "version": "0031"
+        },
+        {
+          "name": "admin_cash_remittance_read_rpcs",
+          "version": "0032"
+        },
+        {
+          "name": "admin_receive_cash_remittance_rpc",
+          "version": "0033"
+        },
+        {
+          "name": "admin_verify_cash_remittance_rpc",
+          "version": "0034"
+        },
+        {
+          "name": "fix_verify_cash_remittance_encoding",
+          "version": "0035"
+        },
+        {
+          "name": "admin_cash_discrepancy_management_rpcs",
+          "version": "0036"
+        },
+        {
+          "name": "admin_expense_read_rpcs",
+          "version": "0037"
+        },
+        {
+          "name": "admin_expense_review_rpcs",
+          "version": "0038"
+        },
+        {
+          "name": "expense_submit_rpcs",
+          "version": "0039"
+        },
+        {
+          "name": "admin_expense_reimbursement_rpc",
+          "version": "0040"
+        },
+        {
+          "name": "harden_register_expense_payment",
+          "version": "0041"
+        },
+        {
+          "name": "harden_cancel_expense_rpc",
+          "version": "0042"
+        },
+        {
+          "name": "enforce_expense_cash_balance",
+          "version": "0043"
+        },
+        {
+          "name": "admin_settlement_read_rpcs",
+          "version": "0044"
+        },
+        {
+          "name": "driver_cash_source_consumption",
+          "version": "0045"
+        },
+        {
+          "name": "harden_settlement_generation",
+          "version": "0046"
+        },
+        {
+          "name": "admin_cash_movement_read_rpc",
+          "version": "0047"
+        },
+        {
+          "name": "admin_catalog_management",
+          "version": "0048"
+        },
+        {
+          "name": "service_status_history_central_writer",
+          "version": "0049"
+        },
+        {
+          "name": "cash_service_financial_close",
+          "version": "0050"
+        },
+        {
+          "name": "driver_portal_access_and_operational_central",
+          "version": "0051"
+        },
+        {
+          "name": "initial_superadmin_bootstrap",
+          "version": "0052"
+        },
+        {
+          "name": "0053_app_session_concurrency",
+          "version": "20261105141040"
+        },
+        {
+          "name": "0054_driver_accept_confirms_service",
+          "version": "20261106145018"
+        },
+        {
+          "name": "0055_admin_create_company_customer",
+          "version": "20261116005500"
+        }
+      ],
+      "metadata": {
+        "tables": [
+          [
+            "public.audit_logs",
+            "postgres",
+            "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres,authenticated=r/postgres}",
+            true,
+            false
+          ],
+          [
+            "public.companies",
+            "postgres",
+            "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres,authenticated=r/postgres}",
+            true,
+            false
+          ],
+          [
+            "public.company_contacts",
+            "postgres",
+            "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres,authenticated=r/postgres}",
+            true,
+            false
+          ],
+          [
+            "public.customers",
+            "postgres",
+            "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres,authenticated=r/postgres}",
+            true,
+            false
+          ],
+          [
+            "public.persons",
+            "postgres",
+            "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres,authenticated=r/postgres}",
+            true,
+            false
+          ],
+          [
+            "supabase_migrations.schema_migrations",
+            "postgres",
+            null,
+            false,
+            false
+          ]
+        ],
+        "columns": [
+          [
+            "public.companies",
+            "id",
+            "uuid",
+            true,
+            "extensions.gen_random_uuid()"
+          ],
+          [
+            "public.companies",
+            "legal_name",
+            "text",
+            true,
+            null
+          ],
+          [
+            "public.companies",
+            "trade_name",
+            "text",
+            false,
+            null
+          ],
+          [
+            "public.companies",
+            "tax_id",
+            "text",
+            false,
+            null
+          ],
+          [
+            "public.companies",
+            "billing_email",
+            "text",
+            false,
+            null
+          ],
+          [
+            "public.companies",
+            "billing_phone",
+            "text",
+            false,
+            null
+          ],
+          [
+            "public.companies",
+            "billing_address",
+            "text",
+            false,
+            null
+          ],
+          [
+            "public.companies",
+            "notes",
+            "text",
+            false,
+            null
+          ],
+          [
+            "public.companies",
+            "status",
+            "text",
+            true,
+            "'active'::text"
+          ],
+          [
+            "public.companies",
+            "created_at",
+            "timestamp with time zone",
+            true,
+            "now()"
+          ],
+          [
+            "public.companies",
+            "updated_at",
+            "timestamp with time zone",
+            true,
+            "now()"
+          ],
+          [
+            "public.companies",
+            "inactive_at",
+            "timestamp with time zone",
+            false,
+            null
+          ],
+          [
+            "public.companies",
+            "created_by",
+            "uuid",
+            false,
+            null
+          ],
+          [
+            "public.companies",
+            "updated_by",
+            "uuid",
+            false,
+            null
+          ],
+          [
+            "public.companies",
+            "inactive_by",
+            "uuid",
+            false,
+            null
+          ],
+          [
+            "public.company_contacts",
+            "id",
+            "uuid",
+            true,
+            "extensions.gen_random_uuid()"
+          ],
+          [
+            "public.company_contacts",
+            "company_id",
+            "uuid",
+            true,
+            null
+          ],
+          [
+            "public.company_contacts",
+            "person_id",
+            "uuid",
+            true,
+            null
+          ],
+          [
+            "public.company_contacts",
+            "role_label",
+            "text",
+            false,
+            null
+          ],
+          [
+            "public.company_contacts",
+            "is_primary",
+            "boolean",
+            true,
+            "false"
+          ],
+          [
+            "public.company_contacts",
+            "status",
+            "text",
+            true,
+            "'active'::text"
+          ],
+          [
+            "public.company_contacts",
+            "started_at",
+            "timestamp with time zone",
+            false,
+            null
+          ],
+          [
+            "public.company_contacts",
+            "ended_at",
+            "timestamp with time zone",
+            false,
+            null
+          ],
+          [
+            "public.company_contacts",
+            "notes",
+            "text",
+            false,
+            null
+          ],
+          [
+            "public.company_contacts",
+            "created_at",
+            "timestamp with time zone",
+            true,
+            "now()"
+          ],
+          [
+            "public.company_contacts",
+            "updated_at",
+            "timestamp with time zone",
+            true,
+            "now()"
+          ],
+          [
+            "public.company_contacts",
+            "created_by",
+            "uuid",
+            false,
+            null
+          ],
+          [
+            "public.company_contacts",
+            "updated_by",
+            "uuid",
+            false,
+            null
+          ],
+          [
+            "public.company_contacts",
+            "inactive_by",
+            "uuid",
+            false,
+            null
+          ],
+          [
+            "public.customers",
+            "id",
+            "uuid",
+            true,
+            "extensions.gen_random_uuid()"
+          ],
+          [
+            "public.customers",
+            "human_code",
+            "text",
+            true,
+            null
+          ],
+          [
+            "public.customers",
+            "customer_type",
+            "text",
+            true,
+            null
+          ],
+          [
+            "public.customers",
+            "person_id",
+            "uuid",
+            false,
+            null
+          ],
+          [
+            "public.customers",
+            "company_id",
+            "uuid",
+            false,
+            null
+          ],
+          [
+            "public.customers",
+            "status",
+            "text",
+            true,
+            "'new'::text"
+          ],
+          [
+            "public.customers",
+            "billing_notes",
+            "text",
+            false,
+            null
+          ],
+          [
+            "public.customers",
+            "preferences",
+            "jsonb",
+            false,
+            null
+          ],
+          [
+            "public.customers",
+            "internal_notes",
+            "text",
+            false,
+            null
+          ],
+          [
+            "public.customers",
+            "created_at",
+            "timestamp with time zone",
+            true,
+            "now()"
+          ],
+          [
+            "public.customers",
+            "updated_at",
+            "timestamp with time zone",
+            true,
+            "now()"
+          ],
+          [
+            "public.customers",
+            "blocked_at",
+            "timestamp with time zone",
+            false,
+            null
+          ],
+          [
+            "public.customers",
+            "blocked_by",
+            "uuid",
+            false,
+            null
+          ],
+          [
+            "public.customers",
+            "blocked_reason",
+            "text",
+            false,
+            null
+          ],
+          [
+            "public.customers",
+            "inactive_at",
+            "timestamp with time zone",
+            false,
+            null
+          ],
+          [
+            "public.customers",
+            "created_by",
+            "uuid",
+            false,
+            null
+          ],
+          [
+            "public.customers",
+            "updated_by",
+            "uuid",
+            false,
+            null
+          ],
+          [
+            "public.customers",
+            "inactive_by",
+            "uuid",
+            false,
+            null
+          ],
+          [
+            "public.persons",
+            "id",
+            "uuid",
+            true,
+            "extensions.gen_random_uuid()"
+          ],
+          [
+            "public.persons",
+            "first_name",
+            "text",
+            true,
+            null
+          ],
+          [
+            "public.persons",
+            "last_name",
+            "text",
+            true,
+            null
+          ],
+          [
+            "public.persons",
+            "contact_email",
+            "text",
+            false,
+            null
+          ],
+          [
+            "public.persons",
+            "phone",
+            "text",
+            false,
+            null
+          ],
+          [
+            "public.persons",
+            "country_code",
+            "text",
+            false,
+            null
+          ],
+          [
+            "public.persons",
+            "notes",
+            "text",
+            false,
+            null
+          ],
+          [
+            "public.persons",
+            "status",
+            "text",
+            true,
+            "'active'::text"
+          ],
+          [
+            "public.persons",
+            "created_at",
+            "timestamp with time zone",
+            true,
+            "now()"
+          ],
+          [
+            "public.persons",
+            "updated_at",
+            "timestamp with time zone",
+            true,
+            "now()"
+          ],
+          [
+            "public.persons",
+            "inactive_at",
+            "timestamp with time zone",
+            false,
+            null
+          ],
+          [
+            "public.persons",
+            "created_by",
+            "uuid",
+            false,
+            null
+          ],
+          [
+            "public.persons",
+            "updated_by",
+            "uuid",
+            false,
+            null
+          ],
+          [
+            "public.persons",
+            "inactive_by",
+            "uuid",
+            false,
+            null
+          ],
+          [
+            "supabase_migrations.schema_migrations",
+            "version",
+            "text",
+            true,
+            null
+          ],
+          [
+            "supabase_migrations.schema_migrations",
+            "statements",
+            "text[]",
+            false,
+            null
+          ],
+          [
+            "supabase_migrations.schema_migrations",
+            "name",
+            "text",
+            false,
+            null
+          ],
+          [
+            "supabase_migrations.schema_migrations",
+            "created_by",
+            "text",
+            false,
+            null
+          ],
+          [
+            "supabase_migrations.schema_migrations",
+            "idempotency_key",
+            "text",
+            false,
+            null
+          ],
+          [
+            "supabase_migrations.schema_migrations",
+            "rollback",
+            "text[]",
+            false,
+            null
+          ]
+        ],
+        "indexes": [
+          [
+            "public.company_contacts_one_active_per_company_person_idx",
+            "CREATE UNIQUE INDEX company_contacts_one_active_per_company_person_idx ON public.company_contacts USING btree (company_id, person_id) WHERE (status = 'active'::text)",
+            true,
+            true
+          ],
+          [
+            "public.company_contacts_one_primary_active_per_company_idx",
+            "CREATE UNIQUE INDEX company_contacts_one_primary_active_per_company_idx ON public.company_contacts USING btree (company_id) WHERE ((status = 'active'::text) AND (is_primary = true))",
+            true,
+            true
+          ],
+          [
+            "public.company_contacts_pkey",
+            "CREATE UNIQUE INDEX company_contacts_pkey ON public.company_contacts USING btree (id)",
+            true,
+            true
+          ]
+        ],
+        "schemas": [
+          [
+            "elara_private",
+            "{postgres=UC/postgres}"
+          ],
+          [
+            "extensions",
+            "{postgres=UC/postgres,anon=U/postgres,authenticated=U/postgres,service_role=U/postgres,dashboard_user=UC/postgres}"
+          ],
+          [
+            "public",
+            "{pg_database_owner=UC/pg_database_owner,=U/pg_database_owner,postgres=U/pg_database_owner,anon=U/pg_database_owner,authenticated=U/pg_database_owner,service_role=U/pg_database_owner}"
+          ]
+        ],
+        "policies": [
+          {
+            "cmd": "SELECT",
+            "qual": "public.rls_is_superadmin()",
+            "roles": [
+              "authenticated"
+            ],
+            "tablename": "audit_logs",
+            "permissive": "PERMISSIVE",
+            "policyname": "audit_logs_select_superadmin",
+            "schemaname": "public",
+            "with_check": null
+          },
+          {
+            "cmd": "SELECT",
+            "qual": "(public.rls_is_admin() OR (EXISTS ( SELECT 1\n   FROM public.customers c\n  WHERE ((c.company_id = companies.id) AND public.rls_driver_can_access_customer(c.id)))))",
+            "roles": [
+              "authenticated"
+            ],
+            "tablename": "companies",
+            "permissive": "PERMISSIVE",
+            "policyname": "companies_select",
+            "schemaname": "public",
+            "with_check": null
+          },
+          {
+            "cmd": "SELECT",
+            "qual": "(public.rls_is_admin() OR (EXISTS ( SELECT 1\n   FROM public.customers c\n  WHERE ((c.company_id = company_contacts.company_id) AND public.rls_driver_can_access_customer(c.id)))))",
+            "roles": [
+              "authenticated"
+            ],
+            "tablename": "company_contacts",
+            "permissive": "PERMISSIVE",
+            "policyname": "company_contacts_select",
+            "schemaname": "public",
+            "with_check": null
+          },
+          {
+            "cmd": "SELECT",
+            "qual": "(public.rls_is_admin() OR public.rls_driver_can_access_customer(id))",
+            "roles": [
+              "authenticated"
+            ],
+            "tablename": "customers",
+            "permissive": "PERMISSIVE",
+            "policyname": "customers_select",
+            "schemaname": "public",
+            "with_check": null
+          },
+          {
+            "cmd": "SELECT",
+            "qual": "(EXISTS ( SELECT 1\n   FROM public.customers customer\n  WHERE ((customer.customer_type = 'individual'::text) AND (customer.person_id = persons.id) AND public.rls_driver_can_access_customer(customer.id))))",
+            "roles": [
+              "authenticated"
+            ],
+            "tablename": "persons",
+            "permissive": "PERMISSIVE",
+            "policyname": "persons_select_accessible_customer_person",
+            "schemaname": "public",
+            "with_check": null
+          },
+          {
+            "cmd": "SELECT",
+            "qual": "public.rls_is_admin()",
+            "roles": [
+              "authenticated"
+            ],
+            "tablename": "persons",
+            "permissive": "PERMISSIVE",
+            "policyname": "persons_select_admin",
+            "schemaname": "public",
+            "with_check": null
+          },
+          {
+            "cmd": "SELECT",
+            "qual": "(id = ( SELECT app_users.person_id\n   FROM public.app_users\n  WHERE (app_users.id = public.rls_current_app_user_id())))",
+            "roles": [
+              "authenticated"
+            ],
+            "tablename": "persons",
+            "permissive": "PERMISSIVE",
+            "policyname": "persons_select_own_driver",
+            "schemaname": "public",
+            "with_check": null
+          }
+        ],
+        "triggers": [
+          [
+            "public.companies",
+            "set_companies_updated_at",
+            "O",
+            "CREATE TRIGGER set_companies_updated_at BEFORE UPDATE ON public.companies FOR EACH ROW EXECUTE FUNCTION public.set_updated_at()"
+          ],
+          [
+            "public.company_contacts",
+            "set_company_contacts_updated_at",
+            "O",
+            "CREATE TRIGGER set_company_contacts_updated_at BEFORE UPDATE ON public.company_contacts FOR EACH ROW EXECUTE FUNCTION public.set_updated_at()"
+          ],
+          [
+            "public.company_contacts",
+            "validate_company_contacts_integrity",
+            "O",
+            "CREATE CONSTRAINT TRIGGER validate_company_contacts_integrity AFTER INSERT OR UPDATE ON public.company_contacts DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.validate_people_commercial_integrity()"
+          ],
+          [
+            "public.customers",
+            "assign_customers_human_code",
+            "O",
+            "CREATE TRIGGER assign_customers_human_code BEFORE INSERT OR UPDATE OF human_code, customer_type ON public.customers FOR EACH ROW EXECUTE FUNCTION public.assign_customer_human_code()"
+          ],
+          [
+            "public.customers",
+            "set_customers_updated_at",
+            "O",
+            "CREATE TRIGGER set_customers_updated_at BEFORE UPDATE ON public.customers FOR EACH ROW EXECUTE FUNCTION public.set_updated_at()"
+          ],
+          [
+            "public.customers",
+            "validate_customers_integrity",
+            "O",
+            "CREATE CONSTRAINT TRIGGER validate_customers_integrity AFTER INSERT OR UPDATE ON public.customers DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.validate_people_commercial_integrity()"
+          ],
+          [
+            "public.persons",
+            "set_persons_updated_at",
+            "O",
+            "CREATE TRIGGER set_persons_updated_at BEFORE UPDATE ON public.persons FOR EACH ROW EXECUTE FUNCTION public.set_updated_at()"
+          ]
+        ],
+        "constraints": [
+          [
+            "public.companies",
+            "companies_created_by_fkey",
+            "FOREIGN KEY (created_by) REFERENCES public.app_users(id) ON DELETE RESTRICT",
+            true
+          ],
+          [
+            "public.companies",
+            "companies_inactive_at_required_when_inactive",
+            "CHECK (((status <> 'inactive'::text) OR (inactive_at IS NOT NULL)))",
+            true
+          ],
+          [
+            "public.companies",
+            "companies_inactive_by_fkey",
+            "FOREIGN KEY (inactive_by) REFERENCES public.app_users(id) ON DELETE RESTRICT",
+            true
+          ],
+          [
+            "public.companies",
+            "companies_legal_name_not_empty",
+            "CHECK ((length(TRIM(BOTH FROM legal_name)) > 0))",
+            true
+          ],
+          [
+            "public.companies",
+            "companies_pkey",
+            "PRIMARY KEY (id)",
+            true
+          ],
+          [
+            "public.companies",
+            "companies_status_check",
+            "CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text])))",
+            true
+          ],
+          [
+            "public.companies",
+            "companies_updated_by_fkey",
+            "FOREIGN KEY (updated_by) REFERENCES public.app_users(id) ON DELETE RESTRICT",
+            true
+          ],
+          [
+            "public.company_contacts",
+            "company_contacts_company_id_fkey",
+            "FOREIGN KEY (company_id) REFERENCES public.companies(id) ON DELETE RESTRICT",
+            true
+          ],
+          [
+            "public.company_contacts",
+            "company_contacts_created_by_fkey",
+            "FOREIGN KEY (created_by) REFERENCES public.app_users(id) ON DELETE RESTRICT",
+            true
+          ],
+          [
+            "public.company_contacts",
+            "company_contacts_ended_at_required_when_inactive",
+            "CHECK (((status <> 'inactive'::text) OR (ended_at IS NOT NULL)))",
+            true
+          ],
+          [
+            "public.company_contacts",
+            "company_contacts_inactive_by_fkey",
+            "FOREIGN KEY (inactive_by) REFERENCES public.app_users(id) ON DELETE RESTRICT",
+            true
+          ],
+          [
+            "public.company_contacts",
+            "company_contacts_person_id_fkey",
+            "FOREIGN KEY (person_id) REFERENCES public.persons(id) ON DELETE RESTRICT",
+            true
+          ],
+          [
+            "public.company_contacts",
+            "company_contacts_pkey",
+            "PRIMARY KEY (id)",
+            true
+          ],
+          [
+            "public.company_contacts",
+            "company_contacts_started_before_ended",
+            "CHECK (((started_at IS NULL) OR (ended_at IS NULL) OR (started_at <= ended_at)))",
+            true
+          ],
+          [
+            "public.company_contacts",
+            "company_contacts_status_check",
+            "CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text])))",
+            true
+          ],
+          [
+            "public.company_contacts",
+            "company_contacts_updated_by_fkey",
+            "FOREIGN KEY (updated_by) REFERENCES public.app_users(id) ON DELETE RESTRICT",
+            true
+          ],
+          [
+            "public.company_contacts",
+            "validate_company_contacts_integrity",
+            "TRIGGER DEFERRABLE INITIALLY DEFERRED",
+            true
+          ],
+          [
+            "public.customers",
+            "customers_blocked_at_required_when_blocked",
+            "CHECK (((status <> 'blocked'::text) OR (blocked_at IS NOT NULL)))",
+            true
+          ],
+          [
+            "public.customers",
+            "customers_blocked_by_fkey",
+            "FOREIGN KEY (blocked_by) REFERENCES public.app_users(id) ON DELETE RESTRICT",
+            true
+          ],
+          [
+            "public.customers",
+            "customers_company_id_fkey",
+            "FOREIGN KEY (company_id) REFERENCES public.companies(id) ON DELETE RESTRICT",
+            true
+          ],
+          [
+            "public.customers",
+            "customers_created_by_fkey",
+            "FOREIGN KEY (created_by) REFERENCES public.app_users(id) ON DELETE RESTRICT",
+            true
+          ],
+          [
+            "public.customers",
+            "customers_exactly_one_subject",
+            "CHECK ((((customer_type = 'individual'::text) AND (person_id IS NOT NULL) AND (company_id IS NULL)) OR ((customer_type = 'company'::text) AND (company_id IS NOT NULL) AND (person_id IS NULL))))",
+            true
+          ],
+          [
+            "public.customers",
+            "customers_human_code_format",
+            "CHECK ((((customer_type = 'individual'::text) AND (human_code ~ '^CL-[0-9]{4}$'::text)) OR ((customer_type = 'company'::text) AND (human_code ~ '^EMP-[0-9]{4}$'::text))))",
+            true
+          ],
+          [
+            "public.customers",
+            "customers_human_code_unique",
+            "UNIQUE (human_code)",
+            true
+          ],
+          [
+            "public.customers",
+            "customers_inactive_at_required_when_inactive",
+            "CHECK (((status <> 'inactive'::text) OR (inactive_at IS NOT NULL)))",
+            true
+          ],
+          [
+            "public.customers",
+            "customers_inactive_by_fkey",
+            "FOREIGN KEY (inactive_by) REFERENCES public.app_users(id) ON DELETE RESTRICT",
+            true
+          ],
+          [
+            "public.customers",
+            "customers_person_id_fkey",
+            "FOREIGN KEY (person_id) REFERENCES public.persons(id) ON DELETE RESTRICT",
+            true
+          ],
+          [
+            "public.customers",
+            "customers_pkey",
+            "PRIMARY KEY (id)",
+            true
+          ],
+          [
+            "public.customers",
+            "customers_status_check",
+            "CHECK ((status = ANY (ARRAY['new'::text, 'active'::text, 'blocked'::text, 'inactive'::text])))",
+            true
+          ],
+          [
+            "public.customers",
+            "customers_type_check",
+            "CHECK ((customer_type = ANY (ARRAY['individual'::text, 'company'::text])))",
+            true
+          ],
+          [
+            "public.customers",
+            "customers_updated_by_fkey",
+            "FOREIGN KEY (updated_by) REFERENCES public.app_users(id) ON DELETE RESTRICT",
+            true
+          ],
+          [
+            "public.customers",
+            "validate_customers_integrity",
+            "TRIGGER DEFERRABLE INITIALLY DEFERRED",
+            true
+          ],
+          [
+            "public.persons",
+            "persons_first_name_not_empty",
+            "CHECK ((length(TRIM(BOTH FROM first_name)) > 0))",
+            true
+          ],
+          [
+            "public.persons",
+            "persons_inactive_at_required_when_inactive",
+            "CHECK (((status <> 'inactive'::text) OR (inactive_at IS NOT NULL)))",
+            true
+          ],
+          [
+            "public.persons",
+            "persons_last_name_not_empty",
+            "CHECK ((length(TRIM(BOTH FROM last_name)) > 0))",
+            true
+          ],
+          [
+            "public.persons",
+            "persons_pkey",
+            "PRIMARY KEY (id)",
+            true
+          ],
+          [
+            "public.persons",
+            "persons_status_check",
+            "CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text])))",
+            true
+          ],
+          [
+            "supabase_migrations.schema_migrations",
+            "schema_migrations_idempotency_key_key",
+            "UNIQUE (idempotency_key)",
+            true
+          ],
+          [
+            "supabase_migrations.schema_migrations",
+            "schema_migrations_pkey",
+            "PRIMARY KEY (version)",
+            true
+          ]
+        ]
+      },
+      "functions_hash": "f83ea37d3d6e6b6fa32e9ebc32622abd"
+    },
+    "read_only": "on",
+    "dependencies": [
+      {
+        "owner": "postgres",
+        "exists": true,
+        "signature": "public.require_admin_user()"
+      },
+      {
+        "owner": "postgres",
+        "exists": true,
+        "signature": "elara_private.catalog_request(text,uuid,jsonb)"
+      },
+      {
+        "owner": "postgres",
+        "exists": true,
+        "signature": "elara_private.catalog_person(text,text,text,text,text)"
+      },
+      {
+        "owner": "postgres",
+        "exists": true,
+        "signature": "elara_private.catalog_audit(text,text,text,uuid,text,jsonb,jsonb,text,uuid,jsonb,jsonb)"
+      },
+      {
+        "owner": "postgres",
+        "exists": true,
+        "signature": "public.validate_people_commercial_integrity()"
+      },
+      {
+        "owner": "postgres",
+        "exists": true,
+        "signature": "public.set_updated_at()"
+      },
+      {
+        "owner": "postgres",
+        "exists": true,
+        "signature": "public.admin_create_company_customer(uuid,text,text,text,text,text,text,text,text,text,jsonb)"
+      }
+    ],
+    "server_major": 17,
+    "installed_0055": true,
+    "conflicting_locks": 0,
+    "direct_api_writes": false,
+    "indexes_compatible": true,
+    "migration_activity": 0,
+    "new_objects_absent": true,
+    "source_0055_matches": true,
+    "unsafe_schema_create": false,
+    "privileges_compatible": true,
+    "deferred_trigger_compatible": true
+  },
+  "errors": {
+    "exit": 0,
+    "failure": null,
+    "sqlstates": [],
+    "processError": null
+  }
+}

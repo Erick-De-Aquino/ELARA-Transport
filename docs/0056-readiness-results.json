@@ -1,0 +1,217 @@
+{
+  "status": "LISTO",
+  "date": "2026-11-17T13:24:54.778Z",
+  "project_ref": "pfdvehcyauoncxeolcjc",
+  "global": {
+    "pass": 519,
+    "fail": 0,
+    "skipped": 0,
+    "log": "C:\\Users\\erick\\AppData\\Local\\Temp\\elara-0056-deploy-global.log"
+  },
+  "httpLocal": {
+    "images": {
+      "postgres": "public.ecr.aws/supabase/postgres:17.6.1.165",
+      "auth": "public.ecr.aws/supabase/gotrue:v2.196.0",
+      "rest": "public.ecr.aws/supabase/postgrest:v16.1"
+    },
+    "tests": [
+      {
+        "name": "GoTrue password login, issued JWT and real initialize_app_session",
+        "result": "PASS"
+      },
+      {
+        "name": "HTTP 200: new contact and existing active shared person; exact JSON result",
+        "result": "PASS"
+      },
+      {
+        "name": "HTTP 403: non-admin denied on all three RPC; absent/forged JWT denied",
+        "result": "PASS"
+      },
+      {
+        "name": "HTTP 200: atomic replacement, idempotent primary receipt and stale HTTP 500/40001",
+        "result": "PASS"
+      },
+      {
+        "name": "HTTP 200: secondary/primary deactivation, dates and immutable update replay",
+        "result": "PASS"
+      },
+      {
+        "name": "HTTP 200/409: add receipt replay after deactivation and changed payload rejected",
+        "result": "PASS"
+      },
+      {
+        "name": "shared identity byte-for-byte unchanged; other active company link retained",
+        "result": "PASS"
+      }
+    ],
+    "cleanup": {
+      "elara0056http-5f75cfafb69d-rest": "removed",
+      "elara0056http-5f75cfafb69d-auth": "removed",
+      "elara0056http-5f75cfafb69d-pg": "removed",
+      "network": "removed"
+    },
+    "migrationSha256": "2a4dfadbeae7834e15591eef1a016c7b50524e9b58477145b525cac05497d297",
+    "migrations": [
+      "0001_extensions_and_base_helpers.sql",
+      "0002_human_code_generation.sql",
+      "0003_identity_roles_sessions.sql",
+      "00031_identity_integrity_fixes.sql",
+      "0004_people_customers_drivers_suppliers.sql",
+      "0005_vehicles_documents_assignments.sql",
+      "00051_human_code_padding_adjustments.sql",
+      "0006_services_operations.sql",
+      "0007_service_financials_payments.sql",
+      "0008_cash_remittances_counts.sql",
+      "0009_receivables.sql",
+      "0010_expenses.sql",
+      "0011_settlements.sql",
+      "0012_incidents_settings_audit.sql",
+      "0013_domain_secure_functions.sql",
+      "0014_rls_policies.sql",
+      "0015_storage_buckets_policies.sql",
+      "0016_views_integrity_checks.sql",
+      "0017_app_session_bootstrap.sql",
+      "0018_driver_cash_finance_summary.sql",
+      "0019_driver_expenses_read_api.sql",
+      "0020_driver_customer_person_rls.sql",
+      "0021_driver_accept_service_rpc.sql",
+      "0022_driver_start_service_rpc.sql",
+      "0023_driver_service_overview_rpc.sql",
+      "0024_driver_service_progress_rpc.sql",
+      "0025_driver_service_incident_rpc.sql",
+      "0026_driver_create_expense_rpc.sql",
+      "0027_driver_expenses_list_operational_relation.sql",
+      "0028_driver_profile_update_rpcs.sql",
+      "0029_driver_cash_discrepancy_rpc.sql",
+      "0030_driver_cash_remittance_submit_rpc.sql",
+      "0031_end_current_app_session_rpc.sql",
+      "0032_admin_cash_remittance_read_rpcs.sql",
+      "0033_admin_receive_cash_remittance_rpc.sql",
+      "0034_admin_verify_cash_remittance_rpc.sql",
+      "0035_fix_verify_cash_remittance_encoding.sql",
+      "0036_admin_cash_discrepancy_management_rpcs.sql",
+      "0037_admin_expense_read_rpcs.sql",
+      "0038_admin_expense_review_rpcs.sql",
+      "0039_expense_submit_rpcs.sql",
+      "0040_admin_expense_reimbursement_rpc.sql",
+      "0041_harden_register_expense_payment.sql",
+      "0042_harden_cancel_expense_rpc.sql",
+      "0043_enforce_expense_cash_balance.sql",
+      "0044_admin_settlement_read_rpcs.sql",
+      "0045_driver_cash_source_consumption.sql",
+      "0046_harden_settlement_generation.sql",
+      "0047_admin_cash_movement_read_rpc.sql",
+      "0048_admin_catalog_management.sql",
+      "0049_service_status_history_central_writer.sql",
+      "0050_cash_service_financial_close.sql",
+      "0051_driver_portal_access_and_operational_central.sql",
+      "0052_initial_superadmin_bootstrap.sql",
+      "0053_app_session_concurrency.sql",
+      "0054_driver_accept_confirms_service.sql",
+      "0055_admin_create_company_customer.sql",
+      "0056_admin_company_contacts.sql"
+    ],
+    "environment": {
+      "postgres": "PostgreSQL 17.6 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 15.2.0, 64-bit",
+      "authHealth": {
+        "version": "v2.196.0",
+        "name": "GoTrue",
+        "description": "GoTrue is a user registration and authentication API"
+      },
+      "sdk": "2.118.0",
+      "routing": "loopback HTTP proxy; no mocked responses",
+      "storage": "minimal schema boundary; Storage service not exercised"
+    }
+  },
+  "artifactLocal": {
+    "tests": [
+      {
+        "name": "exact remote metadata baseline reproduced locally without business data",
+        "result": "PASS"
+      },
+      {
+        "name": "exact prepared artifact commits schema, three RPCs and sole history row together",
+        "result": "PASS"
+      },
+      {
+        "name": "prepared read-only postcheck validates bodies, grants, version trigger and unchanged prior metadata",
+        "result": "PASS"
+      },
+      {
+        "name": "repeat artifact rejects without reinstalling or adding history",
+        "result": "PASS"
+      },
+      {
+        "name": "emergency disable revokes only new RPC access and retains schema/history/0055",
+        "result": "PASS"
+      }
+    ],
+    "cleanup": {
+      "container": "removed"
+    },
+    "remoteAccess": false,
+    "artifact_sha256": "b791cac7942ca12de10fa21e40917ed068f101525872348d52feafb4a24d5342",
+    "postcheck": {
+      "version": "20261117005600",
+      "read_only": "on",
+      "verification": true,
+      "history_count": 58
+    }
+  },
+  "remote": {
+    "checks": {
+      "connection": true,
+      "session": true,
+      "read_only": true,
+      "target": true,
+      "installed_0055": true,
+      "source_0055": true,
+      "absent_0056": true,
+      "dependencies": true,
+      "indexes": true,
+      "triggers": true,
+      "privileges": true,
+      "no_unsafe_create": true,
+      "no_direct_writes": true,
+      "no_conflicts": true
+    },
+    "date": "2026-11-17T13:23:00.993Z",
+    "method": "Session pooler 5432; psql 17; sslmode=verify-full; certificate chain and hostname",
+    "history_count": 57,
+    "writes": false,
+    "migration0056Applied": false
+  },
+  "manifest": {
+    "project_ref": "pfdvehcyauoncxeolcjc",
+    "version": "20261117005600",
+    "name": "0056_admin_company_contacts",
+    "source_sha256": "2a4dfadbeae7834e15591eef1a016c7b50524e9b58477145b525cac05497d297",
+    "artifact_sha256": "b791cac7942ca12de10fa21e40917ed068f101525872348d52feafb4a24d5342",
+    "verification_sha256": "f9586808830d378ab6262d26837893d5e12ad3200592cf979b2cc7ee158cdc9c",
+    "disable_sha256": "311e681cd7fe78455e2133baefc06a0a82dcf27fa2897627de2aae7458373c49",
+    "history_before": 57,
+    "history_after": 58,
+    "source_reconstructed": true,
+    "function_body_hashes": {
+      "elara_private.company_contact_version": "9da5ad32b10b6e91cfa17314597a2af36df321194d6b79d68c792e35c08aa767",
+      "elara_private.company_contact_company": "45e286efb5e2327d9b0db8939642b970e420e0b4f61fc4e0e6e7200203eb2955",
+      "public.admin_add_company_contact": "21bbf8e3d346814656136bce6b532f78b39f0a055723b0c2cc87b190e15b8970",
+      "public.admin_set_company_primary_contact": "f997886fed727fdab12697d2d2f8278fefeda499aaf4243d606ce2ba00433258",
+      "public.admin_update_company_contact": "78932465879a84c12429b0a278147a0cef19e94ae0e613fef63fe011c80a23ef"
+    },
+    "method": "Single original BEGIN/COMMIT; locked preflight; schema/history/postcheck atomic; no business RPC call"
+  },
+  "existingFilesPreserved": {
+    "count": 122,
+    "changed": []
+  },
+  "deploymentExecuted": false,
+  "emergencyDisableExecutedRemotely": false,
+  "criticalRisks": [],
+  "operationalRisks": [
+    "Brief exclusive table lock; 5s lock_timeout and transactional rollback.",
+    "Preflight is a snapshot; repeat immediately before authorized deployment.",
+    "Uncertain COMMIT: inspect read-only history/postcheck, never blindly replay."
+  ],
+  "pending": "Explicit user authorization to deploy only this artifact."
+}

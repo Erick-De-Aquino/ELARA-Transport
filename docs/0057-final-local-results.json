@@ -1,0 +1,37 @@
+{
+  "image": "public.ecr.aws/supabase/postgres:17.6.1.165",
+  "tests": [
+    {
+      "name": "injected late failure rolls back schema, history and preserves existing identities",
+      "result": "PASS"
+    },
+    {
+      "name": "exact individual artifact commits once and records only 0057",
+      "result": "PASS"
+    },
+    {
+      "name": "installation preserves every existing account, role, session, link and audit row",
+      "result": "PASS"
+    },
+    {
+      "name": "inert state persists after commit across two fresh authenticated backends",
+      "result": "PASS"
+    },
+    {
+      "name": "direct administrative and invitation writes fail closed on the server",
+      "result": "PASS"
+    },
+    {
+      "name": "read-only verifier validates all function bodies, permissions, empty controls and history",
+      "result": "PASS"
+    },
+    {
+      "name": "a repeated artifact is rejected without changing installed metadata or identities",
+      "result": "PASS"
+    }
+  ],
+  "cleanup": {
+    "container": "removed"
+  },
+  "remoteAccess": false
+}

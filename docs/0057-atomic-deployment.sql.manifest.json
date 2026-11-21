@@ -1,0 +1,10 @@
+{
+  "project_ref": "pfdvehcyauoncxeolcjc",
+  "version": "20261120005700",
+  "name": "0057_admin_users",
+  "source_sha256": "d3246ed536478b8a204d01fd63e3aaddc03ddb8aee4fe2909927dd080aa656f7",
+  "artifact_sha256": "298c4ac07dd473d13a2992364c9706ae36f05413c5652c84b6875e841d2aba34",
+  "verification_sha256": "88b935e42e7b7a8c507acf5449b3faee56bde7f8a159cdbbaf5c253f35d85ce6",
+  "baseline_sha256": "e957703f4172fa7178bb6a00ad289a8e7b674d32b968c82e4b9d1efbe1e44c07",
+  "remoteApplied": false
+}

@@ -224,7 +224,7 @@
 
   .user-card,
   .users-list-header {
-    grid-template-columns: minmax(180px, 1fr) 118px 110px minmax(245px, auto);
+    grid-template-columns: minmax(180px, 1fr) 118px 110px minmax(80px, auto);
   }
 
   .user-card time,
@@ -1222,6 +1222,10 @@
 #customer-detail-content td, #customer-detail-content th { overflow-wrap: anywhere; }
 .header__actions:has(> [data-catalog-action="customerCreate"]:not([hidden])) { justify-content: flex-end; }
 .header__actions > [data-catalog-action="customerCreate"] { width: auto; max-width: 100%; }
+.header__actions:has(> [data-catalog-action="driverCreate"]:not([hidden])) { justify-content: flex-end; }
+.header__actions > [data-catalog-action="driverCreate"] { width: auto; max-width: 100%; }
+.header__actions:has(> [data-catalog-action="vehicleCreate"]:not([hidden])) { justify-content: flex-end; }
+.header__actions > [data-catalog-action="vehicleCreate"] { width: auto; max-width: 100%; }
 #customer-history-modal .modal { display: grid; grid-template-rows: auto minmax(0, 1fr); }
 #customer-history-content { min-height: 0; overflow: auto; overscroll-behavior: contain; }
 #customer-history-modal .modal__header > div:first-child { min-width: 0; overflow-wrap: anywhere; }
@@ -1230,3 +1234,189 @@
 #customer-history-content .customer-history-item { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
 #customer-history-content .customer-history-item > div { min-width: 0; overflow-wrap: anywhere; }
 #customer-history-content .customer-history-item button { flex: 0 0 auto; width: auto; }
+
+/* Individual creation keeps its original header outside the scrolling form. */
+#new-customer-modal .modal--summary {
+  display: flex;
+  flex-direction: column;
+}
+#new-customer-modal .modal__header {
+  flex: 0 0 auto;
+}
+#new-customer-modal .new-customer-form {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+@media (max-width: 640px) {
+  #new-customer-modal .form-grid--customer-two,
+  #new-customer-modal .form-grid--customer-contact {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Keep the original form section rhythm inside each customer type. */
+#new-customer-modal [data-customer-fields] { display: grid; gap: 12px; min-width: 0; }
+/* Conductores: keep the original card components within the operational panel. */
+.collaborators-operational-panel { min-width: 0; --collaborators-list-grid: 22px minmax(180px, 1fr) 110px 150px minmax(160px, .8fr) 90px; }
+.collaborators-operational-panel .collaborators-list,
+.collaborators-operational-panel .collaborator-card { min-width: 0; }
+.collaborators-operational-panel .collaborator-card__identity,
+.collaborators-operational-panel .collaborator-card__service { min-width: 0; overflow-wrap: anywhere; }
+.collaborators-operational-panel .collaborator-card__access .status-pill { display: block; min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+#collaborator-detail-modal .modal__field-value { overflow-wrap: anywhere; }
+#collaborator-detail-modal .modal__body { overflow-x: auto; }
+#collaborator-detail-modal .modal__header { flex-wrap: wrap; }
+#collaborator-detail-modal .modal__header > div { min-width: 0; max-width: 100%; }
+#collaborator-detail-modal .modal__actions { flex-wrap: wrap; }
+#collaborator-detail-modal .modal__actions button { white-space: normal; }
+@media (max-width: 1100px) {
+  .collaborators-operational-panel .collaborators-list-header { display: none; }
+  .collaborators-operational-panel .collaborator-card { grid-template-columns: 8px minmax(0, 1fr); }
+  .collaborators-operational-panel .collaborator-card__bars { grid-column: 1; grid-row: 1 / span 5; }
+  .collaborators-operational-panel .collaborator-card__identity,
+  .collaborators-operational-panel .collaborator-card__type,
+  .collaborators-operational-panel .collaborator-card__access,
+  .collaborators-operational-panel .collaborator-card__service,
+  .collaborators-operational-panel .collaborator-card__actions { grid-column: 2; }
+  .collaborators-operational-panel .cash-pagination { flex-wrap: wrap; }
+}
+
+/* Vehicles: original cards and modal inside the authenticated presentation. */
+#vehiculos:has(> .vehicles-operational-panel) { grid-template-rows: auto; align-content: start; overflow-y: auto; }
+.vehicles-operational-panel { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; min-width: 0; }
+.vehicles-operational-panel .vehicle-card__service-km { display: grid; gap: 4px; }
+.vehicles-operational-panel .vehicle-card__service-km small { font-weight: 400; }
+.vehicles-operational-panel .vehicle-card > * { min-width: 0; overflow-wrap: anywhere; white-space: normal; }
+.vehicles-operational-panel .cash-pagination { flex-wrap: wrap; }
+#vehicle-detail-modal .modal__header { flex-wrap: wrap; }
+#vehicle-detail-modal .modal__header > div { min-width: 0; max-width: 100%; }
+#vehicle-detail-modal .modal__header-actions { flex-wrap: wrap; }
+#vehicle-detail-modal .modal__header-actions button { white-space: normal; }
+#vehicle-detail-modal .modal__body { min-width: 0; overflow-x: auto; }
+#vehicle-detail-modal .modal__field-value { overflow-wrap: anywhere; }
+@media (max-width: 1100px) {
+ .vehicles-operational-panel .vehicles-list-header { display: none; }
+ .vehicles-operational-panel .vehicle-card { grid-template-columns: 8px minmax(0, 1fr); }
+ .vehicles-operational-panel .vehicle-card__marker { grid-column: 1; grid-row: 1 / span 6; }
+ .vehicles-operational-panel .vehicle-card > :not(.vehicle-card__marker) { grid-column: 2; }
+}
+
+/* Caja: restore the original columns and cards inside the operational route. */
+.cash-operational-panel { display: grid; gap: 16px; min-width: 0; }
+.cash-operational-panel .summary-card strong { min-width: 0; overflow-wrap: anywhere; white-space: normal; }
+.cash-operational-panel .summary-card { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; }
+.cash-operational-panel .summary-card > span { white-space: normal; overflow: visible; }
+.cash-operational-panel .cash-pagination { flex-wrap: wrap; }
+.cash-operational-panel [data-cash-operational-controls] label { display: grid; gap: 5px; min-width: 0; }
+.cash-operational-panel [data-cash-operational-controls] input,
+.cash-operational-panel [data-cash-operational-controls] select { width: 100%; min-width: 0; }
+.cash-operational-panel [data-cash-operational-admin] button { max-width: 100%; white-space: normal; }
+.header__actions:has(> #cash-adjustment-open-action:not([hidden])) { justify-content: flex-end; }
+.header__actions > #cash-adjustment-open-action { width: auto; max-width: 100%; }
+#cash-remittance-detail-modal .modal__field-value,
+#cash-count-detail-modal .modal__field-value,
+#cash-discrepancy-detail-modal .modal__field-value { overflow-wrap: anywhere; }
+@media (max-width: 1100px) {
+ .cash-operational-panel .cash-layout { grid-template-columns: minmax(0, 1fr); }
+}
+/* Cuentas por cobrar: original components within the authenticated route. */
+.receivables-operational-panel { display: grid; gap: 16px; min-width: 0; }
+#cuentas-por-cobrar:has(> .receivables-operational-panel) { grid-template-rows: auto; overflow-y: auto; }
+.receivables-operational-panel .summary-card span { white-space: normal; overflow: visible; }
+.receivables-operational-panel .summary-card strong { white-space: normal; overflow-wrap: anywhere; }
+.receivables-operational-panel .cash-pagination { flex-wrap: wrap; }
+#receivable-detail-modal .modal__field-value { overflow-wrap: anywhere; }
+#receivable-detail-modal .modal__header { flex-wrap: wrap; }
+#receivable-detail-modal .modal__header > div { min-width: 0; max-width: 100%; }
+#receivable-detail-modal .modal__actions { grid-template-columns: minmax(0, 1fr); }
+#receivable-detail-modal .modal__actions button { white-space: normal; }
+@media (max-width: 1100px) {
+  .receivables-operational-panel .receivables-list-header { display: none; }
+  .receivables-operational-panel .receivables-list-wrapper { overflow-x: visible; }
+  .receivables-operational-panel .receivables-list-grid { min-width: 0; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .receivables-operational-panel .receivables-row__main,
+  .receivables-operational-panel .receivables-row__amount { grid-column: 1 / -1; }
+}
+@media (max-width: 640px) {
+  .receivables-operational-panel .receivables-list-grid { grid-template-columns: minmax(0, 1fr); }
+}
+/* Gastos: original list and dialogs within the authenticated presentation. */
+#gastos:has(> .expenses-operational-panel) { grid-template-rows: auto; overflow-y: auto; }
+.expenses-operational-panel { display: grid; gap: 16px; min-width: 0; }
+.expenses-operational-panel .summary-card strong,
+.expenses-operational-panel .summary-card span { white-space: normal; overflow-wrap: anywhere; }
+.expenses-operational-panel .summary-card { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; }
+.app-shell:has(#gastos:not([hidden])) .header__actions { justify-content: flex-end; }
+.app-shell:has(#gastos:not([hidden])) .header__actions > #primary-action { width: auto; max-width: 100%; }
+.expenses-operational-panel .cash-pagination { flex-wrap: wrap; }
+.expenses-operational-panel .expenses-filter-menu { display: grid; gap: 12px; }
+#expense-detail-modal .modal__field-value { overflow-wrap: anywhere; }
+#expense-detail-modal .modal__header { flex-wrap: wrap; }
+#expense-detail-modal .modal__actions { flex-wrap: wrap; }
+#expense-detail-modal .modal__actions button { white-space: normal; }
+#expense-new-modal form,
+#expense-review-modal form { display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 0; min-height: 0; overflow: hidden; }
+#expense-new-modal .modal__body,
+#expense-review-modal .modal__body { overflow-y: auto; min-height: 0; }
+#expense-new-modal .modal__actions,
+#expense-review-modal .modal__actions { flex-wrap: wrap; }
+#expense-new-modal .modal__actions button,
+#expense-review-modal .modal__actions button { white-space: normal; }
+#expense-new-modal select,
+#expense-review-modal select { max-width: 100%; }
+#expense-new-modal .modal__header,
+#expense-review-modal .modal__header { flex-wrap: wrap; }
+#expense-new-modal .modal__header > div,
+#expense-review-modal .modal__header > div { min-width: 0; }
+#expense-new-modal > .modal { height: min(820px, calc(100dvh - 32px)); }
+/* Liquidaciones: original components within the authenticated route. */
+#liquidaciones:has(> .settlements-operational-panel) { grid-template-rows: auto; overflow-y: auto; }
+.settlements-operational-panel { display: grid; gap: 16px; min-width: 0; }
+.settlements-operational-panel .summary-card { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; }
+.settlements-operational-panel .summary-card strong,
+.settlements-operational-panel .summary-card span { white-space: normal; overflow-wrap: anywhere; }
+.settlements-operational-panel .cash-pagination { flex-wrap: wrap; }
+.settlements-operational-panel .settlements-filter-menu { display: grid; gap: 12px; }
+.app-shell:has(#liquidaciones:not([hidden])) .header__actions { justify-content: flex-end; }
+.app-shell:has(#liquidaciones:not([hidden])) .header__actions > #primary-action { width: auto; max-width: 100%; }
+#settlement-detail-modal .modal__field-value { overflow-wrap: anywhere; }
+#settlement-detail-modal .modal__actions,
+#settlement-detail-modal .modal__header,
+#settlement-new-modal .modal__header,
+#settlement-action-modal .modal__header { flex-wrap: wrap; }
+#settlement-detail-modal .modal__actions button { white-space: normal; }
+#settlement-new-modal > .modal { width: min(600px, calc(100vw - 36px)); max-height: min(88dvh, 820px); }
+#settlement-new-modal .settlement-form-grid { grid-template-columns: minmax(0, 1fr); }
+#settlement-new-modal .modal__body { align-content: start; }
+#settlement-new-modal .settlement-form-grid > p { margin: 0; color: var(--color-muted); font-size: 0.82rem; }
+#settlement-new-modal [data-settlement-preview] { justify-self: start; }
+#settlement-new-modal [data-settlement-preview-content]:empty,
+#settlement-new-modal [role="status"]:empty { display: none; }
+#settlement-new-modal form,
+#settlement-action-modal form { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; gap: 0; overflow: hidden; }
+#settlement-new-modal .modal__body,
+#settlement-action-modal .modal__body { overflow-y: auto; min-height: 0; }
+#settlement-new-modal .modal__actions,
+#settlement-action-modal .modal__actions { flex-wrap: wrap; }
+#settlement-new-modal .modal__actions button,
+#settlement-action-modal .modal__actions button { white-space: normal; }
+
+/* Reportes: reutiliza tarjetas, filtros y gráficos históricos. */
+#reportes { align-content: start; }
+#reportes .reports-panel { display: grid; gap: 12px; align-content: start; }
+#reportes #report-blocks { grid-template-columns: minmax(0, 1fr); }
+#reportes .summary-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+#reportes .summary-card strong,
+#reportes .summary-card span { overflow-wrap: anywhere; white-space: normal; }
+#reportes #reports-entity-result,
+#reportes #reports-detail-table { display: grid; gap: 12px; min-width: 0; }
+#reportes .form-actions-inline { flex-wrap: wrap; }
+#reportes .form-actions-inline button { white-space: normal; }
+#reportes .report-chart-card__expand { width: 32px; max-width: 32px; }
+@media (max-width: 1024px) {
+  #reportes .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  #reportes .summary-grid { grid-template-columns: minmax(0, 1fr); }
+}

@@ -1,0 +1,14 @@
+{
+  "version": "20261116005500",
+  "name": "0055_admin_create_company_customer",
+  "project_ref": "pfdvehcyauoncxeolcjc",
+  "source_sha256": "31d5747d750b084055bc2f2628052df92e68e634c132402e73aa9300e7504723",
+  "artifact_sha256": "eb18779bbfbdc36bab3edadb437edc2af306402fb0e2ef2e504af779fb854da6",
+  "verification_sha256": "0d47eca188036d2bac7eec82d8eac6cf0b462ae03a60fb9698d4756ea8bda61f",
+  "function_body_sha256": "d2363bbbd60300546f7f1750f5b6460a67fcadf9b56909b46b159e059ac60291",
+  "function_baseline_sha256": "9913344c4eab93266e80115e95c834ef3ce84bf3ee4a0262419d39d8c666df29",
+  "history_before": 56,
+  "history_after": 57,
+  "source_reconstructed": true,
+  "method": "psql single original BEGIN/COMMIT; transactional history INSERT before COMMIT"
+}

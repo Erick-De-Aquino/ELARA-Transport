@@ -22,7 +22,7 @@ for(const parent of ['persons','companies','customers','drivers','vehicles','ser
  h.tables[parent][0]={...h.tables[parent][0],metadata:{qa_fixture:true}};let finances=0;h.window.ElaraFinancialClose.context=async()=>{finances++;return {financial_close:'resolved'};};await h.show();assert.equal(shown(h),0);assert.equal(finances,0);assert.ok(!resources(h).includes('service_locations'));
 });
 test('module dependencies preserve generic presentation; finance keeps the complete safety graph',async()=>{
- for(const [view,tables] of Object.entries({clientes:['persons','companies','customers'],colaboradores:['persons','drivers'],vehiculos:['vehicles'],dashboard:['persons','companies','customers','drivers','vehicles','services'],caja:['persons','companies','customers','drivers','vehicles','cash_accounts','services','service_assignments','cash_counts','cash_discrepancies']})){
+ for(const [view,tables] of Object.entries({clientes:['persons','companies','customers'],colaboradores:['persons','drivers'],vehiculos:['vehicles','drivers','persons'],dashboard:['persons','companies','customers','drivers','vehicles','services'],caja:['persons','companies','customers','drivers','vehicles','cash_accounts','services','service_assignments','cash_counts','cash_discrepancies']})){
   const h=setup();for(const v of h.document.querySelectorAll('.view'))v.hidden=v.id!==view;
   await h.op.show(view,{title:view,load:async()=>[],columns:[['ID','id']]});assert.deepEqual([...resources(h)].sort(),[...tables].sort(),view);assert.equal(h.document.querySelector(`#${view} [data-operational-panel]`).className,'panel');
  }

@@ -1,0 +1,12 @@
+{
+  "project": "pfdvehcyauoncxeolcjc",
+  "remoteApplied": false,
+  "files": {
+    "supabase/migrations/0057_admin_users.sql": "d3246ed536478b8a204d01fd63e3aaddc03ddb8aee4fe2909927dd080aa656f7",
+    "supabase/functions/user-administration/core.mjs": "b80685262a7af660d2b67d544df16b1ebb8a697c3de6c19d757d7d2d368958f5",
+    "supabase/functions/user-administration/index.ts": "7f37baa2acb95aa9f6b957c630fc509e664bb588682cf588976ed1994e1287c7",
+    "src/accept-user-invite.html": "ec6d9367c265d91716b5525c80e9e5836860b91cf46126415c7f62d326d29d1a",
+    "src/js/accept-user-invite.js": "5764872af4bcb04331a6ac2a5aac5e43707978af339ee4a2eb8f888b37d985e2",
+    "src/js/users-admin.js": "04b81863a35bef8303de0187dfe51d6f3a4eedac902d76a46e8b55e21dad70f8"
+  }
+}

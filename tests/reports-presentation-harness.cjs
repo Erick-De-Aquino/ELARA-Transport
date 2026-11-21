@@ -1,0 +1,34 @@
+const fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+const {parseHTML}=require(path.join(process.env.ELARA_PGLITE_ROOT,'linkedom'));
+const {uuid,readClient,settle}=require('./services-presentation-harness.cjs');
+function fixture(){
+ const parts=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Madrid',year:'numeric',month:'2-digit'}).formatToParts(new Date()).map(p=>[p.type,p.value]));
+ const month=parts.year+'-'+parts.month,time=month+'-10T10:00:00Z',old='2020-01-10T10:00:00Z';
+ const services=['completed','cancelled','no_show','not_performed','pending'].map((operational_status,i)=>({id:uuid(i+1),human_code:'SRV-'+String(i+1).padStart(6,'0'),customer_id:uuid(i<3?100:101),service_type:i===3?'':'transfer',operational_status,scheduled_start_at:time,created_at:time,cancelled_at:i===1?time:null}));
+ const tables={services,persons:[{id:uuid(200),first_name:'Cliente',last_name:'Particular'},{id:uuid(201),first_name:'Conductor',last_name:'Uno'},{id:uuid(202),first_name:'Conductor',last_name:'Dos'}],companies:[{id:uuid(300),trade_name:'Empresa de prueba local'}],customers:[{id:uuid(100),human_code:'CLI-000001',customer_type:'individual',person_id:uuid(200),status:'active'},{id:uuid(101),human_code:'CLI-000002',customer_type:'company',company_id:uuid(300),status:'active'}],drivers:[{id:uuid(400),human_code:'DRV-000001',person_id:uuid(201),administrative_status:'active'},{id:uuid(401),human_code:'DRV-000002',person_id:uuid(202),administrative_status:'active'}],
+ service_closures:[0,2,3].map(i=>({id:uuid(500+i),service_id:uuid(i+1),closure_type:services[i].operational_status,closed_at:time,assignment_id:uuid(600+i)})),service_status_history:[0,1,2,3].map(i=>({id:uuid(700+i),service_id:uuid(i+1),to_status:services[i].operational_status,changed_at:time,assignment_id:uuid(600+i)})),
+ service_assignments:[0,1,2,3,4].map(i=>({id:uuid(600+i),service_id:uuid(i+1),driver_id:uuid(i<2||i===4?400:401),assignment_status:'accepted',assigned_at:month+'-01T10:00:00Z',accepted_at:month+'-01T11:00:00Z',ended_at:null})),
+ service_financials:services.map((s,i)=>({id:uuid(800+i),service_id:s.id,pricing_status:'finalized',total_amount:'100.30',currency_code:'EUR'})),
+ service_payments:[{id:uuid(900),service_id:uuid(1),service_financial_id:uuid(800),payment_status:'completed',amount:'0.10',currency_code:'EUR',paid_at:time},{id:uuid(901),service_id:uuid(1),service_financial_id:uuid(800),payment_status:'completed',amount:'0.20',currency_code:'EUR',paid_at:time},...['reversed','pending','cancelled','failed'].map((payment_status,i)=>({id:uuid(902+i),service_id:uuid(1),service_financial_id:uuid(800),payment_status,amount:'999.00',currency_code:'EUR',paid_at:time}))],
+ get_admin_expenses:[{expense_id:uuid(1000),status:'approved',expense_date:month+'-10',amount:'10.10',currency_code:'EUR',payment_status:'unpaid',reimbursed_amount:'0.00'},{expense_id:uuid(1001),status:'submitted',expense_date:month+'-10',amount:'999.00',currency_code:'EUR'},{expense_id:uuid(1002),status:'approved',expense_date:month+'-10',amount:'10.20',currency_code:'EUR',payment_status:'paid',reimbursed_amount:'10.20'}],
+ get_admin_settlements:[{settlement_id:uuid(1100),driver_id:uuid(400),human_code:'LIQ-000001',status:'generated',generated_at:time,driver_amount:'35.11',currency_code:'EUR'},{settlement_id:uuid(1101),driver_id:uuid(400),human_code:'LIQ-000002',status:'approved',generated_at:old,driver_amount:'10.00',currency_code:'EUR'}],settlement_payments:[{id:uuid(1200),settlement_id:uuid(1100),payment_status:'completed',paid_at:time,currency_code:'EUR',amount:'35.11'},{id:uuid(1201),settlement_id:uuid(1101),payment_status:'completed',paid_at:time,currency_code:'EUR',amount:'10.00'}],
+ v_admin_receivable_overview:[{receivable_id:uuid(1300),service_id:uuid(1),customer_id:uuid(100),status:'partial',opened_at:old,pending_amount:'25.00',currency_code:'EUR'}]};
+ tables.settlements=tables.get_admin_settlements.map(s=>({...s,id:s.settlement_id}));return tables;
+}
+function setup({tables=fixture(),role='superadmin',beforeRead}={}){
+ if(!tables.settlements)tables.settlements=tables.get_admin_settlements.map(s=>({...s,id:s.settlement_id}));
+ const {window,document}=parseHTML(fs.readFileSync('src/index.html','utf8'));let activeRole=role,actor=uuid(9999);const calls=[],instances=[];
+ Object.defineProperty(window.HTMLSelectElement.prototype,'value',{configurable:true,get(){return this.querySelector('option[selected]')?.value||this.querySelector('option')?.value||'';},set(v){for(const o of this.querySelectorAll('option'))o.toggleAttribute('selected',o.value===v);}});
+ for(const view of document.querySelectorAll('[data-view]'))view.hidden=view.id!=='reportes';
+ window.ElaraAuth={getCurrentUser:()=>actor?{id:actor,appSessionId:'isolated-session'}:null,getActiveContext:()=>activeRole};
+ window.ElaraSupabase={client:readClient(tables,calls,beforeRead)};
+ window.ElaraSupabase.client.rpc=async(name,args)=>{calls.push({rpc:name,args});if(!['get_admin_expenses','get_admin_settlements'].includes(name))throw Error('Unauthorized test RPC');if(beforeRead)await beforeRead(name);let rows=tables[name]||[];if(args.p_driver_id)rows=rows.filter(r=>r.driver_id===args.p_driver_id);return {data:rows.slice(args.p_offset,args.p_offset+args.p_limit).map(r=>({...r,total_count:rows.length}))};};
+ window.Chart=class {constructor(canvas,config){this.canvas=canvas;this.config=config;instances.push(this);}destroy(){this.destroyed=true;}};
+ for(const key of ['ElaraReportsMock','ElaraReportsHistoryMock','ElaraServicesMock'])Object.defineProperty(window,key,{configurable:true,get(){throw Error('Historical data accessed');}});
+ const context={window,document,console,Intl,Date,Set,Map};vm.createContext(context);vm.runInContext(fs.readFileSync('src/js/operational-data.js','utf8'),context);vm.runInContext(fs.readFileSync('src/js/reports.js','utf8'),context);
+ const api=window.ElaraReports,click=node=>node.dispatchEvent(new window.Event('click',{bubbles:true}));
+ const change=(selector,value)=>{const e=document.querySelector(selector);e.value=value;e.dispatchEvent(new window.Event('change',{bubbles:true}));};
+ const detail=async(type='drivers',id=uuid(400))=>{click(document.querySelector('[data-report-tab=detail]'));await settle();if(document.querySelector('[name=reports-kind]').value!==type){change('[name=reports-kind]',type);await settle();}change('[name=reports-entity]',id);for(let i=0;i<5;i++)await settle();};
+ return {window,document,context,tables,calls,instances,api,math:api.math,show:()=>api.showReports(),click,change,detail,role(v){activeRole=v;window.dispatchEvent(new window.CustomEvent('elara:auth-session-updated'));},actor(v){actor=v;window.dispatchEvent(new window.CustomEvent('elara:auth-session-updated'));}};
+}
+module.exports={setup,fixture,uuid,settle};

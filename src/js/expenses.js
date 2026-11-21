@@ -1,7 +1,7 @@
 /*
   Proyecto Atlas / ELARA Transport
   Archivo: expenses.js
-  Responsabilidad: interfaz administrativa real read-only del modulo Gastos.
+  Responsabilidad: interfaz administrativa de Gastos mediante contratos reales.
 */
 
 "use strict";
@@ -2930,12 +2930,142 @@ window.ElaraExpenses = {
   showExpenses,
 };
 
-// Read-only operational route. Legacy renderer below/above is retained for demo dependencies.
+// Operational route. Historical controllers remain uninitialized.
 function showOperationalExpenses() {
-  const op = window.ElaraOperationalData;
-  if (!op) throw new Error('Lectura operativa no disponible.');
-  return op.show('gastos', {title: 'Gastos', load: () => op.readRpc('get_admin_expenses'),
-columns: [['Gasto','human_code'],['Fecha','expense_date'],['Concepto','description'],['Conductor','driver_name'],['Estado','status'],['Importe','amount'],['Pendiente de reembolso','pending_reimbursement_amount'],['Moneda','currency_code']],
-summary: rows=>'Pendiente de pago global: '+op.money(rows,'pending_payment_amount')+' · Pendiente de reembolso global: '+op.money(rows,'pending_reimbursement_amount'),
-detail: async r=> { const d=await op.readDetail('get_admin_expense_detail','p_expense_id',r.expense_id); return op.fields(d.expense||d,[['UUID','expense_id'],['Concepto','description'],['Notas','notes'],['Estado','status'],['Pago','payment_status'],['Reembolso','reimbursement_status']]); }});
+  return window.ElaraExpenseAdmin.show();
 }
+
+// Administrative presentation over the existing expense contracts. No legacy handlers are initialized.
+window.ElaraExpenseAdmin = (()=>{
+  const op=()=>window.ElaraOperationalData, esc=escapeExpenseHtml;
+  const labels={draft:'Borrador',submitted:'Enviado',approved:'Aprobado',rejected:'Rechazado',cancelled:'Anulado',unpaid:'Sin pagar',paid:'Pagado',partial:'Pago parcial',pending:'Pendiente',completed:'Registrado',reversed:'Revertido',reimbursed:'Reembolsado',not_applicable:'No corresponde',elara:'Pago por ELARA',driver_advance:'Adelantado por conductor',user_advance:'Adelantado por usuario',cash:'Efectivo',bank_transfer:'Transferencia',card:'Tarjeta',other:'Otro'};
+  const titles={create:'Registrar gasto',submit:'Enviar a revisión',approve:'Aprobar gasto',reject:'Rechazar gasto',pay:'Registrar pago en efectivo',reimburse:'Reembolsar en efectivo',cancel:'Anular gasto'};
+  const uuid=v=>/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(v||'');
+  let elements=null,view=null,dialog=null,ticket=0,busy=false,bound=false;
+  const scope=()=>{const a=window.ElaraAuth,u=a?.getCurrentUser?.();return (u?.supabaseUserId||u?.id||'')+'/'+a?.getActiveContext?.();};
+  const admin=()=>['administrativo','superadmin'].includes(window.ElaraAuth?.getActiveContext?.());
+  const visible=()=>!document.getElementById('gastos').hidden;
+  const current=()=>Boolean(view?.isCurrent()&&view.scope===scope()&&admin()&&visible());
+  const minor=v=>{const m=/^(\d+)(?:\.(\d{1,2}))?$/.exec(String(v??''));return m?BigInt(m[1])*100n+BigInt((m[2]||'').padEnd(2,'0')):null;};
+  const money=(v,c)=>{const n=typeof v==='bigint'?v:minor(v);return n===null||!/^[A-Z]{3}$/.test(c||'')?'Sin información disponible':new Intl.NumberFormat('es-ES').format(n/100n)+','+String(n%100n).padStart(2,'0')+' '+c;};
+  const label=v=>labels[v]||v||'Sin información disponible';
+  function date(v){if(!v)return 'Sin fecha';if(/^\d{4}-\d{2}-\d{2}$/.test(v))return v.slice(8)+'/'+v.slice(5,7)+'/'+v.slice(0,4);const d=new Date(v);return Number.isNaN(d.getTime())?'Sin fecha':new Intl.DateTimeFormat('es-ES',{dateStyle:'short',timeStyle:'short',timeZone:'Europe/Madrid'}).format(d);}
+  function today(){const p=new Intl.DateTimeFormat('en-CA',{year:'numeric',month:'2-digit',day:'2-digit',timeZone:'Europe/Madrid'}).formatToParts(new Date()),get=k=>p.find(v=>v.type===k).value;return get('year')+'-'+get('month')+'-'+get('day');}
+  const detail=id=>op().readDetail('get_admin_expense_detail','p_expense_id',id);
+  function allowed(kind,d){
+    if(!admin())return false;if(kind==='create')return true;
+    if(!d||!uuid(d.expense_id))return false;
+    const locked=d.has_settlement_reference===true||Number(d.settlement_reference_count)>0;
+    if(kind==='submit')return d.status==='draft'&&d.payment_responsibility==='elara'&&!d.reimbursable;
+    if(kind==='approve'||kind==='reject')return d.status==='submitted';
+    if(kind==='pay')return !locked&&d.status==='approved'&&d.payment_responsibility==='elara'&&d.payment_status==='unpaid'&&minor(d.pending_payment_amount)>0n&&!(d.payments||[]).some(p=>p.status==='completed');
+    if(kind==='reimburse')return !locked&&d.status==='approved'&&d.payment_responsibility==='driver_advance'&&d.reimbursable===true&&d.advanced_by_driver_id&&d.reimbursement_status==='pending'&&minor(d.pending_reimbursement_amount)>0n&&!(d.reimbursements||[]).some(p=>p.status==='completed');
+    if(kind==='cancel')return !locked&&window.ElaraAuth.getActiveContext()==='superadmin'&&['draft','submitted','approved'].includes(d.status)&&!(d.payments||[]).some(p=>p.status==='completed')&&!(d.reimbursements||[]).some(p=>p.status==='completed');
+    return false;
+  }
+  const section=(title,fields)=>renderExpenseDetailSection(title,fields);
+  function summary(rows){
+    const groups=new Map();for(const r of rows){if(!groups.has(r.currency_code))groups.set(r.currency_code,{recorded:0n,paid:0n,pending:0n,reimbursement:0n,valid:true});const g=groups.get(r.currency_code);if(['amount','paid_amount','pending_payment_amount','pending_reimbursement_amount'].some(k=>minor(r[k])===null)){g.valid=false;continue;}if(r.status==='approved'){g.recorded+=minor(r.amount);g.pending+=minor(r.pending_payment_amount);g.reimbursement+=minor(r.pending_reimbursement_amount);}if(r.payment_responsibility==='elara'&&r.status!=='cancelled'&&r.status!=='rejected')g.paid+=minor(r.paid_amount);}
+    const total=k=>groups.size?[...groups].map(([c,g])=>g.valid?money(g[k],c):'Importes sin confirmar').join(' · '):'0';
+    return [['Gastos del filtro',String(rows.length),'neutral'],['Importe aprobado',total('recorded'),'info'],['Borradores',String(rows.filter(r=>r.status==='draft').length),'warning'],['Pagado por ELARA',total('paid'),'success'],['Aprobado pendiente de pago',total('pending'),'warning'],['Aprobado pendiente de reembolso',total('reimbursement'),'warning']].map(([l,v,t])=>`<article class="summary-card summary-card--${t}"><span>${esc(l)}</span><strong>${esc(v)}</strong></article>`).join('');
+  }
+  function close(){ticket++;for(const id of ['expense-detail-modal','expense-new-modal','expense-review-modal']){const m=document.getElementById(id);if(m)m.hidden=true;}dialog=null;}
+  async function openDetail(row,{isCurrent=()=>current()}={}){
+    close();const n=++ticket,actor=scope(),valid=()=>n===ticket&&actor===scope()&&current()&&isCurrent();if(!valid())return;
+    const modal=document.getElementById('expense-detail-modal'),body=document.getElementById('expense-detail-content'),actions=document.getElementById('expense-detail-actions');modal.hidden=false;body.textContent='Consultando gasto…';actions.replaceChildren();document.getElementById('expense-detail-id').textContent=row.human_code||'';
+    try{const d=await detail(row.expense_id);if(!valid())return;
+      body.innerHTML=section('Registro y pago',[
+        ['Concepto',d.description],['Categoría',d.category_name],['Fecha',date(d.expense_date)],['Estado del registro',label(d.status)],['Estado del pago',label(d.payment_status)],['Responsabilidad',label(d.payment_responsibility)],
+        ['Base',money(d.subtotal_amount,d.currency_code)],['Impuesto',money(d.tax_amount,d.currency_code)],['Importe registrado',money(d.amount,d.currency_code)],['Pagado a proveedor',money(d.paid_amount,d.currency_code)],['Pendiente de pago',money(d.pending_payment_amount,d.currency_code)],['Reembolsado',money(d.reimbursed_amount,d.currency_code)],['Pendiente de reembolso',money(d.pending_reimbursement_amount,d.currency_code)],['Estado del reembolso',label(d.reimbursement_status)]
+      ])+section('Relaciones y observaciones',[
+        ['Proveedor',d.supplier_name],['Servicio',d.service_human_code||'Gasto sin servicio asociado'],['Vehículo',d.vehicle_plate||d.vehicle_human_code],['Conductor',d.driver_name||d.advanced_by_driver_name],['Liquidaciones vinculadas',String(d.settlement_reference_count||0)],['Observaciones',d.notes],['Motivo del rechazo',d.rejection_reason],['Motivo de anulación',d.cancellation_reason]
+      ]);
+      for(const [name,items] of [['Justificantes y referencias',d.documents],['Pagos registrados',d.payments],['Reembolsos registrados',d.reimbursements],['Historial',d.history],['Distribución del gasto',d.allocations]]){
+        body.insertAdjacentHTML('beforeend',`<h3 class="modal__section-title">${esc(name)}</h3>`+(items?.length?items.map(p=>section(p.human_code||p.file_name||label(p.new_status)||name,[
+          ['Estado',label(p.status||p.new_status)],['Importe',p.amount!=null?money(p.amount,p.currency_code):p.allocated_amount!=null?money(p.allocated_amount,d.currency_code):'No corresponde'],['Fecha',date(p.paid_at||p.reimbursed_at||p.issued_at||p.changed_at||p.created_at)],['Método',p.payment_method?label(p.payment_method):'No corresponde'],['Cuenta de Caja',p.cash_account_name],['Referencia',p.document_number||p.external_reference||p.service_human_code||p.vehicle_human_code],['Archivo',p.file_name],['Observaciones',p.notes||p.reason||p.description]
+        ])).join(''):'<p>Sin registros disponibles.</p>'));
+      }
+      body.insertAdjacentHTML('beforeend','<p>Los pagos y reembolsos no se suman de nuevo al gasto. Los borradores y solicitudes no se presentan como gasto aprobado ni como salidas de Caja.</p><p>Edición, reversión y carga o descarga de archivos no disponibles desde esta ficha. Se conservan sus referencias documentales.</p>');
+      if(d.payment_responsibility==='user_advance')body.insertAdjacentHTML('beforeend','<p>El contrato disponible reembolsa adelantos de conductores; no permite reembolsar adelantos de usuarios desde esta ficha.</p>');
+      if(d.has_settlement_reference)body.insertAdjacentHTML('beforeend','<p>Los pagos, reembolsos y anulaciones con referencias a liquidaciones se mantienen bloqueados en esta ficha.</p>');
+      body.insertAdjacentHTML('beforeend','<p>La anulación está reservada a Superadmin y no revierte pagos registrados.</p>');
+      actions.innerHTML=['submit','approve','reject','pay','reimburse','cancel'].filter(k=>allowed(k,d)).map(k=>`<button type="button" class="button button--compact ${k==='cancel'||k==='reject'?'button--danger':'button--primary'}" data-expense-admin-action="${k}">${titles[k]}</button>`).join('');
+      actions.onclick=e=>{const b=e.target.closest('[data-expense-admin-action]');if(b&&valid())void openAction(b.dataset.expenseAdminAction,d);};
+    }catch(_){if(valid())body.textContent='No se pudo cargar el gasto. Cierra y vuelve a consultar.';}
+  }
+  const journal=(kind,id,owner=scope())=>'elara.expense.admin/'+owner+'/'+kind+'/'+(id||'new');
+  function restore(kind,id){let a;try{a=JSON.parse(window.sessionStorage.getItem(journal(kind,id))||'null');}catch(_){throw Error('No se puede leer el intento guardado. No se permite reenviarlo.');}if(a&&(a.kind!==kind||a.id!==(id||null)||a.scope!==scope()||!['pending','confirmed','rejected'].includes(a.state)))throw Error('Intento guardado incompatible. Requiere revisión.');return a;}
+  function save(a){window.sessionStorage.setItem(journal(a.kind,a.id,a.scope),JSON.stringify(a));}
+  function payload(kind,values,catalog={}){
+    const text=v=>String(v||'').trim();
+    if(kind==='create'){
+      const base=minor(values.amount),rate=text(values.tax||'0'),day=text(values.date);
+      const calendar=new Date(day+'T12:00:00Z');
+      if(base===null||base<=0n||base>99999999999999n||!/^\d+(?:\.\d{1,4})?$/.test(rate)||Number(rate)>100||!/^\d{4}-\d{2}-\d{2}$/.test(day)||Number.isNaN(calendar.getTime())||calendar.toISOString().slice(0,10)!==day||!text(values.description))throw Error('Revisa base, impuesto, fecha y concepto obligatorios.');
+      if(!catalog.categories?.some(c=>c.id===values.category&&c.is_active))throw Error('Selecciona una categoría activa.');
+      const p={p_category_id:values.category,p_subtotal_amount:text(values.amount),p_tax_rate:rate,p_description:text(values.description),p_expense_date:day,p_payment_responsibility:'elara',p_reimbursable:false,p_notes:text(values.notes)||null};
+      for(const [name,table] of [['supplier','suppliers'],['service','services'],['vehicle','vehicles'],['driver','drivers']]){const id=text(values[name]);if(id&&(!uuid(id)||!catalog[table]?.some(r=>r.id===id&&op().isOperationalRecord(r))))throw Error('La relación seleccionada no está disponible.');p['p_'+name+'_id']=id||null;}return p;
+    }
+    const notes=text(values.notes);if(notes.length>1000)throw Error('El texto admite hasta 1000 caracteres.');
+    if(['reject','cancel'].includes(kind)&&!notes)throw Error('El motivo es obligatorio.');
+    if(['pay','reimburse'].includes(kind)&&!catalog.accounts?.some(a=>a.id===values.account&&a.status==='active'&&['central','administrative'].includes(a.account_type)&&a.currency_code===catalog.currency))throw Error('Selecciona una cuenta central o administrativa de la misma moneda.');
+    return kind==='submit'?{}:kind==='approve'?{p_notes:notes||null}:kind==='reject'||kind==='cancel'?{p_reason:notes}:kind==='pay'?{p_cash_account_id:values.account,p_payment_method:'cash',p_notes:notes||null}:{p_cash_account_id:values.account,p_method:'cash',p_reference:null,p_notes:notes||null};
+  }
+  async function execute(a,values,catalog={},isCurrent=()=>current()){
+    if(busy)throw Error('Ya hay una operación en curso.');busy=true;
+    const check=()=>{if(a.scope!==scope()||!admin()||!isCurrent())throw Error('La sesión o la vista cambió. Vuelve a consultar.');};
+    try{check();if(a.state==='pending')throw Error('Resultado incierto: revisa el estado remoto. No se reenviará este intento.');if(a.state==='confirmed')return a;
+      if(a.kind!=='create'){const fresh=await detail(a.id);check();if(!allowed(a.kind,fresh))throw Error('La operación ya no está permitida para este gasto. Actualiza su ficha.');if(a.snapshot&&['status','payment_status','reimbursement_status','amount','pending_payment_amount','pending_reimbursement_amount','currency_code','updated_at'].some(k=>String(fresh[k]??'')!==String(a.snapshot[k]??'')))throw Error('El gasto ha cambiado. Cierra y vuelve a consultar.');}
+      const p=payload(a.kind,values,catalog);if(a.id)p.p_expense_id=a.id;
+      check();a.payload=p;a.state='pending';save(a);
+      const names={create:'create_expense',submit:'submit_expense',approve:'approve_expense',reject:'reject_expense',pay:'register_expense_payment',reimburse:'reimburse_expense',cancel:'cancel_expense'};
+      let response;try{response=await window.ElaraSupabase.client.rpc(names[a.kind],p);}catch(_){throw Error('No se recibió confirmación. No repitas el envío; revisa el estado remoto.');}
+      if(response?.error){if(['23514','23502','23503','22023','42501','28000','P0002','0A000'].includes(response.error.code)){a.state='rejected';save(a);}throw Error('Operación rechazada o pendiente de comprobar. '+(a.state==='rejected'?'Revisa el estado, los permisos, el saldo de Caja y las liquidaciones vinculadas.':'No repitas el envío.'));}
+      const r=Array.isArray(response?.data)?response.data[0]:response?.data;
+      const valid=a.kind==='create'?uuid(r):a.kind==='cancel'?r===a.id:a.kind==='pay'?uuid(r?.expense_payment_id)&&uuid(r?.cash_movement_id):a.kind==='reimburse'?r?.expense_id===a.id&&uuid(r?.reimbursement_id)&&uuid(r?.cash_movement_id):r?.expense_id===a.id&&r?.status===({submit:'submitted',approve:'approved',reject:'rejected'})[a.kind];
+      if(!valid)throw Error('Respuesta sin confirmar. Conserva el intento y revisa el estado remoto.');
+      a.result=r;a.state='confirmed';save(a);return a;
+    }finally{busy=false;}
+  }
+  const field=(name,title,type='text',value='')=>`<label class="field"><span>${esc(title)}</span><input name="${name}" type="${type}" value="${esc(value)}" ${type==='number'?'min="0" step="0.01"':''}></label>`;
+  const select=(name,title,rows,text)=>`<label class="field"><span>${esc(title)}</span><select name="${name}"><option value="">Selecciona…</option>${rows.map(r=>`<option value="${esc(r.id)}">${esc(text(r))}</option>`).join('')}</select></label>`;
+  async function openAction(kind,d=null){
+    if(busy||!current()||!allowed(kind,d))return;close();const n=++ticket,actor=scope(),valid=()=>n===ticket&&actor===scope()&&current();
+    const modal=document.getElementById(kind==='create'?'expense-new-modal':'expense-review-modal'),form=modal.querySelector('form');modal.hidden=false;form.textContent='Consultando datos autorizados…';dialog={modal,valid};
+    try{
+      let a=restore(kind,d?.expense_id);if(kind==='create'&&a?.state==='confirmed'){window.sessionStorage.removeItem(journal(kind,null));a=null;}
+      if(a?.state==='rejected')a=null;
+      a ||= {kind,id:d?.expense_id||null,scope:actor,state:'rejected',snapshot:d?Object.fromEntries(['status','payment_status','reimbursement_status','amount','pending_payment_amount','pending_reimbursement_amount','currency_code','updated_at'].map(k=>[k,d[k]])):null};
+      const catalog={currency:d?.currency_code};let fields='';
+      if(kind==='create'){
+        const [categories,suppliers]=await Promise.all([op().readAll('expense_categories'),op().readAll('suppliers')]);if(!valid())return;op().indexRecords({expense_categories:categories,suppliers});catalog.categories=categories.filter(c=>c.is_active&&op().isOperationalRecord(c));catalog.suppliers=suppliers.filter(s=>op().isOperationalRecord(s));for(const t of ['services','vehicles','drivers'])catalog[t]=op().getCollection(t);
+        fields=select('category','Categoría *',catalog.categories,r=>r.name_es)+field('description','Concepto *')+field('amount','Base imponible (EUR) *','number')+field('tax','Impuesto (%)','number','0')+field('date','Fecha del gasto *','date',today())+select('supplier','Proveedor',catalog.suppliers,r=>r.trade_name||r.legal_name||r.name||r.human_code)+select('service','Servicio',catalog.services,r=>r.human_code||r.id)+select('vehicle','Vehículo',catalog.vehicles,r=>r.plate_normalized||r.human_code||r.id)+select('driver','Conductor',catalog.drivers,r=>op().personName(r.person_id)||r.human_code||r.id)+'<p>Se registrará un borrador en EUR a cargo de ELARA, sin pago ni movimiento de Caja. El impuesto y el total se calculan en el servidor.</p>';
+      }else{
+        fields='<p>'+esc(d.human_code)+' · '+esc(d.description)+' · '+esc(money(d.amount,d.currency_code))+'</p>';
+        if(['pay','reimburse'].includes(kind)){catalog.accounts=(await op().readAll('cash_accounts')).filter(r=>op().isOperationalRecord(r)&&r.status==='active'&&['central','administrative'].includes(r.account_type)&&r.currency_code===d.currency_code);fields+=select('account','Cuenta receptora del cargo *',catalog.accounts,r=>r.name)+'<p>Salida en efectivo: '+esc(money(kind==='pay'?d.pending_payment_amount:d.pending_reimbursement_amount,d.currency_code))+'. El contrato comprueba el saldo y genera el movimiento de Caja; no se creará otro movimiento.</p>';}
+      }
+      if(!valid())return;
+      modal.querySelector('h2').textContent=titles[kind];
+      form.innerHTML=`<div class="modal__body expense-form__body"><div class="expense-form-grid">${fields}<label class="field expense-form-grid__full"><span>${['reject','cancel'].includes(kind)?'Motivo obligatorio *':'Observaciones'}</span><textarea name="notes" maxlength="1000"></textarea></label></div><p role="status" aria-live="polite"></p></div><div class="modal__actions${kind==='create'?' expense-form__actions':''}"><button class="button button--muted" type="button" data-expense-modal-close>Cerrar</button><button class="button button--primary" type="submit">${titles[kind]}</button><button class="button button--secondary" type="button" data-expense-review-state>Revisar estado remoto</button></div>`;
+      const status=form.querySelector('[role="status"]'),submit=form.querySelector('[type="submit"]');
+      const freeze=()=>{if(a.state==='pending'||a.state==='confirmed'){form.querySelectorAll('input,select,textarea').forEach(e=>e.disabled=true);submit.disabled=true;}};
+      if(a.state==='pending')status.textContent='Resultado incierto. No se reenviará el intento. Revisa el estado remoto; la creación requiere revisión administrativa si no se recibió su identificador.';
+      if(a.state==='confirmed')status.textContent='Operación confirmada. Solo se actualizarán lecturas.';freeze();
+      form.querySelector('[data-expense-review-state]').onclick=async()=>{try{if(!valid())return;await view.refreshRows(valid);const remote=a.id?await detail(a.id):a.state==='confirmed'&&uuid(a.result)?await detail(a.result):null;if(valid())status.textContent=remote?'Estado remoto: '+label(remote.status)+' · Pago: '+label(remote.payment_status)+' · Reembolso: '+label(remote.reimbursement_status)+'. No se reenviará el intento anterior.':'Listado actualizado. El contrato de creación no permite identificar con certeza un envío sin respuesta; requiere revisión administrativa antes de otro registro.';}catch(_){if(valid())status.textContent='No se pudo comprobar el estado. Conserva el intento.';}};
+      form.onsubmit=async event=>{event.preventDefault();if(busy||!valid())return;const values=Object.fromEntries([...form.querySelectorAll('[name]')].map(e=>[e.name,e.value]));submit.disabled=true;status.textContent='Esperando confirmación remota…';try{await execute(a,values,catalog,valid);if(!valid())return;status.textContent='Operación confirmada. Actualizando lecturas…';await view.refreshRows(valid);if(valid())status.textContent='Operación confirmada y listado actualizado.';}catch(error){if(valid())status.textContent=error.message;}finally{if(valid()){submit.disabled=a.state==='pending'||a.state==='confirmed';freeze();}}};
+    }catch(error){if(valid())form.textContent=error.message;}
+  }
+  function show(){
+    close();ensureExpensesModals();
+    elements ||= {summary:document.getElementById('expenses-summary'),panel:document.querySelector('.expenses-panel'),search:document.getElementById('expenses-search')};
+    if(!bound){bound=true;document.addEventListener('click',e=>{if(e.target.closest('[data-expense-modal-close]')||e.target.classList.contains('modal-backdrop')&&e.target.dataset.expenseModal==='true')close();});document.addEventListener('keydown',e=>{if(e.key==='Escape')close();});window.addEventListener('elara:auth-session-updated',()=>{if(!current()){close();const b=document.getElementById('primary-action');if(b?.dataset.expenseAdminCreate)b.hidden=true;}});if(window.MutationObserver){const observer=new window.MutationObserver(()=>{if(!visible())close();});observer.observe(document.getElementById('gastos'),{attributes:true,attributeFilter:['hidden']});}}
+    return op().show('gastos',{title:'Gastos',load:()=>op().readRpc('get_admin_expenses'),defaultFilters:false,columns:[],searchText:r=>[r.human_code,r.description,r.supplier_name,r.driver_name,r.vehicle_plate,r.service_human_code,r.category_name].join(' '),
+      filters:[{label:'Estado del registro',value:r=>r.status,text:r=>label(r.status)},{label:'Estado de pago',value:r=>r.payment_status,text:r=>label(r.payment_status)},{label:'Categoría',value:r=>r.category_id,text:r=>r.category_name},{label:'Responsabilidad',value:r=>r.payment_responsibility,text:r=>label(r.payment_responsibility)}],openDetail,
+      presentation:{panelClassName:'expenses-operational-panel',summary,
+        mount(host,{controls}){const temp=document.createElement('div');temp.innerHTML=controls;host.replaceChildren(elements.summary,elements.panel);elements.summary.hidden=false;elements.panel.hidden=false;elements.summary.setAttribute('data-operational-summary','');const menu=elements.panel.querySelector('.expenses-filter-menu');menu.replaceChildren();for(const f of temp.querySelectorAll('[data-operational-filter]'))menu.append(f.closest('label'));menu.append(temp.querySelector('[data-operational-retry]'));elements.search.setAttribute('data-operational-search','');elements.search.value='';const results=document.getElementById('expenses-list');results.setAttribute('data-operational-results','');const page=document.getElementById('expenses-pagination');page.replaceChildren();page.hidden=false;for(const s of ['[data-operational-prev]','[data-operational-page]','[data-operational-next]']){const e=temp.querySelector(s);if(e.tagName==='BUTTON')e.className='button button--compact button--muted';page.append(e);}host.append(temp.querySelector('[data-operational-detail-content]'));},
+        rows:rows=>rows.map((r,i)=>`<article class="expenses-row expenses-list-grid" data-operational-expense-id="${esc(r.expense_id)}"><div class="expenses-row__main"><strong>${esc(r.human_code)}</strong><span>${esc(r.description)}</span><small>${esc(r.category_name)}</small></div><time>${esc(date(r.expense_date))}</time><div class="expenses-row__stack"><strong>${esc(r.supplier_name||r.driver_name||'Sin tercero vinculado')}</strong><small>${esc(label(r.payment_responsibility))}</small></div><div class="expenses-row__stack expenses-row__amount"><strong>${esc(money(r.amount,r.currency_code))}</strong><small>Pagado: ${esc(money(r.paid_amount,r.currency_code))}</small></div><div class="expenses-row__stack"><span class="expense-status-badge expense-status-badge--${r.status==='approved'?'success':'neutral'}">${esc(label(r.status))}</span><small>${esc(label(r.payment_status))}</small><small>Reembolso: ${esc(label(r.reimbursement_status))}</small></div><div class="expenses-row__stack"><strong>${esc(r.service_human_code||'Gasto general')}</strong><small>${esc(r.vehicle_plate||r.driver_name||'Sin asignación adicional')}</small><small>${esc(String(r.document_count??0))} justificantes</small></div><div class="expenses-row__actions"><button class="button button--compact button--muted" type="button" data-operational-detail="${i}">Detalle</button></div></article>`).join(''),
+        ready(rows,context){view={...context,scope:scope()};document.getElementById('page-eyebrow').textContent='FINANZAS';document.getElementById('page-summary').textContent='Gastos registrados, pagos y reembolsos. Resumen completo de los registros del filtro, separado por moneda.';const b=document.getElementById('primary-action');b.hidden=false;b.className='button button--primary';b.textContent='Registrar gasto';b.dataset.expenseAdminCreate='true';b.removeAttribute('data-modal-target');b.removeAttribute('data-modal-open');b.onclick=()=>{if(current())void openAction('create');};}
+      }});
+  }
+  return Object.freeze({show,minor,money,summary,allowed,payload,execute,openAction,openDetail,close});
+})();

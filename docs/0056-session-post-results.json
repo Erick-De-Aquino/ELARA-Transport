@@ -1,0 +1,13 @@
+{
+  "mode": "post",
+  "project_ref": "pfdvehcyauoncxeolcjc",
+  "exit": 0,
+  "tls": true,
+  "verification": {
+    "version": "20261117005600",
+    "read_only": "on",
+    "verification": true,
+    "history_count": 58
+  },
+  "pass": true
+}

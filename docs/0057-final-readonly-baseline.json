@@ -1,0 +1,1123 @@
+{
+  "project_ref": "pfdvehcyauoncxeolcjc",
+  "remote_write": false,
+  "baseline": {
+    "tables": [
+      {
+        "rls": true,
+        "name": "auth.users",
+        "owner": "supabase_auth_admin"
+      },
+      {
+        "rls": true,
+        "name": "auth.sessions",
+        "owner": "supabase_auth_admin"
+      },
+      {
+        "rls": true,
+        "name": "public.persons",
+        "owner": "postgres"
+      },
+      {
+        "rls": true,
+        "name": "public.app_users",
+        "owner": "postgres"
+      },
+      {
+        "rls": true,
+        "name": "public.roles",
+        "owner": "postgres"
+      },
+      {
+        "rls": true,
+        "name": "public.user_roles",
+        "owner": "postgres"
+      },
+      {
+        "rls": true,
+        "name": "public.app_sessions",
+        "owner": "postgres"
+      },
+      {
+        "rls": true,
+        "name": "public.drivers",
+        "owner": "postgres"
+      },
+      {
+        "rls": true,
+        "name": "public.user_driver_links",
+        "owner": "postgres"
+      },
+      {
+        "rls": true,
+        "name": "public.audit_logs",
+        "owner": "postgres"
+      }
+    ],
+    "history": [
+      {
+        "name": "extensions_and_base_helpers",
+        "version": "0001"
+      },
+      {
+        "name": "human_code_generation",
+        "version": "0002"
+      },
+      {
+        "name": "identity_roles_sessions",
+        "version": "0003"
+      },
+      {
+        "name": "identity_integrity_fixes",
+        "version": "00031"
+      },
+      {
+        "name": "people_customers_drivers_suppliers",
+        "version": "0004"
+      },
+      {
+        "name": "vehicles_documents_assignments",
+        "version": "0005"
+      },
+      {
+        "name": "human_code_padding_adjustments",
+        "version": "00051"
+      },
+      {
+        "name": "services_operations",
+        "version": "0006"
+      },
+      {
+        "name": "service_financials_payments",
+        "version": "0007"
+      },
+      {
+        "name": "cash_remittances_counts",
+        "version": "0008"
+      },
+      {
+        "name": "receivables",
+        "version": "0009"
+      },
+      {
+        "name": "expenses",
+        "version": "0010"
+      },
+      {
+        "name": "settlements",
+        "version": "0011"
+      },
+      {
+        "name": "incidents_settings_audit",
+        "version": "0012"
+      },
+      {
+        "name": "domain_secure_functions",
+        "version": "0013"
+      },
+      {
+        "name": "rls_policies",
+        "version": "0014"
+      },
+      {
+        "name": "storage_buckets_policies",
+        "version": "0015"
+      },
+      {
+        "name": "views_integrity_checks",
+        "version": "0016"
+      },
+      {
+        "name": "app_session_bootstrap",
+        "version": "0017"
+      },
+      {
+        "name": "driver_cash_finance_summary",
+        "version": "0018"
+      },
+      {
+        "name": "driver_expenses_read_api",
+        "version": "0019"
+      },
+      {
+        "name": "driver_customer_person_rls",
+        "version": "0020"
+      },
+      {
+        "name": "driver_accept_service_rpc",
+        "version": "0021"
+      },
+      {
+        "name": "driver_start_service_rpc",
+        "version": "0022"
+      },
+      {
+        "name": "driver_service_overview_rpc",
+        "version": "0023"
+      },
+      {
+        "name": "driver_service_progress_rpc",
+        "version": "0024"
+      },
+      {
+        "name": "driver_service_incident_rpc",
+        "version": "0025"
+      },
+      {
+        "name": "driver_create_expense_rpc",
+        "version": "0026"
+      },
+      {
+        "name": "driver_expenses_list_operational_relation",
+        "version": "0027"
+      },
+      {
+        "name": "driver_profile_update_rpcs",
+        "version": "0028"
+      },
+      {
+        "name": "driver_cash_discrepancy_rpc",
+        "version": "0029"
+      },
+      {
+        "name": "driver_cash_remittance_submit_rpc",
+        "version": "0030"
+      },
+      {
+        "name": "end_current_app_session_rpc",
+        "version": "0031"
+      },
+      {
+        "name": "admin_cash_remittance_read_rpcs",
+        "version": "0032"
+      },
+      {
+        "name": "admin_receive_cash_remittance_rpc",
+        "version": "0033"
+      },
+      {
+        "name": "admin_verify_cash_remittance_rpc",
+        "version": "0034"
+      },
+      {
+        "name": "fix_verify_cash_remittance_encoding",
+        "version": "0035"
+      },
+      {
+        "name": "admin_cash_discrepancy_management_rpcs",
+        "version": "0036"
+      },
+      {
+        "name": "admin_expense_read_rpcs",
+        "version": "0037"
+      },
+      {
+        "name": "admin_expense_review_rpcs",
+        "version": "0038"
+      },
+      {
+        "name": "expense_submit_rpcs",
+        "version": "0039"
+      },
+      {
+        "name": "admin_expense_reimbursement_rpc",
+        "version": "0040"
+      },
+      {
+        "name": "harden_register_expense_payment",
+        "version": "0041"
+      },
+      {
+        "name": "harden_cancel_expense_rpc",
+        "version": "0042"
+      },
+      {
+        "name": "enforce_expense_cash_balance",
+        "version": "0043"
+      },
+      {
+        "name": "admin_settlement_read_rpcs",
+        "version": "0044"
+      },
+      {
+        "name": "driver_cash_source_consumption",
+        "version": "0045"
+      },
+      {
+        "name": "harden_settlement_generation",
+        "version": "0046"
+      },
+      {
+        "name": "admin_cash_movement_read_rpc",
+        "version": "0047"
+      },
+      {
+        "name": "admin_catalog_management",
+        "version": "0048"
+      },
+      {
+        "name": "service_status_history_central_writer",
+        "version": "0049"
+      },
+      {
+        "name": "cash_service_financial_close",
+        "version": "0050"
+      },
+      {
+        "name": "driver_portal_access_and_operational_central",
+        "version": "0051"
+      },
+      {
+        "name": "initial_superadmin_bootstrap",
+        "version": "0052"
+      },
+      {
+        "name": "0053_app_session_concurrency",
+        "version": "20261105141040"
+      },
+      {
+        "name": "0054_driver_accept_confirms_service",
+        "version": "20261106145018"
+      },
+      {
+        "name": "0055_admin_create_company_customer",
+        "version": "20261116005500"
+      },
+      {
+        "name": "0056_admin_company_contacts",
+        "version": "20261117005600"
+      }
+    ],
+    "dependencies": [
+      {
+        "owner": "postgres",
+        "body_md5": "acee6cc15f7b00ba86099589956495a3",
+        "signature": "admin_begin_driver_portal_access(uuid,uuid,text,text,boolean)",
+        "search_path": [
+          "search_path=pg_catalog"
+        ]
+      },
+      {
+        "owner": "postgres",
+        "body_md5": "3985a2dda8fd4eaa70c3344c0fb7ba6b",
+        "signature": "admin_link_driver_portal_access(uuid,uuid,boolean)",
+        "search_path": [
+          "search_path=pg_catalog"
+        ]
+      },
+      {
+        "owner": "postgres",
+        "body_md5": "ddf06c745cc47469aa2a09171d936041",
+        "signature": "admin_revoke_driver_portal_access(uuid,uuid,text)",
+        "search_path": [
+          "search_path=pg_catalog"
+        ]
+      },
+      {
+        "owner": "postgres",
+        "body_md5": "04fcb5a32733539f3a7808bf853cb1a5",
+        "signature": "assign_user_role(uuid,text,text)",
+        "search_path": [
+          "search_path=public"
+        ]
+      },
+      {
+        "owner": "postgres",
+        "body_md5": "46eec42a8b9e6a3662f3f6ef668e5d0d",
+        "signature": "current_auth_session_id()",
+        "search_path": [
+          "search_path=public"
+        ]
+      },
+      {
+        "owner": "postgres",
+        "body_md5": "bf0e7b11cd6c7276d4223d992b5ac4ce",
+        "signature": "initialize_app_session(text)",
+        "search_path": [
+          "search_path=public"
+        ]
+      },
+      {
+        "owner": "postgres",
+        "body_md5": "f215fb73a30170a0c0041af31d6ad9b9",
+        "signature": "require_superadmin_user()",
+        "search_path": [
+          "search_path=public"
+        ]
+      },
+      {
+        "owner": "postgres",
+        "body_md5": "03611625dcf8a3fd04d4adfc61783296",
+        "signature": "revoke_user_role(uuid,text)",
+        "search_path": [
+          "search_path=public"
+        ]
+      },
+      {
+        "owner": "postgres",
+        "body_md5": "c05e7133f0b59391bb3dd6d300ad4ee7",
+        "signature": "user_has_active_role(uuid,text)",
+        "search_path": [
+          "search_path=public"
+        ]
+      },
+      {
+        "owner": "postgres",
+        "body_md5": "db78e6d0ee89461508e5b17904a20d5f",
+        "signature": "write_audit_log(text,text,text,uuid,text,jsonb,jsonb,text,jsonb,uuid,uuid)",
+        "search_path": [
+          "search_path=public"
+        ]
+      }
+    ],
+    "admin_version": false,
+    "history_columns": [
+      "version",
+      "statements",
+      "name",
+      "created_by",
+      "idempotency_key",
+      "rollback"
+    ],
+    "new_table_conflicts": 0,
+    "new_function_conflicts": 0,
+    "functions": [
+      {
+        "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+        "owner": "postgres",
+        "body_md5": "acee6cc15f7b00ba86099589956495a3",
+        "signature": "admin_begin_driver_portal_access(uuid,uuid,text,text,boolean)",
+        "definition": "CREATE OR REPLACE FUNCTION public.admin_begin_driver_portal_access(p_request_id uuid, p_driver_id uuid, p_email text, p_reason text, p_confirm_existing boolean DEFAULT false)\n RETURNS jsonb\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'pg_catalog'\nAS $function$\ndeclare args jsonb; result jsonb; d public.drivers%rowtype; u public.app_users%rowtype;\n v_email text:=lower(btrim(p_email)); reason text:=nullif(btrim(p_reason),''); auth_id uuid; prior public.audit_logs%rowtype;\nbegin\n args:=jsonb_build_object('driver',p_driver_id,'email',v_email,'reason',reason,'confirm_existing',p_confirm_existing);\n result:=elara_private.control_0051_request(p_request_id,'access','begin',args);\n if v_email is null or length(v_email)>254 or v_email !~ '^[^[:space:]@]+@[^[:space:]@]+\\.[^[:space:]@]+$'\n  or reason is null or length(reason)>1000 or p_confirm_existing is null then raise exception 'Valid email, reason and confirmation required.' using errcode='22023'; end if;\n select * into d from public.drivers where id=p_driver_id for update;\n if not found or d.administrative_status<>'active' or d.inactive_at is not null then raise exception 'Active driver required.' using errcode='23514'; end if;\n perform 1 from public.persons where id=d.person_id and status='active' for update;\n if not found then raise exception 'Active driver person required.' using errcode='23514'; end if;\n select au.id into auth_id from auth.users au where lower(au.email)=v_email;\n select * into u from public.app_users where person_id=d.person_id or auth_user_id=auth_id order by id limit 1 for update;\n if found and (u.person_id<>d.person_id or u.status<>'active' or u.auth_user_id is distinct from auth_id) then\n  raise exception 'Existing application identity is incompatible or inactive.' using errcode='23514'; end if;\n if exists(select 1 from public.user_driver_links l where l.driver_id=d.id and l.status='active' and l.user_id is distinct from u.id) then\n  raise exception 'Driver already has another active identity.' using errcode='23514'; end if;\n if exists(select 1 from public.user_driver_links l where l.user_id=u.id and l.status='active' and l.driver_id<>d.id) then\n  raise exception 'User already linked to another driver.' using errcode='23514'; end if;\n if exists(select 1 from public.user_driver_links l where l.driver_id=d.id and l.status='inactive')\n  or exists(select 1 from public.user_roles r where r.user_id=u.id and r.role_key='conductor' and r.status='revoked') then\n  raise exception 'Revoked access requires separate review; no automatic reactivation.' using errcode='23514'; end if;\n -- Replay is not permission to send an invitation after the target became\n -- inactive/incompatible. Recheck current eligibility before returning context.\n if result is not null then return result; end if;\n -- A pending request for the same actor/email is canonical, even across reloads.\n select * into prior from public.audit_logs a where a.entity_id=d.id and a.metadata->>'control_contract'='0051'\n  and a.metadata->>'phase'='begin'\n  and not exists(select 1 from public.audit_logs l where l.metadata->>'control_contract'='0051' and l.metadata->>'phase'='link' and l.metadata->>'request_key'=a.metadata->>'request_key')\n  and not exists(select 1 from public.audit_logs v where v.entity_id=d.id and v.metadata->>'control_contract'='0051' and v.metadata->>'phase'='revoke' and v.created_at>=a.created_at)\n order by a.created_at,a.id limit 1;\n if found then\n  if prior.actor_app_user_id<>public.require_superadmin_user() or prior.metadata->'arguments' is distinct from args then\n   raise exception 'Another pending access attempt requires review.' using errcode='23514'; end if;\n  result:=prior.metadata->'result';\n else\n  result:=jsonb_build_object('request_id',p_request_id,'driver_id',d.id,'email',v_email,'auth_user_id',auth_id,\n   'confirm_existing',p_confirm_existing,'state',case when auth_id is not null and not p_confirm_existing then 'requires_review' else 'pending' end);\n end if;\n return elara_private.control_0051_receipt(p_request_id,'access','begin',args,d.id,result,reason);\nend $function$\n"
+      },
+      {
+        "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+        "owner": "postgres",
+        "body_md5": "3985a2dda8fd4eaa70c3344c0fb7ba6b",
+        "signature": "admin_link_driver_portal_access(uuid,uuid,boolean)",
+        "definition": "CREATE OR REPLACE FUNCTION public.admin_link_driver_portal_access(p_request_id uuid, p_auth_user_id uuid, p_confirm_existing_identity boolean DEFAULT false)\n RETURNS jsonb\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'pg_catalog'\nAS $function$\ndeclare args jsonb:=jsonb_build_object('auth_user_id',p_auth_user_id,'confirm_existing',p_confirm_existing_identity); result jsonb; b public.audit_logs%rowtype;\n d public.drivers%rowtype; u public.app_users%rowtype; au auth.users%rowtype; link_id uuid; role_id uuid;\nbegin\n result:=elara_private.control_0051_request(p_request_id,'access','link',args);\n select * into b from public.audit_logs where metadata->>'control_contract'='0051' and metadata->>'request_key'=p_request_id::text and metadata->>'phase'='begin';\n if not found then raise exception 'Begin access first.' using errcode='23503'; end if;\n if exists(select 1 from public.audit_logs a where a.entity_id=b.entity_id and a.metadata->>'control_contract'='0051' and a.metadata->>'phase'='revoke' and a.created_at>=b.created_at) then\n  raise exception 'Attempt predates revocation; review required.' using errcode='23514'; end if;\n if result is not null then return result; end if;\n if (b.metadata->'result'->>'request_id')::uuid<>p_request_id then raise exception 'Use canonical request id.' using errcode='22023'; end if;\n select * into d from public.drivers where id=b.entity_id for update;\n if d.administrative_status<>'active' or d.inactive_at is not null then raise exception 'Active driver required.' using errcode='23514'; end if;\n perform 1 from public.persons where id=d.person_id and status='active' for update;\n if not found then raise exception 'Active person required.' using errcode='23514'; end if;\n select * into au from auth.users where id=p_auth_user_id for update;\n if not found or lower(au.email) is distinct from b.metadata->'arguments'->>'email' then raise exception 'Auth identity does not match approved email.' using errcode='23514'; end if;\n if to_jsonb(au)->>'deleted_at' is not null or coalesce((to_jsonb(au)->>'is_anonymous')::boolean,false)\n  or coalesce((to_jsonb(au)->>'banned_until')::timestamptz,'-infinity'::timestamptz)>now() then\n  raise exception 'Unavailable Auth identity.' using errcode='23514'; end if;\n if b.metadata->'result'->>'auth_user_id' is not null and not ((b.metadata->'arguments'->>'confirm_existing')::boolean or coalesce(p_confirm_existing_identity,false)) then\n  raise exception 'Existing Auth identity needs explicit confirmation.' using errcode='23514'; end if;\n select * into u from public.app_users where auth_user_id=au.id for update;\n if found then\n  if u.person_id<>d.person_id or u.status<>'active' then raise exception 'Incompatible or inactive app user.' using errcode='23514'; end if;\n else\n  if exists(select 1 from public.app_users where person_id=d.person_id) then raise exception 'Person has another application identity.' using errcode='23514'; end if;\n  insert into public.app_users(auth_user_id,person_id,default_context,created_by,updated_by)\n   values(au.id,d.person_id,'conductor',public.require_superadmin_user(),public.require_superadmin_user()) returning * into u;\n end if;\n if exists(select 1 from public.user_driver_links where status='active' and ((driver_id=d.id and user_id<>u.id) or (user_id=u.id and driver_id<>d.id))) then\n  raise exception 'Conflicting driver identity link.' using errcode='23514'; end if;\n if exists(select 1 from public.user_driver_links where driver_id=d.id and status='inactive') then raise exception 'Revoked driver link requires review.' using errcode='23514'; end if;\n select id into role_id from public.user_roles where user_id=u.id and role_key='conductor' and status='active' and starts_at<=now() and (ends_at is null or ends_at>now()) for update;\n if role_id is null then\n  if exists(select 1 from public.user_roles where user_id=u.id and role_key='conductor') then raise exception 'Inactive/expired role requires review.' using errcode='23514'; end if;\n  role_id:=public.assign_user_role(u.id,'conductor','0051 explicit driver portal access');\n end if;\n select id into link_id from public.user_driver_links where user_id=u.id and driver_id=d.id and status='active' for update;\n if link_id is null then insert into public.user_driver_links(user_id,driver_id,created_by) values(u.id,d.id,public.require_superadmin_user()) returning id into link_id; end if;\n if not public.user_has_active_role(u.id,u.default_context) then update public.app_users set default_context='conductor',updated_by=public.require_superadmin_user() where id=u.id; end if;\n result:=jsonb_build_object('request_id',p_request_id,'driver_id',d.id,'app_user_id',u.id,'auth_user_id',au.id,'link_id',link_id,'role_id',role_id,'state','linked');\n return elara_private.control_0051_receipt(p_request_id,'access','link',args,d.id,result,b.reason);\nend $function$\n"
+      },
+      {
+        "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+        "owner": "postgres",
+        "body_md5": "ddf06c745cc47469aa2a09171d936041",
+        "signature": "admin_revoke_driver_portal_access(uuid,uuid,text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.admin_revoke_driver_portal_access(p_request_id uuid, p_driver_id uuid, p_reason text)\n RETURNS jsonb\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'pg_catalog'\nAS $function$\ndeclare args jsonb:=jsonb_build_object('driver',p_driver_id,'reason',nullif(btrim(p_reason),'')); result jsonb;\n l public.user_driver_links%rowtype; u public.app_users%rowtype; alternative text; a uuid; t timestamptz:=clock_timestamp();\nbegin\n result:=elara_private.control_0051_request(p_request_id,'revoke','revoke',args);\n if result is not null then return result; end if;\n a:=public.require_superadmin_user();\n if nullif(btrim(p_reason),'') is null or length(p_reason)>1000 then raise exception 'Bounded reason required.' using errcode='22023'; end if;\n perform 1 from public.drivers where id=p_driver_id for update;\n if not found then raise exception 'Driver not found.' using errcode='23503'; end if;\n select * into l from public.user_driver_links where driver_id=p_driver_id and status='active' for update;\n if found then\n  select * into u from public.app_users where id=l.user_id for update;\n  update public.user_driver_links set status='inactive',ended_at=t,end_reason=btrim(p_reason),ended_by=a where id=l.id;\n  select r.role_key into alternative from public.user_roles r join public.roles k on k.key=r.role_key and k.is_active\n   where r.user_id=u.id and r.role_key<>'conductor' and r.status='active' and r.starts_at<=now() and (r.ends_at is null or r.ends_at>now()) order by r.role_key limit 1;\n  update public.user_roles set status='revoked',revoked_at=t,ends_at=t,revoked_by=a,reason=btrim(p_reason) where user_id=u.id and role_key='conductor' and status='active';\n  if alternative is null then\n   update public.app_users set status='inactive',inactive_at=t,inactive_by=a,updated_by=a where id=u.id;\n  elsif not public.user_has_active_role(u.id,u.default_context) then\n   update public.app_users set default_context=alternative,updated_by=a where id=u.id;\n  end if;\n  update public.app_sessions set ended_at=t,ended_reason=btrim(p_reason) where app_user_id=u.id and active_context='conductor' and ended_at is null;\n end if;\n -- Also invalidates pending, not-yet-linked invitations through this receipt.\n result:=jsonb_build_object('request_id',p_request_id,'driver_id',p_driver_id,'app_user_id',u.id,'state','revoked');\n return elara_private.control_0051_receipt(p_request_id,'revoke','revoke',args,p_driver_id,result,btrim(p_reason));\nend $function$\n"
+      },
+      {
+        "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+        "owner": "postgres",
+        "body_md5": "04fcb5a32733539f3a7808bf853cb1a5",
+        "signature": "assign_user_role(uuid,text,text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.assign_user_role(p_user_id uuid, p_role_key text, p_reason text DEFAULT NULL::text)\n RETURNS uuid\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\r\ndeclare\r\n  v_actor uuid;\r\n  v_role_key text;\r\n  v_role_id uuid;\r\nbegin\r\n  v_actor := public.require_superadmin_user();\r\n  v_role_key := lower(trim(coalesce(p_role_key, '')));\r\n\r\n  if not exists (select 1 from public.app_users where id = p_user_id and status = 'active') then\r\n    raise exception 'Target app user must exist and be active.' using errcode = '23514';\r\n  end if;\r\n  if not exists (select 1 from public.roles where key = v_role_key and is_active = true) then\r\n    raise exception 'Role \"%\" does not exist or is inactive.', v_role_key using errcode = '23514';\r\n  end if;\r\n\r\n  select id into v_role_id\r\n  from public.user_roles\r\n  where user_id = p_user_id and role_key = v_role_key and status = 'active'\r\n    and starts_at <= now() and (ends_at is null or ends_at > now())\r\n  limit 1;\r\n\r\n  if v_role_id is not null then\r\n    return v_role_id;\r\n  end if;\r\n\r\n  insert into public.user_roles (user_id, role_key, status, starts_at, assigned_by, reason)\r\n  values (p_user_id, v_role_key, 'active', now(), v_actor, p_reason)\r\n  returning id into v_role_id;\r\n\r\n  return v_role_id;\r\nend;\r\n$function$\n"
+      },
+      {
+        "acl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+        "owner": "postgres",
+        "body_md5": "46eec42a8b9e6a3662f3f6ef668e5d0d",
+        "signature": "current_auth_session_id()",
+        "definition": "CREATE OR REPLACE FUNCTION public.current_auth_session_id()\n RETURNS uuid\n LANGUAGE plpgsql\n STABLE\n SET search_path TO 'public'\nAS $function$\ndeclare\n  raw_session_id text;\nbegin\n  raw_session_id := nullif(auth.jwt() ->> 'session_id', '');\n\n  if raw_session_id is null then\n    return null;\n  end if;\n\n  return raw_session_id::uuid;\nexception\n  when invalid_text_representation then\n    return null;\nend;\n$function$\n"
+      },
+      {
+        "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+        "owner": "postgres",
+        "body_md5": "bf0e7b11cd6c7276d4223d992b5ac4ce",
+        "signature": "initialize_app_session(text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.initialize_app_session(p_requested_context text DEFAULT NULL::text)\n RETURNS TABLE(app_session_id uuid, app_user_id uuid, active_context text)\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\ndeclare\n  v_auth_user_id uuid;\n  v_session_id uuid;\n  v_jwt_exp_text text;\n  v_expires_at timestamptz;\n  v_app_user_id uuid;\n  v_default_context text;\n  v_existing_session public.app_sessions%rowtype;\n  v_context text;\n  v_active_role_count integer;\nbegin\n  v_auth_user_id := auth.uid();\n\n  if v_auth_user_id is null then\n    raise exception 'Authentication is required to initialize an application session.'\n      using errcode = '28000';\n  end if;\n\n  v_session_id := public.current_auth_session_id();\n\n  if v_session_id is null then\n    raise exception 'A valid Supabase session_id claim is required to initialize an application session.'\n      using errcode = '28000';\n  end if;\n\n  v_jwt_exp_text := nullif(auth.jwt() ->> 'exp', '');\n\n  if v_jwt_exp_text is null then\n    raise exception 'A valid Supabase exp claim is required to initialize an application session.'\n      using errcode = '28000';\n  end if;\n\n  begin\n    v_expires_at := to_timestamp(v_jwt_exp_text::double precision);\n  exception\n    when invalid_text_representation or numeric_value_out_of_range then\n      raise exception 'The Supabase exp claim is not a valid timestamp.'\n        using errcode = '28000';\n  end;\n\n  if v_expires_at <= now() then\n    raise exception 'The Supabase access token is expired.'\n      using errcode = '28000';\n  end if;\n\n  if not exists (\n    select 1\n    from auth.sessions auth_session\n    where auth_session.id = v_session_id\n      and auth_session.user_id = v_auth_user_id\n  ) then\n    raise exception 'Authenticated Supabase session was not found.'\n      using errcode = '28000';\n  end if;\n\n  select app_user.id, app_user.default_context\n    into v_app_user_id, v_default_context\n  from public.app_users app_user\n  where app_user.auth_user_id = v_auth_user_id\n    and app_user.status = 'active';\n\n  if v_app_user_id is null then\n    if exists (\n      select 1\n      from public.app_users app_user\n      where app_user.auth_user_id = v_auth_user_id\n    ) then\n      raise exception 'The application user for this authenticated account is inactive.'\n        using errcode = '28000';\n    end if;\n\n    raise exception 'No active application user exists for this authenticated account.'\n      using errcode = '28000';\n  end if;\n\n  select count(*)\n    into v_active_role_count\n  from public.user_roles user_role\n  join public.roles role_record\n    on role_record.key = user_role.role_key\n  where user_role.user_id = v_app_user_id\n    and user_role.status = 'active'\n    and user_role.starts_at <= now()\n    and (user_role.ends_at is null or user_role.ends_at > now())\n    and role_record.is_active = true;\n\n  if v_active_role_count = 0 then\n    raise exception 'The application user has no active role.'\n      using errcode = '42501';\n  end if;\n\n  if v_default_context is null\n    or length(trim(v_default_context)) = 0\n    or not public.user_has_active_role(v_app_user_id, v_default_context)\n  then\n    raise exception 'The application user default_context is not an active role.'\n      using errcode = '23514';\n  end if;\n\n  if p_requested_context is null then\n    v_context := lower(trim(v_default_context));\n  else\n    v_context := lower(trim(p_requested_context));\n\n    if length(v_context) = 0 then\n      raise exception 'Requested active_context cannot be empty.'\n        using errcode = '23514';\n    end if;\n\n    if v_context not in ('superadmin', 'administrativo', 'conductor') then\n      raise exception 'Requested active_context is not valid.'\n        using errcode = '23514';\n    end if;\n\n    if not public.user_has_active_role(v_app_user_id, v_context) then\n      raise exception 'Requested active_context is not assigned to the active application user.'\n        using errcode = '42501';\n    end if;\n  end if;\n\n  -- FOR UPDATE cannot lock a missing row. Serialize before the lookup.\n  perform pg_advisory_xact_lock(hashtextextended('0053/app-session/' || v_session_id::text, 0));\n\n  select *\n    into v_existing_session\n  from public.app_sessions app_session\n  where app_session.supabase_session_id = v_session_id\n  for update;\n\n  if found then\n    if v_existing_session.auth_user_id <> v_auth_user_id\n      or v_existing_session.app_user_id <> v_app_user_id\n    then\n      raise exception 'Supabase session_id collision detected for a different application user.'\n        using errcode = '23505';\n    end if;\n\n    if v_existing_session.ended_at is not null then\n      raise exception 'Current application session has already been ended.'\n        using errcode = '28000';\n    end if;\n\n    if p_requested_context is null then\n      v_context := lower(trim(v_existing_session.active_context));\n\n      if not public.user_has_active_role(v_app_user_id, v_context) then\n        raise exception 'Current application session active_context is no longer an active role.'\n          using errcode = '42501';\n      end if;\n    end if;\n\n    update public.app_sessions app_session\n       set active_context = v_context,\n           expires_at = greatest(app_session.expires_at, v_expires_at),\n           last_seen_at = now()\n     where app_session.id = v_existing_session.id\n    returning app_session.id, app_session.app_user_id, app_session.active_context\n      into app_session_id, app_user_id, active_context;\n  else\n    insert into public.app_sessions as app_session (\n      auth_user_id,\n      app_user_id,\n      supabase_session_id,\n      active_context,\n      expires_at,\n      last_seen_at\n    ) values (\n      v_auth_user_id,\n      v_app_user_id,\n      v_session_id,\n      v_context,\n      v_expires_at,\n      now()\n    )\n    returning app_session.id, app_session.app_user_id, app_session.active_context\n      into app_session_id, app_user_id, active_context;\n  end if;\n\n  return next;\nend;\n$function$\n"
+      },
+      {
+        "acl": "{postgres=X/postgres,service_role=X/postgres}",
+        "owner": "postgres",
+        "body_md5": "f215fb73a30170a0c0041af31d6ad9b9",
+        "signature": "require_superadmin_user()",
+        "definition": "CREATE OR REPLACE FUNCTION public.require_superadmin_user()\n RETURNS uuid\n LANGUAGE plpgsql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\r\nbegin\r\n  return public.require_role('superadmin');\r\nend;\r\n$function$\n"
+      },
+      {
+        "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+        "owner": "postgres",
+        "body_md5": "03611625dcf8a3fd04d4adfc61783296",
+        "signature": "revoke_user_role(uuid,text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.revoke_user_role(p_user_role_id uuid, p_reason text)\n RETURNS uuid\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\r\ndeclare\r\n  v_actor uuid;\r\n  v_role public.user_roles%rowtype;\r\nbegin\r\n  v_actor := public.require_superadmin_user();\r\n  if length(trim(coalesce(p_reason, ''))) = 0 then\r\n    raise exception 'Role revocation requires a reason.' using errcode = '23514';\r\n  end if;\r\n\r\n  select * into v_role from public.user_roles where id = p_user_role_id for update;\r\n  if not found then raise exception 'User role was not found.' using errcode = '23503'; end if;\r\n  if v_role.status = 'revoked' then return v_role.id; end if;\r\n\r\n  update public.user_roles\r\n     set status = 'revoked', revoked_at = now(), ends_at = coalesce(ends_at, now()), revoked_by = v_actor, reason = p_reason\r\n   where id = v_role.id;\r\n\r\n  return v_role.id;\r\nend;\r\n$function$\n"
+      },
+      {
+        "acl": "{postgres=X/postgres,service_role=X/postgres}",
+        "owner": "postgres",
+        "body_md5": "c05e7133f0b59391bb3dd6d300ad4ee7",
+        "signature": "user_has_active_role(uuid,text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.user_has_active_role(p_app_user_id uuid, p_role_key text)\n RETURNS boolean\n LANGUAGE plpgsql\n STABLE\n SET search_path TO 'public'\nAS $function$\ndeclare\n  v_role_key text;\nbegin\n  v_role_key := lower(trim(coalesce(p_role_key, '')));\n\n  if p_app_user_id is null or v_role_key = '' then\n    return false;\n  end if;\n\n  return exists (\n    select 1\n    from public.app_users app_user\n    join public.user_roles user_role\n      on user_role.user_id = app_user.id\n    join public.roles role_record\n      on role_record.key = user_role.role_key\n    where app_user.id = p_app_user_id\n      and app_user.status = 'active'\n      and user_role.role_key = v_role_key\n      and user_role.status = 'active'\n      and user_role.starts_at <= now()\n      and (user_role.ends_at is null or user_role.ends_at > now())\n      and role_record.is_active = true\n  );\nend;\n$function$\n"
+      },
+      {
+        "acl": "{postgres=X/postgres,service_role=X/postgres}",
+        "owner": "postgres",
+        "body_md5": "db78e6d0ee89461508e5b17904a20d5f",
+        "signature": "write_audit_log(text,text,text,uuid,text,jsonb,jsonb,text,jsonb,uuid,uuid)",
+        "definition": "CREATE OR REPLACE FUNCTION public.write_audit_log(p_event_source text, p_action text, p_entity_table text, p_entity_id uuid DEFAULT NULL::uuid, p_entity_human_code text DEFAULT NULL::text, p_old_data jsonb DEFAULT NULL::jsonb, p_new_data jsonb DEFAULT NULL::jsonb, p_reason text DEFAULT NULL::text, p_metadata jsonb DEFAULT NULL::jsonb, p_actor_app_user_id uuid DEFAULT NULL::uuid, p_actor_driver_id uuid DEFAULT NULL::uuid)\n RETURNS uuid\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\ndeclare\n  v_id uuid;\n  v_auth_user_id uuid;\n  v_session_id uuid;\n  v_actor_app_user_id uuid;\n  v_active_context text;\nbegin\n  v_auth_user_id := auth.uid();\n  v_session_id := public.current_auth_session_id();\n  v_actor_app_user_id := coalesce(p_actor_app_user_id, public.current_app_user_id());\n\n  if v_auth_user_id is not null and v_actor_app_user_id is not null then\n    if not exists (\n      select 1\n      from public.app_users app_user\n      where app_user.id = v_actor_app_user_id\n        and app_user.auth_user_id = v_auth_user_id\n        and app_user.status = 'active'\n    ) then\n      raise exception 'Provided audit actor contradicts the authenticated session.'\n        using errcode = '23514';\n    end if;\n  end if;\n\n  if v_auth_user_id is not null and v_session_id is not null then\n    select session.active_context\n    into v_active_context\n    from public.app_sessions session\n    where session.auth_user_id = v_auth_user_id\n      and session.supabase_session_id = v_session_id\n      and session.ended_at is null\n      and session.expires_at > now()\n    limit 1;\n  end if;\n\n  insert into public.audit_logs (\n    event_source,\n    action,\n    entity_table,\n    entity_id,\n    entity_human_code,\n    actor_auth_user_id,\n    actor_app_user_id,\n    actor_driver_id,\n    auth_session_id,\n    active_context,\n    transaction_id,\n    old_data,\n    new_data,\n    changed_fields,\n    reason,\n    metadata\n  ) values (\n    lower(trim(p_event_source)),\n    lower(trim(p_action)),\n    lower(trim(p_entity_table)),\n    p_entity_id,\n    p_entity_human_code,\n    v_auth_user_id,\n    v_actor_app_user_id,\n    p_actor_driver_id,\n    v_session_id,\n    v_active_context,\n    txid_current(),\n    public.sanitize_audit_json(p_old_data),\n    public.sanitize_audit_json(p_new_data),\n    public.jsonb_top_level_changed_fields(public.sanitize_audit_json(p_old_data), public.sanitize_audit_json(p_new_data)),\n    p_reason,\n    public.sanitize_audit_json(p_metadata)\n  )\n  returning id into v_id;\n\n  return v_id;\nend;\n$function$\n"
+      }
+    ],
+    "columns": {
+      "auth.users": [
+        {
+          "name": "instance_id",
+          "type": "uuid"
+        },
+        {
+          "name": "id",
+          "type": "uuid"
+        },
+        {
+          "name": "aud",
+          "type": "varchar"
+        },
+        {
+          "name": "role",
+          "type": "varchar"
+        },
+        {
+          "name": "email",
+          "type": "varchar"
+        },
+        {
+          "name": "encrypted_password",
+          "type": "varchar"
+        },
+        {
+          "name": "email_confirmed_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "invited_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "confirmation_token",
+          "type": "varchar"
+        },
+        {
+          "name": "confirmation_sent_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "recovery_token",
+          "type": "varchar"
+        },
+        {
+          "name": "recovery_sent_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "email_change_token_new",
+          "type": "varchar"
+        },
+        {
+          "name": "email_change",
+          "type": "varchar"
+        },
+        {
+          "name": "email_change_sent_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "last_sign_in_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "raw_app_meta_data",
+          "type": "jsonb"
+        },
+        {
+          "name": "raw_user_meta_data",
+          "type": "jsonb"
+        },
+        {
+          "name": "is_super_admin",
+          "type": "bool"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "phone",
+          "type": "text"
+        },
+        {
+          "name": "phone_confirmed_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "phone_change",
+          "type": "text"
+        },
+        {
+          "name": "phone_change_token",
+          "type": "varchar"
+        },
+        {
+          "name": "phone_change_sent_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "confirmed_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "email_change_token_current",
+          "type": "varchar"
+        },
+        {
+          "name": "email_change_confirm_status",
+          "type": "int2"
+        },
+        {
+          "name": "banned_until",
+          "type": "timestamptz"
+        },
+        {
+          "name": "reauthentication_token",
+          "type": "varchar"
+        },
+        {
+          "name": "reauthentication_sent_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "is_sso_user",
+          "type": "bool"
+        },
+        {
+          "name": "deleted_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "is_anonymous",
+          "type": "bool"
+        }
+      ],
+      "public.roles": [
+        {
+          "name": "key",
+          "type": "text"
+        },
+        {
+          "name": "label_es",
+          "type": "text"
+        },
+        {
+          "name": "is_active",
+          "type": "bool"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "created_by",
+          "type": "uuid"
+        },
+        {
+          "name": "updated_by",
+          "type": "uuid"
+        }
+      ],
+      "auth.sessions": [
+        {
+          "name": "id",
+          "type": "uuid"
+        },
+        {
+          "name": "user_id",
+          "type": "uuid"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "factor_id",
+          "type": "uuid"
+        },
+        {
+          "name": "aal",
+          "type": "aal_level"
+        },
+        {
+          "name": "not_after",
+          "type": "timestamptz"
+        },
+        {
+          "name": "refreshed_at",
+          "type": "timestamp"
+        },
+        {
+          "name": "user_agent",
+          "type": "text"
+        },
+        {
+          "name": "ip",
+          "type": "inet"
+        },
+        {
+          "name": "tag",
+          "type": "text"
+        },
+        {
+          "name": "oauth_client_id",
+          "type": "uuid"
+        },
+        {
+          "name": "refresh_token_hmac_key",
+          "type": "text"
+        },
+        {
+          "name": "refresh_token_counter",
+          "type": "int8"
+        },
+        {
+          "name": "scopes",
+          "type": "text"
+        }
+      ],
+      "public.drivers": [
+        {
+          "name": "id",
+          "type": "uuid"
+        },
+        {
+          "name": "person_id",
+          "type": "uuid"
+        },
+        {
+          "name": "human_code",
+          "type": "text"
+        },
+        {
+          "name": "driver_type",
+          "type": "text"
+        },
+        {
+          "name": "administrative_status",
+          "type": "text"
+        },
+        {
+          "name": "availability_preference",
+          "type": "text"
+        },
+        {
+          "name": "base_city",
+          "type": "text"
+        },
+        {
+          "name": "license_expiration",
+          "type": "date"
+        },
+        {
+          "name": "observations",
+          "type": "text"
+        },
+        {
+          "name": "settlement_config",
+          "type": "jsonb"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "inactive_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "suspended_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "suspension_reason",
+          "type": "text"
+        },
+        {
+          "name": "created_by",
+          "type": "uuid"
+        },
+        {
+          "name": "updated_by",
+          "type": "uuid"
+        },
+        {
+          "name": "status_changed_by",
+          "type": "uuid"
+        }
+      ],
+      "public.persons": [
+        {
+          "name": "id",
+          "type": "uuid"
+        },
+        {
+          "name": "first_name",
+          "type": "text"
+        },
+        {
+          "name": "last_name",
+          "type": "text"
+        },
+        {
+          "name": "contact_email",
+          "type": "text"
+        },
+        {
+          "name": "phone",
+          "type": "text"
+        },
+        {
+          "name": "country_code",
+          "type": "text"
+        },
+        {
+          "name": "notes",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "type": "text"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "inactive_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "created_by",
+          "type": "uuid"
+        },
+        {
+          "name": "updated_by",
+          "type": "uuid"
+        },
+        {
+          "name": "inactive_by",
+          "type": "uuid"
+        }
+      ],
+      "public.app_users": [
+        {
+          "name": "id",
+          "type": "uuid"
+        },
+        {
+          "name": "auth_user_id",
+          "type": "uuid"
+        },
+        {
+          "name": "person_id",
+          "type": "uuid"
+        },
+        {
+          "name": "human_code",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "type": "text"
+        },
+        {
+          "name": "default_context",
+          "type": "text"
+        },
+        {
+          "name": "last_access_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "internal_note",
+          "type": "text"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "inactive_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "created_by",
+          "type": "uuid"
+        },
+        {
+          "name": "updated_by",
+          "type": "uuid"
+        },
+        {
+          "name": "inactive_by",
+          "type": "uuid"
+        }
+      ],
+      "public.audit_logs": [
+        {
+          "name": "id",
+          "type": "uuid"
+        },
+        {
+          "name": "occurred_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "event_source",
+          "type": "text"
+        },
+        {
+          "name": "action",
+          "type": "text"
+        },
+        {
+          "name": "entity_schema",
+          "type": "text"
+        },
+        {
+          "name": "entity_table",
+          "type": "text"
+        },
+        {
+          "name": "entity_id",
+          "type": "uuid"
+        },
+        {
+          "name": "entity_human_code",
+          "type": "text"
+        },
+        {
+          "name": "actor_auth_user_id",
+          "type": "uuid"
+        },
+        {
+          "name": "actor_app_user_id",
+          "type": "uuid"
+        },
+        {
+          "name": "actor_driver_id",
+          "type": "uuid"
+        },
+        {
+          "name": "auth_session_id",
+          "type": "uuid"
+        },
+        {
+          "name": "active_context",
+          "type": "text"
+        },
+        {
+          "name": "request_id",
+          "type": "uuid"
+        },
+        {
+          "name": "transaction_id",
+          "type": "int8"
+        },
+        {
+          "name": "client_ip",
+          "type": "inet"
+        },
+        {
+          "name": "user_agent",
+          "type": "text"
+        },
+        {
+          "name": "old_data",
+          "type": "jsonb"
+        },
+        {
+          "name": "new_data",
+          "type": "jsonb"
+        },
+        {
+          "name": "changed_fields",
+          "type": "_text"
+        },
+        {
+          "name": "reason",
+          "type": "text"
+        },
+        {
+          "name": "metadata",
+          "type": "jsonb"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamptz"
+        }
+      ],
+      "public.user_roles": [
+        {
+          "name": "id",
+          "type": "uuid"
+        },
+        {
+          "name": "user_id",
+          "type": "uuid"
+        },
+        {
+          "name": "role_key",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "type": "text"
+        },
+        {
+          "name": "starts_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "ends_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "assigned_by",
+          "type": "uuid"
+        },
+        {
+          "name": "revoked_by",
+          "type": "uuid"
+        },
+        {
+          "name": "revoked_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "reason",
+          "type": "text"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamptz"
+        }
+      ],
+      "public.app_sessions": [
+        {
+          "name": "id",
+          "type": "uuid"
+        },
+        {
+          "name": "auth_user_id",
+          "type": "uuid"
+        },
+        {
+          "name": "app_user_id",
+          "type": "uuid"
+        },
+        {
+          "name": "supabase_session_id",
+          "type": "uuid"
+        },
+        {
+          "name": "active_context",
+          "type": "text"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "expires_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "ended_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "last_seen_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "device_label",
+          "type": "text"
+        },
+        {
+          "name": "ip_hash",
+          "type": "text"
+        },
+        {
+          "name": "user_agent_hash",
+          "type": "text"
+        },
+        {
+          "name": "ended_reason",
+          "type": "text"
+        }
+      ],
+      "public.user_driver_links": [
+        {
+          "name": "id",
+          "type": "uuid"
+        },
+        {
+          "name": "user_id",
+          "type": "uuid"
+        },
+        {
+          "name": "driver_id",
+          "type": "uuid"
+        },
+        {
+          "name": "status",
+          "type": "text"
+        },
+        {
+          "name": "started_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "ended_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "end_reason",
+          "type": "text"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamptz"
+        },
+        {
+          "name": "created_by",
+          "type": "uuid"
+        },
+        {
+          "name": "ended_by",
+          "type": "uuid"
+        }
+      ]
+    }
+  }
+}

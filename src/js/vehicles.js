@@ -1921,13 +1921,124 @@ window.ElaraVehicles = {
   showVehicles,
 };
 
-// Read-only operational route. Legacy renderer below/above is retained for demo dependencies.
+// Original presentation, backed exclusively by the authenticated operational path.
+let operationalVehiclesElements, operationalVehicleDialog, operationalVehiclesRefresh;
+let operationalVehicleCreateButton, operationalVehicleCreateObserver, operationalVehiclesBound=false;
+let operationalVehiclesCurrent=()=>false;
+const operationalVehicleLabels={available:'Disponible',unavailable:'No disponible',blocked:'Bloqueado',owned:'Propio',external:'Externo',not_required:'No requerida',pending:'Pendiente',approved:'Aprobado',rejected:'Rechazado',valid:'Vigente',expiring_soon:'Próximo a vencer',expired:'Vencido',not_applicable:'No aplica',replaced:'Reemplazado',annulled:'Anulado',active:'Activo',ended:'Finalizado',open:'Abierta',closed:'Cerrada',scheduled:'Programado',in_progress:'En curso',completed:'Finalizado',cancelled:'Cancelado',pending_acceptance:'Pendiente de aceptación',accepted:'Aceptado',reassignment_required:'Requiere reasignación'};
+const operationalVehicleLabel=value=>operationalVehicleLabels[value]||'Sin información disponible';
+const operationalVehicleScope=()=>{const u=window.ElaraAuth?.getCurrentUser?.();return JSON.stringify([u?.id,u?.supabaseUserId,u?.appSessionId,window.ElaraAuth?.getActiveContext?.(),window.ElaraSupabase?.client?.supabaseUrl]);};
+const operationalVehicleDate=value=>/^\d{4}-\d{2}-\d{2}/.test(value||'')?String(value).slice(0,10).split('-').reverse().join('/'):'Sin fecha';
+const operationalVehicleStatus=row=>row.inactive_at?'Inactivo':'Activo';
+function operationalVehicleDocuments(documents) {
+  const current=documents.filter(d=>window.ElaraCatalogAdmin.currentDocument(d));
+  const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Madrid',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+  const dates=current.map(d=>d.expires_at).filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d||'')).sort();
+  const status=!current.length?'none':current.some(d=>['expired','rejected'].includes(d.status)||(d.expires_at&&d.expires_at<today))?'review':current.some(d=>d.status==='pending')?'pending':current.some(d=>d.status==='expiring_soon')?'expiring':'registered';
+  return {status,date:dates[0],label:({none:'Sin documentos visibles',review:'Revisar documentación',pending:'Documentación pendiente',expiring:'Próximo vencimiento',registered:'Documentos registrados'})[status]};
+}
+function operationalVehicleSection(title,fields) {
+  return `<h3 class="modal__section-title">${escapeHtml(title)}</h3><dl class="modal__grid service-summary__list">${fields.map(([label,value])=>`<div class="modal__field"><dt class="modal__field-label">${escapeHtml(label)}</dt><dd class="modal__field-value">${escapeHtml(value??'Sin información disponible')}</dd></div>`).join('')}</dl>`;
+}
+function renderOperationalVehicleDocuments(documents,types) {
+  if(!documents.length)return '<p>No se muestran documentos registrados.</p>';
+  return documents.map(d=>{
+    const name=types.find(t=>t.key===d.document_type_key)?.label_es||d.document_type_key||'Documento sin tipo';
+    const fields=[['Estado documental',operationalVehicleLabel(d.status)],['Registro',window.ElaraCatalogAdmin.currentDocument(d)?'Actual':'Histórico'],['Fecha de emisión',operationalVehicleDate(d.issued_at)],['Fecha de vencimiento',operationalVehicleDate(d.expires_at)],['Referencia documental',d.reference_number||'Sin referencia']];
+    return `<article class="modal__field modal__grid" data-vehicle-document-card><h4 class="modal__section-title">${escapeHtml(name)}</h4><dl class="modal__grid service-summary__list">${fields.map(([label,value],index)=>`<div class="modal__field${index===4?' modal__field--wide':''}"><dt class="modal__field-label">${escapeHtml(label)}</dt><dd class="modal__field-value">${escapeHtml(value)}</dd></div>`).join('')}</dl></article>`;
+  }).join('');
+}
+function mountOperationalVehicles(panel,{controls}) {
+  if(!operationalVehiclesElements){const view=document.getElementById('vehiculos');operationalVehiclesElements={summary:view.querySelector('#vehicles-summary'),section:view.querySelector('.vehicles-panel')};}
+  const {summary,section}=operationalVehiclesElements;panel.replaceChildren(summary,section);summary.hidden=section.hidden=false;
+  if(operationalVehicleCreateButton){const toolbar=document.createElement('div');toolbar.dataset.catalogToolbar='';toolbar.appendChild(operationalVehicleCreateButton);panel.prepend(toolbar);}
+  summary.setAttribute('data-operational-summary','');summary.setAttribute('aria-label','Resumen de vehículos del filtro actual');
+  const source=document.createElement('div');source.innerHTML=controls;
+  const search=section.querySelector('#vehicles-search');search.setAttribute('data-operational-search','');search.value='';search.placeholder='Código, matrícula, marca, modelo o conductor';
+  const menu=section.querySelector('#vehicles-filters');menu.replaceChildren(...source.querySelectorAll('label.field'));
+  menu.insertAdjacentHTML('beforeend','<button class="button button--compact button--muted" type="button" data-vehicles-clear>Limpiar</button>');
+  section.querySelector('.status-legend').hidden=true;
+  section.querySelector('.vehicles-list-header').innerHTML='<span></span><span>Vehículo</span><span>Matrícula</span><span>Documentación</span><span>Estado administrativo</span><span>Conductor vinculado</span><span>Acciones</span>';
+  section.querySelector('#vehicles-list').setAttribute('data-operational-results','');
+  section.querySelector('[data-vehicles-footer]')?.remove();
+  section.insertAdjacentHTML('beforeend','<div data-vehicles-footer><p>El estado manual y los documentos visibles no confirman la disponibilidad para un servicio. La asignación requiere una comprobación operativa.</p><div class="cash-pagination"><p data-operational-page aria-live="polite"></p><button class="button button--secondary" type="button" data-operational-prev>Anterior</button><button class="button button--secondary" type="button" data-operational-next>Siguiente</button><button class="button button--secondary" type="button" data-operational-retry>Actualizar</button></div><div data-operational-detail-content aria-live="polite"></div></div>');
+}
+function placeOperationalVehicleCreate(panel,isCurrent) {
+  operationalVehiclesCurrent=isCurrent;
+  operationalVehicleCreateButton ||= panel.querySelector('[data-catalog-action="vehicleCreate"]');
+  operationalVehicleCreateButton.classList.replace('button--secondary','button--primary');operationalVehicleCreateButton.textContent='Nuevo vehículo';
+  const view=document.getElementById('vehiculos');
+  const allowed=()=>operationalVehiclesCurrent()&&!view.hidden&&Boolean(window.ElaraAuth?.getCurrentUser?.())&&['administrativo','superadmin'].includes(window.ElaraAuth?.getActiveContext?.());
+  document.querySelector('.header__actions').appendChild(operationalVehicleCreateButton);operationalVehicleCreateButton.hidden=!allowed();
+  operationalVehicleCreateButton.onclick=()=>{if(allowed())return window.ElaraCatalogAdmin.open('vehicles','vehicleCreate');};
+  if(!operationalVehicleCreateObserver&&window.MutationObserver){operationalVehicleCreateObserver=new window.MutationObserver(()=>{operationalVehicleCreateButton.hidden=!allowed();});operationalVehicleCreateObserver.observe(view,{attributes:true,childList:true,subtree:true});}
+  document.getElementById('page-eyebrow').textContent='Módulo Vehículos';document.getElementById('page-summary').textContent='Gestiona flota, documentación y vínculos con conductores.';
+}
+function renderOperationalVehicleCards(rows) {
+  const e=escapeHtml;
+  return rows.map((r,index)=>`<article class="vehicle-card vehicles-list-grid vehicle-card--${r.inactive_at?'neutral':'success'}" data-operational-vehicle-id="${e(r.id)}"><div class="vehicle-card__marker" aria-hidden="true"></div><div class="vehicle-card__identity"><strong>${e(r.brand)}</strong><span>${e(r.model)}</span><span>${e(r.human_code||'Sin código')}</span></div><strong class="vehicle-card__plate">${e(r.plate_normalized)}</strong><div class="vehicle-card__documentation"><span>${e(r.documentation.label)}</span><span>${r.documentation.date?e(operationalVehicleDate(r.documentation.date)):'Sin vencimiento visible'}</span></div><div class="vehicle-card__service-km"><span>${operationalVehicleStatus(r)}</span><small>Estado manual: ${e(operationalVehicleLabel(r.manual_operational_status))}</small></div><span class="vehicle-card__driver">${e(r.driverSummary)}</span><div class="vehicle-card__actions"><button class="button button--compact button--muted" type="button" data-operational-detail="${index}" data-vehicle-id="${e(r.id)}">Detalle</button></div></article>`).join('');
+}
+function closeOperationalVehicleDetail(focus=true) {
+  const state=operationalVehicleDialog;if(!state)return;operationalVehicleDialog=null;state.observer?.disconnect();state.modal.hidden=true;
+  state.modal.querySelector('#vehicle-detail-view').replaceChildren();state.modal.querySelector('#vehicle-detail-view-actions').replaceChildren();
+  if(focus&&state.previous?.isConnected)state.previous.focus?.();
+}
+async function openOperationalVehicleDetail(row,{isCurrent}) {
+  if(!row||!isCurrent())return;closeOperationalVehicleDetail(false);
+  const op=window.ElaraOperationalData,modal=document.getElementById('vehicle-detail-modal'),body=modal.querySelector('#vehicle-detail-view'),actions=modal.querySelector('#vehicle-detail-view-actions');
+  const state={modal,previous:document.activeElement,scope:operationalVehicleScope()};operationalVehicleDialog=state;
+  const current=()=>operationalVehicleDialog===state&&isCurrent()&&state.scope===operationalVehicleScope()&&!document.getElementById('vehiculos').hidden&&!modal.hidden;
+  modal.hidden=false;body.hidden=false;modal.querySelector('#vehicle-detail-edit-form').hidden=true;modal.querySelector('#vehicle-detail-edit-actions').hidden=true;
+  modal.querySelector('#vehicle-detail-title').textContent=row.plate_normalized||'Vehículo';modal.querySelector('#vehicle-detail-description').textContent=[row.brand,row.model,row.human_code].filter(Boolean).join(' · ');
+  actions.innerHTML='<button type="button" class="button button--compact button--muted" data-modal-close>Cerrar</button>';body.innerHTML='<p role="status">Cargando ficha…</p>';
+  modal.onclick=event=>{const b=event.target.closest('[data-catalog-action]');if(b){event.stopPropagation();if(current()){closeOperationalVehicleDetail(false);void window.ElaraCatalogAdmin.open('vehicles',b.dataset.catalogAction,b.dataset.catalogId);}}else if(event.target===modal||event.target.closest('[data-modal-close]')){event.stopPropagation();closeOperationalVehicleDetail();}};
+  modal.onkeydown=event=>{if(event.key==='Escape'){event.stopPropagation();closeOperationalVehicleDetail();}else if(event.key==='Tab'){const buttons=[...modal.querySelectorAll('button')].filter(b=>!b.disabled&&!b.closest('[hidden]'));const first=buttons[0],last=buttons[buttons.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}}};
+  if(window.MutationObserver){state.observer=new window.MutationObserver(()=>{if(operationalVehicleDialog===state&&!current())closeOperationalVehicleDetail(false);});state.observer.observe(document.getElementById('vehiculos'),{attributes:true,childList:true,subtree:true});}
+  modal.querySelector('[data-modal-close]').focus?.();
+  try{
+    await op.loadIdentity({tables:['vehicles','drivers','persons']});
+    const r=op.getCollection('vehicles').find(v=>v.id===row.id);if(!r||!op.isOperationalRecord(r))throw Error('Vehículo no disponible');
+    const [links,documents,types,assignments,services,incidents,maintenance]=await Promise.all([
+      op.related('driver_vehicle_assignments','vehicle_id',r.id),op.related('vehicle_documents','vehicle_id',r.id),op.readAll('vehicle_document_types','key'),op.related('service_assignments','vehicle_id',r.id),op.readAll('services'),op.related('vehicle_technical_incidents','vehicle_id',r.id),op.related('vehicle_maintenance_records','vehicle_id',r.id)]);
+    const actionHtml=await window.ElaraCatalogAdmin.detailActions('vehicles',r);if(!current())return;
+    const source=document.createElement('div');source.innerHTML=actionHtml;
+    actions.replaceChildren(...source.querySelectorAll('[data-catalog-action]'));actions.insertAdjacentHTML('beforeend','<button type="button" class="button button--compact button--muted" data-modal-close>Cerrar</button>');
+    const docSummary=operationalVehicleDocuments(documents);
+    const driverName=link=>{const d=op.getCollection('drivers').find(d=>d.id===link.driver_id);return d?op.personName(d.person_id):'Información del conductor no disponible';};
+    body.innerHTML=operationalVehicleSection('Datos del vehículo',[['Código',r.human_code],['Marca',r.brand],['Modelo',r.model],['Matrícula',r.plate_normalized],['Color',r.color],['Año',r.year],['Plazas',r.seats],['Titularidad',operationalVehicleLabel(r.ownership_type)],['Estado administrativo',operationalVehicleStatus(r)],['Estado manual',operationalVehicleLabel(r.manual_operational_status)],['Aprobación ELARA',operationalVehicleLabel(r.elara_approval_status)],['Disponibilidad efectiva','Requiere comprobación operativa'],['Observaciones',r.notes]])+
+      '<p>El estado manual no garantiza que el vehículo esté disponible. La edición general y la reactivación no están disponibles desde esta ficha.</p><button type="button" class="button button--muted" disabled>Editar datos del vehículo</button><button type="button" class="button button--muted" disabled>Cambiar estado manual / Reactivar</button>'+
+      operationalVehicleSection('Documentación resumida',[['Situación de los documentos visibles',docSummary.label],['Vencimiento más próximo registrado',docSummary.date?operationalVehicleDate(docSummary.date):'Sin fecha visible']])+
+      '<p>Los documentos registrados no confirman que toda la documentación obligatoria esté al día. Solo se gestionan sus datos; la carga de archivos no está disponible.</p><h3 class="modal__section-title">Documentos y vencimientos</h3>'+
+      renderOperationalVehicleDocuments(documents,types)+
+      '<h3 class="modal__section-title">Conductores vinculados</h3>'+(links.length?op.tableHtml(links.map(l=>({...l,name:driverName(l),state:operationalVehicleLabel(l.status),start:operationalVehicleDate(l.started_at),end:l.ended_at?operationalVehicleDate(l.ended_at):'Sin fecha de cierre'})),[['Conductor','name'],['Estado','state'],['Inicio','start'],['Fin','end'],['Observaciones','notes']]):'<p>No se muestran vínculos con conductores.</p>')+
+      '<h3 class="modal__section-title">Servicios asignados</h3>'+(assignments.length?op.tableHtml(assignments.map(a=>({...a,service:services.find(s=>s.id===a.service_id&&op.isOperationalRecord(s))?.human_code||'Información del servicio no disponible',state:operationalVehicleLabel(a.assignment_status)})),[['Servicio','service'],['Estado de asignación','state']]):'<p>No se muestran servicios asignados.</p>')+
+      '<h3 class="modal__section-title">Incidencias técnicas</h3>'+(incidents.length?op.tableHtml(incidents.map(i=>({...i,state:operationalVehicleLabel(i.status)})),[['Estado','state'],['Descripción','description']]):'<p>No se muestran incidencias técnicas.</p>')+
+      '<h3 class="modal__section-title">Mantenimiento</h3>'+(maintenance.length?op.tableHtml(maintenance.map(m=>({...m,state:operationalVehicleLabel(m.status)})),[['Tipo','maintenance_type'],['Estado','state'],['Observaciones','notes']]):'<p>No se muestran mantenimientos.</p>');
+  }catch(_){if(current()){actions.innerHTML='<button type="button" class="button button--compact" data-modal-close>Cerrar</button>';body.innerHTML='<p role="alert">No se pudo cargar la ficha. Cierra y vuelve a abrir para intentarlo de nuevo.</p>';}}
+  finally{if(operationalVehicleDialog===state&&!current())closeOperationalVehicleDetail(false);}
+}
+async function refreshOperationalVehicle(row,action) {
+  const op=window.ElaraOperationalData,current=operationalVehiclesCurrent,scope=operationalVehicleScope();
+  if(!current()||!operationalVehiclesRefresh)throw Error('La vista cambió');
+  await operationalVehiclesRefresh(()=>current()&&scope===operationalVehicleScope());
+  if(!current()||scope!==operationalVehicleScope())throw Error('La sesión cambió');
+  const id=row.vehicle_id||(action==='close'?(await op.readAll('driver_vehicle_assignments')).find(l=>l.id===row.assignment_id)?.vehicle_id:null);
+  const fresh=op.getCollection('vehicles').find(v=>v.id===id);
+  if(fresh)await openOperationalVehicleDetail(fresh,{isCurrent:current});
+}
 async function showOperationalVehicles() {
-  const op = window.ElaraOperationalData;
-  if (!op) throw new Error('Lectura operativa no disponible.');
-  await op.show('vehiculos', {title: 'Vehículos', load: async () => op.getCollection('vehicles'),
-notice: 'Alta de vehículo propio, inactivación, metadatos documentales y vínculos explícitos. El estado manual no garantiza elegibilidad. Sin upload físico.',
-columns: [['Código','human_code'],['Matrícula','plate_normalized'],['Marca','brand'],['Modelo','model'],['Estado manual','manual_operational_status'],['Disponibilidad',()=> 'Requiere validación operativa']],
-detail: async r => { const [assignments,docs,incidents]=await Promise.all([op.related('driver_vehicle_assignments','vehicle_id',r.id),op.related('vehicle_documents','vehicle_id',r.id),op.related('vehicle_technical_incidents','vehicle_id',r.id)]); return await window.ElaraCatalogAdmin.detailActions('vehicles',r) + op.fields(r,[['UUID','id'],['Matrícula','plate_normalized'],['Estado manual','manual_operational_status'],['Propiedad','ownership_type']])+op.tableHtml(assignments,[['Conductor UUID','driver_id'],['Inicio','started_at'],['Fin','ended_at'],['Estado','status']])+op.tableHtml(docs,[['Documento UUID','id'],['Tipo','document_type_key'],['Estado','status'],['Emisión','issued_at'],['Vencimiento','expires_at'],['Referencia','reference_number'],['Reemplazado el','replaced_at'],['Documento sucesor','replaced_by_document_id']])+op.tableHtml(incidents,[['Incidencia UUID','id'],['Estado','status'],['Descripción','description']]); }});
-  return window.ElaraCatalogAdmin.attach('vehicles', showOperationalVehicles);
+  closeOperationalVehicleDetail(false);
+  if(!operationalVehiclesBound){operationalVehiclesBound=true;window.addEventListener('elara:auth-session-updated',()=>{if(operationalVehicleDialog?.scope!==operationalVehicleScope())closeOperationalVehicleDetail(false);if(operationalVehicleCreateButton&&!operationalVehiclesCurrent())operationalVehicleCreateButton.hidden=true;});}
+  const op=window.ElaraOperationalData;
+  await op.show('vehiculos',{title:'Vehículos',collection:'vehicles',defaultFilters:false,
+    load:async({isCurrent})=>{
+      const [links,documents]=await Promise.all([op.readAll('driver_vehicle_assignments'),op.readAll('vehicle_documents')]);if(!isCurrent())return [];
+      return op.getCollection('vehicles').map(r=>{const active=links.filter(l=>l.vehicle_id===r.id&&l.status==='active'&&!l.ended_at&&op.isOperationalRecord(l));return {...r,administrativeStatus:r.inactive_at?'inactive':'active',driverLinked:active.length?'assigned':'unassigned',driverSummary:active.length?active.map(l=>{const d=op.getCollection('drivers').find(d=>d.id===l.driver_id);return d?op.personName(d.person_id):'Información del conductor no disponible';}).join(' · '):'Sin vínculo visible',documentation:operationalVehicleDocuments(documents.filter(d=>d.vehicle_id===r.id&&op.isOperationalRecord(d)))};}).sort((a,b)=>String(a.human_code||a.id).localeCompare(String(b.human_code||b.id),'es'));
+    },
+    presentation:{panelClassName:'vehicles-operational-panel',mount:mountOperationalVehicles,rows:renderOperationalVehicleCards,
+      summary:rows=>[['Total filtrado',rows.length,'neutral'],['Propios',rows.filter(r=>r.ownership_type==='owned').length,'neutral'],['Externos',rows.filter(r=>r.ownership_type==='external').length,'neutral'],['Inactivos',rows.filter(r=>r.inactive_at).length,'neutral']].map(([label,value,tone])=>`<article class="summary-card summary-card--${tone}"><span>${label}</span><strong>${value}</strong></article>`).join(''),
+      ready:(_,{panel,isCurrent,refreshRows})=>{operationalVehiclesRefresh=refreshRows;window.ElaraCatalogAdmin.attach('vehicles',showOperationalVehicles,{refresh:refreshOperationalVehicle});placeOperationalVehicleCreate(panel,isCurrent);panel.querySelector('[data-vehicles-clear]').onclick=()=>{for(const select of panel.querySelectorAll('[data-operational-filter]')){select.value='';select.onchange();}const input=panel.querySelector('[data-operational-search]');input.value='';input.oninput({target:input});};}},
+    filters:[{label:'Estado administrativo',value:r=>r.administrativeStatus,text:r=>operationalVehicleStatus(r)},{label:'Titularidad',value:r=>r.ownership_type,text:r=>operationalVehicleLabel(r.ownership_type)},{label:'Documentación',value:r=>r.documentation.status,text:r=>r.documentation.label},{label:'Conductor vinculado',value:r=>r.driverLinked,text:r=>r.driverLinked==='assigned'?'Con vínculo visible':'Sin vínculo visible'}],
+    searchText:r=>[r.human_code,r.plate_normalized,r.brand,r.model,r.driverSummary].join(' '),columns:[],openDetail:openOperationalVehicleDetail});
+  return Boolean(document.querySelector('#vehiculos [data-catalog-toolbar]'))&&!document.querySelector('#vehiculos [role="alert"]');
 }

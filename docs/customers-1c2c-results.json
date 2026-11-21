@@ -1,0 +1,598 @@
+{
+  "phase": "Clientes 1C.2-C",
+  "date": "2026-11-17",
+  "branch": "backup/elara-restauracion-2026-11-15",
+  "backupCommit": "1be471170e2c62815f140300d050afc2a85b195f",
+  "status": "Prepared locally; pending authenticated visual validation",
+  "global": {
+    "tests": 500,
+    "pass": 500,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "log": "C:\\Users\\erick\\AppData\\Local\\Temp\\elara-1c2c-global-final.log"
+  },
+  "includedFocusedSuites": {
+    "catalogAdmin": 71,
+    "customersPresentation": 51
+  },
+  "localAuth": {
+    "images": {
+      "postgres": "public.ecr.aws/supabase/postgres:17.6.1.165",
+      "auth": "public.ecr.aws/supabase/gotrue:v2.196.0",
+      "rest": "public.ecr.aws/supabase/postgrest:v16.1"
+    },
+    "tests": [
+      {
+        "name": "GoTrue password login, issued JWT and real initialize_app_session",
+        "result": "PASS"
+      },
+      {
+        "name": "SDK RPC without contact, seven-field TABLE response and immutable retry",
+        "result": "PASS"
+      },
+      {
+        "name": "SDK new contact, optional fields and three independent notes",
+        "result": "PASS"
+      },
+      {
+        "name": "SDK existing contact remains unchanged",
+        "result": "PASS"
+      },
+      {
+        "name": "SDK required fields, duplicate tax and invalid contact roll back",
+        "result": "PASS"
+      },
+      {
+        "name": "authenticated non-admin denied by RPC",
+        "result": "PASS"
+      },
+      {
+        "name": "absent, forged and expired JWT rejected before writes",
+        "result": "PASS"
+      },
+      {
+        "name": "direct table INSERT UPDATE DELETE denied",
+        "result": "PASS"
+      },
+      {
+        "name": "Clientes and Servicios actual identity queries read new customer under RLS",
+        "result": "PASS"
+      },
+      {
+        "name": "actual company form with real SDK/Auth/HTTP and uncertain response replay",
+        "result": "PASS"
+      }
+    ],
+    "cleanup": {
+      "elara1c2-16d9ecf564b5-rest": "removed",
+      "elara1c2-16d9ecf564b5-auth": "removed",
+      "elara1c2-16d9ecf564b5-pg": "removed",
+      "network": "removed"
+    },
+    "log": "C:\\Users\\erick\\AppData\\Local\\Temp\\elara-1c2c-auth.log"
+  },
+  "responsive": {
+    "widths": [
+      390,
+      640,
+      768,
+      1024,
+      1440
+    ],
+    "result": "PASS",
+    "screenshots": "C:\\Users\\erick\\AppData\\Local\\Temp\\elara-customers-8yprlN",
+    "metrics": [
+      {
+        "width": 390,
+        "bodyWidth": 375,
+        "panelWidth": 339,
+        "panelScroll": 339,
+        "cards": 25,
+        "cardOverflow": false,
+        "contactVisible": true,
+        "unique": true,
+        "paginationReachable": true,
+        "detail": {
+          "visible": true,
+          "uuid": "10000000-0000-4000-8000-000000000001",
+          "left": 8,
+          "right": 367,
+          "top": 8,
+          "bottom": 892,
+          "viewport": 900,
+          "width": 342,
+          "scroll": 342,
+          "actionBounds": {
+            "left": 187.984375,
+            "right": 352,
+            "closeRight": 352,
+            "headerRight": 366,
+            "padding": "14px"
+          },
+          "actionInHeader": true,
+          "actionRight": true,
+          "headerAligned": true,
+          "uniqueIds": true,
+          "inline": "",
+          "inlineAction": false
+        },
+        "creation": {
+          "count": 1,
+          "inPageHeader": true,
+          "inList": false,
+          "visible": true,
+          "left": 225.40625,
+          "right": 357,
+          "top": -57.140625,
+          "bottom": -19.140625,
+          "headerRight": 375,
+          "padding": 18,
+          "listTop": 293.859375
+        },
+        "historyMetrics": {
+          "visible": true,
+          "left": 8,
+          "right": 367,
+          "top": 8,
+          "bottom": 892,
+          "viewport": 900,
+          "scroll": 342,
+          "width": 342,
+          "services": 7,
+          "unique": true,
+          "detailHidden": true
+        },
+        "serviceReturn": {
+          "visible": true,
+          "uuid": "10000000-0000-4000-8000-000000000303",
+          "customerHistoryHidden": true,
+          "servicesActive": false,
+          "clientsActive": true,
+          "hash": "#clientes",
+          "sameList": true
+        },
+        "serviceLayout": {
+          "left": 8,
+          "right": 367,
+          "top": 8,
+          "bottom": 892,
+          "viewport": 900,
+          "width": 342,
+          "scroll": 342,
+          "unique": true
+        },
+        "company": {
+          "visible": true,
+          "left": 8,
+          "right": 367,
+          "top": 8,
+          "bottom": 892,
+          "viewport": 900,
+          "width": 342,
+          "scroll": 342,
+          "contact": true,
+          "tax": true,
+          "personal": false,
+          "lifecycle": false,
+          "unique": true
+        }
+      },
+      {
+        "width": 640,
+        "bodyWidth": 625,
+        "panelWidth": 589,
+        "panelScroll": 589,
+        "cards": 25,
+        "cardOverflow": false,
+        "contactVisible": true,
+        "unique": true,
+        "paginationReachable": true,
+        "detail": {
+          "visible": true,
+          "uuid": "10000000-0000-4000-8000-000000000001",
+          "left": 8,
+          "right": 617,
+          "top": 8,
+          "bottom": 892,
+          "viewport": 900,
+          "width": 592,
+          "scroll": 592,
+          "actionBounds": {
+            "left": 437.984375,
+            "right": 602,
+            "closeRight": 602,
+            "headerRight": 616,
+            "padding": "14px"
+          },
+          "actionInHeader": true,
+          "actionRight": true,
+          "headerAligned": true,
+          "uniqueIds": true,
+          "inline": "",
+          "inlineAction": false
+        },
+        "creation": {
+          "count": 1,
+          "inPageHeader": true,
+          "inList": false,
+          "visible": true,
+          "left": 475.40625,
+          "right": 607,
+          "top": -56.9375,
+          "bottom": -18.9375,
+          "headerRight": 625,
+          "padding": 18,
+          "listTop": 294.0625
+        },
+        "historyMetrics": {
+          "visible": true,
+          "left": 8,
+          "right": 617,
+          "top": 21.984375,
+          "bottom": 878.015625,
+          "viewport": 900,
+          "scroll": 607,
+          "width": 607,
+          "services": 7,
+          "unique": true,
+          "detailHidden": true
+        },
+        "serviceReturn": {
+          "visible": true,
+          "uuid": "10000000-0000-4000-8000-000000000303",
+          "customerHistoryHidden": true,
+          "servicesActive": false,
+          "clientsActive": true,
+          "hash": "#clientes",
+          "sameList": true
+        },
+        "serviceLayout": {
+          "left": 8,
+          "right": 617,
+          "top": 8,
+          "bottom": 892,
+          "viewport": 900,
+          "width": 592,
+          "scroll": 592,
+          "unique": true
+        },
+        "company": {
+          "visible": true,
+          "left": 8,
+          "right": 617,
+          "top": 8,
+          "bottom": 892,
+          "viewport": 900,
+          "width": 592,
+          "scroll": 592,
+          "contact": true,
+          "tax": true,
+          "personal": false,
+          "lifecycle": false,
+          "unique": true
+        }
+      },
+      {
+        "width": 768,
+        "bodyWidth": 753,
+        "panelWidth": 713,
+        "panelScroll": 713,
+        "cards": 25,
+        "cardOverflow": false,
+        "contactVisible": true,
+        "unique": true,
+        "paginationReachable": true,
+        "detail": {
+          "visible": true,
+          "uuid": "10000000-0000-4000-8000-000000000001",
+          "left": 66.5,
+          "right": 686.5,
+          "top": 54.109375,
+          "bottom": 845.890625,
+          "viewport": 900,
+          "width": 618,
+          "scroll": 618,
+          "actionBounds": {
+            "left": 322.6875,
+            "right": 495.625,
+            "closeRight": 667.5,
+            "headerRight": 685.5,
+            "padding": "18px"
+          },
+          "actionInHeader": true,
+          "actionRight": true,
+          "headerAligned": true,
+          "uniqueIds": true,
+          "inline": "",
+          "inlineAction": false
+        },
+        "creation": {
+          "count": 1,
+          "inPageHeader": true,
+          "inList": false,
+          "visible": true,
+          "left": 594.640625,
+          "right": 733,
+          "top": -53,
+          "bottom": -15,
+          "headerRight": 753,
+          "padding": 20,
+          "listTop": 132
+        },
+        "historyMetrics": {
+          "visible": true,
+          "left": 66.5,
+          "right": 686.5,
+          "top": 20,
+          "bottom": 880,
+          "viewport": 900,
+          "scroll": 603,
+          "width": 603,
+          "services": 7,
+          "unique": true,
+          "detailHidden": true
+        },
+        "serviceReturn": {
+          "visible": true,
+          "uuid": "10000000-0000-4000-8000-000000000303",
+          "customerHistoryHidden": true,
+          "servicesActive": false,
+          "clientsActive": true,
+          "hash": "#clientes",
+          "sameList": true
+        },
+        "serviceLayout": {
+          "left": 66.5,
+          "right": 686.5,
+          "top": 20,
+          "bottom": 880,
+          "viewport": 900,
+          "width": 603,
+          "scroll": 603,
+          "unique": true
+        },
+        "company": {
+          "visible": true,
+          "left": 66.5,
+          "right": 686.5,
+          "top": 22.953125,
+          "bottom": 877.03125,
+          "viewport": 900,
+          "width": 603,
+          "scroll": 603,
+          "contact": true,
+          "tax": true,
+          "personal": false,
+          "lifecycle": false,
+          "unique": true
+        }
+      },
+      {
+        "width": 1024,
+        "bodyWidth": 1024,
+        "panelWidth": 748,
+        "panelScroll": 748,
+        "cards": 25,
+        "cardOverflow": false,
+        "contactVisible": true,
+        "unique": true,
+        "paginationReachable": true,
+        "detail": {
+          "visible": true,
+          "uuid": "10000000-0000-4000-8000-000000000001",
+          "left": 202,
+          "right": 822,
+          "top": 54.109375,
+          "bottom": 845.890625,
+          "viewport": 900,
+          "width": 618,
+          "scroll": 618,
+          "actionBounds": {
+            "left": 458.1875,
+            "right": 631.125,
+            "closeRight": 803,
+            "headerRight": 821,
+            "padding": "18px"
+          },
+          "actionInHeader": true,
+          "actionRight": true,
+          "headerAligned": true,
+          "uniqueIds": true,
+          "inline": "",
+          "inlineAction": false
+        },
+        "creation": {
+          "count": 1,
+          "inPageHeader": true,
+          "inList": false,
+          "visible": true,
+          "left": 865.640625,
+          "right": 1004,
+          "top": 19.890625,
+          "bottom": 57.890625,
+          "headerRight": 1024,
+          "padding": 20,
+          "listTop": 210.796875
+        },
+        "historyMetrics": {
+          "visible": true,
+          "left": 202,
+          "right": 822,
+          "top": 20,
+          "bottom": 880,
+          "viewport": 900,
+          "scroll": 603,
+          "width": 603,
+          "services": 7,
+          "unique": true,
+          "detailHidden": true
+        },
+        "serviceReturn": {
+          "visible": true,
+          "uuid": "10000000-0000-4000-8000-000000000303",
+          "customerHistoryHidden": true,
+          "servicesActive": false,
+          "clientsActive": true,
+          "hash": "#clientes",
+          "sameList": true
+        },
+        "serviceLayout": {
+          "left": 202,
+          "right": 822,
+          "top": 20,
+          "bottom": 880,
+          "viewport": 900,
+          "width": 603,
+          "scroll": 603,
+          "unique": true
+        },
+        "company": {
+          "visible": true,
+          "left": 202,
+          "right": 822,
+          "top": 22.953125,
+          "bottom": 877.03125,
+          "viewport": 900,
+          "width": 603,
+          "scroll": 603,
+          "contact": true,
+          "tax": true,
+          "personal": false,
+          "lifecycle": false,
+          "unique": true
+        }
+      },
+      {
+        "width": 1440,
+        "bodyWidth": 1440,
+        "panelWidth": 1164,
+        "panelScroll": 1164,
+        "cards": 25,
+        "cardOverflow": false,
+        "contactVisible": true,
+        "unique": true,
+        "paginationReachable": true,
+        "detail": {
+          "visible": true,
+          "uuid": "10000000-0000-4000-8000-000000000001",
+          "left": 410,
+          "right": 1030,
+          "top": 54.109375,
+          "bottom": 845.890625,
+          "viewport": 900,
+          "width": 618,
+          "scroll": 618,
+          "actionBounds": {
+            "left": 666.1875,
+            "right": 839.125,
+            "closeRight": 1011,
+            "headerRight": 1029,
+            "padding": "18px"
+          },
+          "actionInHeader": true,
+          "actionRight": true,
+          "headerAligned": true,
+          "uniqueIds": true,
+          "inline": "",
+          "inlineAction": false
+        },
+        "creation": {
+          "count": 1,
+          "inPageHeader": true,
+          "inList": false,
+          "visible": true,
+          "left": 1281.640625,
+          "right": 1420,
+          "top": 19.890625,
+          "bottom": 57.890625,
+          "headerRight": 1440,
+          "padding": 20,
+          "listTop": 156.796875
+        },
+        "historyMetrics": {
+          "visible": true,
+          "left": 410,
+          "right": 1030,
+          "top": 20,
+          "bottom": 880,
+          "viewport": 900,
+          "scroll": 603,
+          "width": 603,
+          "services": 7,
+          "unique": true,
+          "detailHidden": true
+        },
+        "serviceReturn": {
+          "visible": true,
+          "uuid": "10000000-0000-4000-8000-000000000303",
+          "customerHistoryHidden": true,
+          "servicesActive": false,
+          "clientsActive": true,
+          "hash": "#clientes",
+          "sameList": true
+        },
+        "serviceLayout": {
+          "left": 410,
+          "right": 1030,
+          "top": 20,
+          "bottom": 880,
+          "viewport": 900,
+          "width": 603,
+          "scroll": 603,
+          "unique": true
+        },
+        "company": {
+          "visible": true,
+          "left": 410,
+          "right": 1030,
+          "top": 22.953125,
+          "bottom": 877.03125,
+          "viewport": 900,
+          "width": 603,
+          "scroll": 603,
+          "contact": true,
+          "tax": true,
+          "personal": false,
+          "lifecycle": false,
+          "unique": true
+        }
+      }
+    ],
+    "log": "C:\\Users\\erick\\AppData\\Local\\Temp\\elara-1c2c-visual-approved-final.log",
+    "retries": "Concurrent browser run timed out in CDP; separate final run passed."
+  },
+  "preservation": {
+    "baselineFiles": 179,
+    "changedSinceBaseline": [
+      "src/index.html",
+      "src/js/catalog-admin.js",
+      "tests/catalog-admin.test.cjs",
+      "tests/customers-presentation.test.cjs",
+      "tests/customers-presentation.visual.cjs"
+    ],
+    "additionalUpdatedHarness": "scripts/qa/0055-auth-validation.cjs",
+    "sqlMigrationsRlsUnchanged": true,
+    "dashboardServicesUnchanged": true,
+    "previousLocalChangesPreserved": true,
+    "migration0055Sha256": "31d5747d750b084055bc2f2628052df92e68e634c132402e73aa9300e7504723"
+  },
+  "checks": {
+    "javascriptSyntax": "PASS",
+    "gitDiffCheck": "PASS"
+  },
+  "remote": {
+    "queried": false,
+    "modified": false,
+    "businessRecordsCreated": false
+  },
+  "publication": {
+    "commit": false,
+    "push": false,
+    "merge": false,
+    "deploy": false
+  },
+  "pending": [
+    "Authenticated visual validation by user; no real company creation authorized in this phase."
+  ]
+}

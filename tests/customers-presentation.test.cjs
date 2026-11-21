@@ -254,7 +254,7 @@ test('one existing creation button moves to the page header and opens the curren
  Object.defineProperty(Object.getPrototypeOf(h.document.querySelector('form')),'elements',{configurable:true,get(){return Object.fromEntries([...this.querySelectorAll('[name]')].map(el=>[el.name,el]));}});
  await button.onclick();
  const modal=h.document.getElementById('new-customer-modal');assert.equal(modal.hidden,false);
- assert.match(modal.textContent,/Nuevo cliente individual/);assert.ok(modal.querySelector('form'));
+ assert.match(modal.textContent,/Nuevo cliente/);assert.ok(modal.querySelector('form'));
  assert.ok(modal.querySelector('[name="firstName"]'));assert.ok(modal.querySelector('[name="lastName"]'));assert.ok(modal.querySelector('[type="submit"]'));
  assert.ok(!h.calls.some(call=>call.rpc));
 });
@@ -279,8 +279,8 @@ test('original overlay opens by UUID; close preserves search, combined filters a
  assert.equal(modal.hidden,false);assert.equal(modal.dataset.customerId,id);assert.match(modal.textContent,new RegExp(id));
  assert.equal(h.panel().querySelector('[data-operational-detail-content]').innerHTML,'');assert.equal(h.panel().querySelector('[data-catalog-action="customerStatus"]'),null);
  const action=modal.querySelector('[data-catalog-action="customerStatus"]');assert.ok(action.closest('#customer-detail-view-actions'));
- const opened=[];h.window.ElaraCatalogAdmin={...h.window.ElaraCatalogAdmin,open:(...args)=>opened.push(args)};
- modal.onclick({target:action,stopPropagation(){}});assert.deepEqual(opened,[['customers','customerStatus',id]]);
+ const opened=[];h.window.ElaraCatalogAdmin={...h.window.ElaraCatalogAdmin,openCustomerStatus:(...args)=>opened.push(args)};
+ await modal.onclick({target:action,stopPropagation(){}});assert.equal(opened.length,1);assert.equal(opened[0][0],id);assert.equal(opened[0][1].container,h.document.getElementById('customer-detail-content'));assert.equal(opened[0][1].isCurrent(),true);
  modal.onclick({target:modal.querySelector('[data-modal-close]'),stopPropagation(){}});
  assert.equal(modal.hidden,true);assert.equal(h.document.getElementById('customer-detail-content').innerHTML,'');
  assert.equal(list.innerHTML,html);assert.equal(h.panel().querySelector('[data-operational-page]').textContent,page);
@@ -334,4 +334,98 @@ test('company detail retains authorized contact identities and lifecycle restric
  const detail=h.document.getElementById('customer-detail-modal');
  assert.match(detail.textContent,/Contacto autorizado/);assert.match(detail.textContent,/Persona 0 Apellido/);
  assert.equal(detail.querySelector('[data-catalog-action="customerStatus"]'),null);
+});
+
+test('1C.2-C real local 0055 form refresh preserves company filters/page/search and opens detail/history by customer UUID',async()=>{
+ const runtime=process.env.ELARA_PGLITE_ROOT,{PGlite}=require(path.join(runtime,'@electric-sql/pglite')),{pgcrypto}=require(path.join(runtime,'@electric-sql/pglite/dist/contrib/pgcrypto.cjs')),{btree_gist}=require(path.join(runtime,'@electric-sql/pglite/dist/contrib/btree_gist.cjs'));
+ const db=new PGlite({extensions:{pgcrypto,btree_gist}}),crypto=require('node:crypto');
+ try{
+  await require('./control-0051-harness.cjs').bootstrap(db);
+  for(const name of ['0052_initial_superadmin_bootstrap.sql','0053_app_session_concurrency.sql','0054_driver_accept_confirms_service.sql','0055_admin_create_company_customer.sql'])await db.exec(fs.readFileSync(path.join('supabase/migrations',name),'utf8'));
+  await db.exec('begin');const backend=require('./control-0051-harness.cjs').api(db),admin=await backend.identity('administrativo');await backend.claims(admin);await backend.checkpoint();
+  const {HTMLSelectElement}=require(path.join(runtime,'linkedom'));
+  Object.defineProperty(HTMLSelectElement.prototype,'value',{configurable:true,get(){return this.querySelector('option[selected]')?.value||'';},set(v){for(const o of this.querySelectorAll('option'))o.toggleAttribute('selected',o.value===v);}});
+  for(const mode of ['page','search']){
+   const tables=fixture(60),h=setup({tables});h.window.location={hash:'#clientes'};
+   h.context.FormData=class{constructor(form){this.values=[...form.querySelectorAll('[name]')].filter(e=>!e.disabled&&(e.type!=='radio'||e.checked)).map(e=>[e.name,e.value]);}[Symbol.iterator](){return this.values[Symbol.iterator]();}};
+   h.window.ElaraSupabase.client.supabaseUrl='http://127.0.0.1:54421';h.window.ElaraSupabase.getPublicConfig=()=>({url:'http://127.0.0.1:54421'});
+   let created,writes=0;
+   h.window.ElaraSupabase.client.rpc=async(name,args)=>{
+    writes++;assert.equal(name,'admin_create_company_customer');const keys=['p_request_id','p_legal_name','p_tax_id','p_trade_name','p_billing_phone','p_billing_email','p_billing_address','p_company_notes','p_customer_internal_notes','p_customer_billing_notes','p_contact'];
+    const data=(await db.query(`select * from public.admin_create_company_customer(${keys.map((_,i)=>'$'+(i+1)).join(',')})`,keys.map(k=>args[k]))).rows;created=data[0];
+    for(const table of ['companies','customers','persons','company_contacts']){const actual=(await db.query('select * from public.'+table)).rows;tables[table]||=[];for(const row of actual)if(!tables[table].some(x=>x.id===row.id))tables[table].push(row);}
+    return {data,error:null};
+   };
+   await h.show();filter(h,0,'company');if(mode==='page')h.panel().querySelector('[data-operational-next]').onclick();else search(h,'Local created');
+   await h.window.ElaraCatalogAdmin.open('customers','customerCreate');const modal=h.document.getElementById('new-customer-modal'),form=modal.querySelector('form');
+   Object.defineProperty(form,'elements',{configurable:true,value:Object.fromEntries([...form.querySelectorAll('[name]')].map(e=>[e.name,e]))});
+   form.querySelector('[data-customer-type=company]').onclick();
+   for(const [key,value]of Object.entries({legalName:'Local created '+mode,taxId:crypto.randomUUID()})){const e=form.elements[key];e.value=value;form.oninput({target:e});}
+   assert.equal(form.querySelector('[type=submit]').disabled,false);await form.onsubmit({preventDefault(){}});assert.equal(writes,1);assert.match(form.querySelector('[data-catalog-status]').textContent,/Guardado correctamente/);
+   assert.equal(h.panel().querySelector('[data-operational-filter="0"]').value,'company');
+   if(mode==='page')assert.match(h.panel().querySelector('[data-operational-page]').textContent,/Página 2/);else assert.equal(h.panel().querySelector('[data-operational-search]').value,'Local created');
+   const card=cards(h).find(c=>c.dataset.operationalCustomerId===created.customer_id);assert.ok(card);assert.match(card.textContent,/Empresa/);assert.match(card.textContent,/Nuevo/);
+   modal.onclick({target:modal,stopPropagation(){}});
+   await h.panel().querySelector('[data-operational-results]').onclick({target:card.querySelector('[data-operational-detail]')});
+   assert.match(h.document.getElementById('customer-detail-content').textContent,new RegExp(created.customer_human_code));
+   const detail=vm.runInContext('operationalCustomerDialog',h.context);assert.equal(detail.row.id,created.customer_id);
+   await h.context.openOperationalCustomerHistory(detail);assert.equal(h.document.getElementById('customer-history-modal').dataset.customerId,created.customer_id);
+   assert.ok(h.op.getCollection('customers').filter(c=>['new','active'].includes(c.status)).some(c=>c.id===created.customer_id));
+  }
+ }finally{await db.close();}
+});
+
+test('0056 real local SQL from company ficha: new/existing contacts, immutable replay, replacement, edit/deactivation and preserved list/person',async()=>{
+ const runtime=process.env.ELARA_PGLITE_ROOT,{PGlite}=require(path.join(runtime,'@electric-sql/pglite')),{pgcrypto}=require(path.join(runtime,'@electric-sql/pglite/dist/contrib/pgcrypto.cjs')),{btree_gist}=require(path.join(runtime,'@electric-sql/pglite/dist/contrib/btree_gist.cjs')),crypto=require('crypto');
+ const db=new PGlite({extensions:{pgcrypto,btree_gist}}),contract=require('./company-contacts-0056-harness.cjs');
+ try{
+  await contract.bootstrap(db);await db.exec(contract.migration);await db.exec('begin');const backend=contract.api(db),admin=await backend.identity('administrativo');await backend.claims(admin);await backend.checkpoint();const company=await backend.company(),second=await backend.company(),person=await backend.person();await backend.add(second,{mode:'existing',person_id:person});const personBefore=await backend.scalar('select to_jsonb(p) from persons p where id=$1',[person]);
+  const tables={};async function copy(){for(const table of ['companies','customers','persons','company_contacts'])tables[table]=(await db.query('select * from public.'+table)).rows;}await copy();
+  const {HTMLSelectElement}=require(path.join(runtime,'linkedom'));Object.defineProperty(HTMLSelectElement.prototype,'value',{configurable:true,get(){return this.querySelector('option[selected]')?.value||'';},set(v){for(const o of this.querySelectorAll('option'))o.toggleAttribute('selected',o.value===v);}});
+  const h=setup({tables});h.window.location={hash:'#clientes'};h.context.FormData=class{constructor(form){this.entries=[...form.querySelectorAll('[name]')].filter(e=>!e.disabled).map(e=>[e.name,e.value]);}[Symbol.iterator](){return this.entries[Symbol.iterator]();}};
+  h.window.ElaraSupabase.client.supabaseUrl='http://127.0.0.1:54421';h.window.ElaraSupabase.getPublicConfig=()=>({url:'http://127.0.0.1:54421'});
+  let lost=true;const calls=[];h.window.ElaraSupabase.client.rpc=async(name,args)=>{calls.push({name,args:JSON.parse(JSON.stringify(args))});const keys={admin_add_company_contact:['p_request_id','p_customer_id','p_contact','p_is_primary','p_notes'],admin_set_company_primary_contact:['p_request_id','p_customer_id','p_company_contact_id','p_expected_version','p_expected_primary_contact_id','p_expected_primary_version','p_reason'],admin_update_company_contact:['p_request_id','p_customer_id','p_company_contact_id','p_expected_version','p_patch','p_reason']}[name];assert.ok(keys);assert.deepEqual(Object.keys(args).sort(),keys.slice().sort());await db.exec('savepoint http');let value;try{value=await backend.scalar(`select public.${name}(${keys.map((_,i)=>'$'+(i+1)).join(',')})`,keys.map(k=>args[k]));await backend.checkpoint();await db.exec('release http');}catch(e){await db.exec('rollback to http;release http');return {error:{code:e.code}};}await copy();if(lost){lost=false;throw Error('Lost committed reply');}return {data:value,error:null};};
+  await h.show();search(h,company.customer_human_code);const listBefore=h.document.getElementById('customers-list').innerHTML;await h.panel().querySelector('[data-operational-results]').onclick({target:cards(h)[0].querySelector('[data-operational-detail]')});
+  const detail=h.document.getElementById('customer-detail-modal'),entry=detail.querySelector('[data-customer-contacts]');assert.ok(entry);let opening;const api=h.window.ElaraCatalogAdmin;h.window.ElaraCatalogAdmin={...api,openContacts:(...args)=>(opening=api.openContacts(...args))};detail.onclick({target:entry,stopPropagation(){}});await opening;
+  const modal=h.document.getElementById('new-customer-modal'),click=selector=>modal.onclick({target:modal.querySelector(selector),stopPropagation(){}}),fill=values=>{for(const [name,value]of Object.entries(values))modal.querySelector(`[name=${name}]`).value=value;modal.querySelector('form').onchange();},submit=()=>modal.querySelector('form').onsubmit({preventDefault(){}});
+  await click('[data-contact-add]');fill({contactFirstName:'New',contactLastName:'Local',contactEmail:crypto.randomUUID()+'@example.invalid',primary:'yes'});await submit();assert.match(modal.textContent,/incierto/);await submit();assert.deepEqual(calls[0],calls[1]);assert.equal(Number(await backend.scalar('select count(*) from company_contacts where company_id=$1',[company.company_id])),1);
+  await click('[data-contact-add]');fill({contactMode:'existing',personId:person,contactRole:'Shared contact'});assert(modal.querySelector('[data-contact-new]').hidden);await submit();const one=(await backend.rows('select * from company_contacts where company_id=$1 and is_primary',[company.company_id]))[0],two=(await backend.rows('select * from company_contacts where company_id=$1 and person_id=$2',[company.company_id,person]))[0];
+  await click(`[data-contact-action=primary][data-contact-id="${two.id}"]`);fill({reason:'Replace expected primary'});await submit();assert.equal(await backend.scalar('select is_primary from company_contacts where id=$1',[one.id]),false);assert.equal(await backend.scalar('select is_primary from company_contacts where id=$1',[two.id]),true);
+  await click(`[data-contact-action=edit][data-contact-id="${two.id}"]`);fill({contactRole:'Revised role',notes:'Only link notes',reason:'Change link metadata'});await submit();assert.equal(await backend.scalar('select role_label from company_contacts where id=$1',[two.id]),'Revised role');
+  for(const id of [two.id,one.id]){await click(`[data-contact-action=deactivate][data-contact-id="${id}"]`);fill({reason:'End link'});await submit();}
+  assert.equal(Number(await backend.scalar("select count(*) from company_contacts where company_id=$1 and status='active'",[company.company_id])),0);assert.equal(Number(await backend.scalar('select count(*) from company_contacts where company_id=$1 and ended_at is not null',[company.company_id])),2);assert.deepEqual(await backend.scalar('select to_jsonb(p) from persons p where id=$1',[person]),personBefore);assert.equal(Number(await backend.scalar("select count(*) from company_contacts where company_id=$1 and person_id=$2 and status='active'",[second.company_id,person])),1);
+  await click('[data-contacts-close]');for(let i=0;i<40;i++){await settle();if(detail.textContent.includes('Inactivo'))break;}assert(modal.hidden);assert.equal(h.document.getElementById('customers-list').innerHTML,listBefore);assert.equal(h.panel().querySelector('[data-operational-search]').value,company.customer_human_code);assert.match(detail.textContent,/Inactivo/);assert.equal(calls.length,7);
+ }finally{await db.close();}
+});
+
+test('1C4 real local 0048: all four transitions, uncertain reconciliation, service rejection, counters/filter/page and ficha refresh',async()=>{
+ const runtime=process.env.ELARA_PGLITE_ROOT,{PGlite}=require(path.join(runtime,'@electric-sql/pglite')),{pgcrypto}=require(path.join(runtime,'@electric-sql/pglite/dist/contrib/pgcrypto.cjs')),{btree_gist}=require(path.join(runtime,'@electric-sql/pglite/dist/contrib/btree_gist.cjs')),crypto=require('crypto'),contract=require('./company-contacts-0056-harness.cjs');const db=new PGlite({extensions:{pgcrypto,btree_gist}});
+ try{
+  await contract.bootstrap(db);await db.exec(contract.migration);await db.exec('begin');const backend=contract.api(db),admin=await backend.identity('administrativo');await backend.claims(admin);await backend.checkpoint();
+  const first=await backend.rpc('admin_create_individual_customer',[crypto.randomUUID(),'Local status','First']),second=await backend.rpc('admin_create_individual_customer',[crypto.randomUUID(),'Local status','Second']);const personBefore=await backend.scalar('select to_jsonb(p) from persons p where id=$1',[first.person_id]);const tables=fixture(60);for(const p of tables.persons)p.status='active';
+  async function copy(){for(const table of ['persons','customers']){const rows=(await db.query('select * from public.'+table)).rows;for(const row of rows){const index=tables[table].findIndex(x=>x.id===row.id);if(index<0)tables[table].push(row);else tables[table][index]=row;}}tables.services=(await db.query('select * from public.services')).rows;}await copy();
+  const h=setup({tables});h.window.location={hash:'#clientes'};h.window.ElaraSupabase.client.supabaseUrl='http://127.0.0.1:54421';h.window.ElaraSupabase.getPublicConfig=()=>({url:'http://127.0.0.1:54421'});
+  let lose=false,lateService=false,serviceId,armFailure=false,failFicha=false;const realLoad=h.op.loadIdentity;h.window.ElaraOperationalData={...h.op,loadIdentity:async args=>{if(failFicha){failFicha=false;throw Error('Injected ficha read failure');}return realLoad(args);}};const calls=[];h.window.ElaraSupabase.client.rpc=async(name,args)=>{
+   assert.equal(name,'admin_set_customer_status');assert.deepEqual(Object.keys(args).sort(),['p_customer_id','p_status','p_reason'].sort());calls.push(JSON.parse(JSON.stringify(args)));
+   if(lateService){lateService=false;serviceId=(await backend.rpc('create_service',[first.customer_id,'transfer','2099-01-01T10:00:00Z','Origin',null,'Destination',null])).service_id;}
+   await db.exec('savepoint status_rpc');let rows;try{rows=(await db.query('select * from public.admin_set_customer_status($1,$2,$3)',[args.p_customer_id,args.p_status,args.p_reason])).rows;await backend.checkpoint();await db.exec('release status_rpc');}catch(e){await db.exec('rollback to status_rpc;release status_rpc');await copy();return {error:{code:e.code,message:e.message}};}
+   await copy();if(armFailure){armFailure=false;failFicha=true;}if(lose){lose=false;throw Error('Lost response after commit');}return {data:rows,error:null};
+  };
+  await h.show();filter(h,0,'individual');h.panel().querySelector('[data-operational-next]').onclick();const detail=h.document.getElementById('customer-detail-modal'),body=h.document.getElementById('customer-detail-content');
+  async function open(id){const card=cards(h).find(c=>c.dataset.operationalCustomerId===id);assert.ok(card);await h.panel().querySelector('[data-operational-results]').onclick({target:card.querySelector('[data-operational-detail]')});}
+  const panel=()=>body.querySelector('[data-customer-status-panel]');const click=sel=>panel().onclick({target:panel().querySelector(sel),stopPropagation(){}});const entry=()=>detail.onclick({target:detail.querySelector('[data-catalog-action=customerStatus]'),stopPropagation(){}});
+  const change=async target=>{await entry();await click(`[data-status-target=${target}]`);panel().querySelector('[name=reason]').value='Local status change';await panel().querySelector('form').onsubmit({preventDefault(){}});};
+  await open(first.customer_id);lose=true;await change('active');assert.match(panel().textContent,/Respuesta incierta/);assert.equal(calls.length,1);assert.equal(await backend.scalar('select status from customers where id=$1',[first.customer_id]),'active');await click('[data-status-read]');for(let i=0;i<20;i++){await settle();if(panel()?.querySelector('[data-status-new]'))break;}assert.equal(calls.length,1);assert.match(body.textContent,/Activo/);assert(panel().querySelector('[data-status-new]'));await click('[data-status-new]');assert.deepEqual([...panel().querySelectorAll('[data-status-target]')].map(b=>b.dataset.statusTarget),['inactive']);
+  lateService=true;await click('[data-status-target=inactive]');panel().querySelector('[name=reason]').value='End';await panel().querySelector('form').onsubmit({preventDefault(){}});assert.equal(calls.length,2);assert.match(body.textContent,/servicios pendientes/);assert.equal(await backend.scalar('select status from customers where id=$1',[first.customer_id]),'active');await backend.rpc('cancel_service',[serviceId,'local_test','Local terminal fixture']);await copy();
+  armFailure=true;await change('inactive');assert.equal(await backend.scalar('select status from customers where id=$1',[first.customer_id]),'inactive');assert.match(body.textContent,/ficha no pudo actualizarse/);detail.onclick({target:detail.querySelector('[data-customer-detail-retry]'),stopPropagation(){}});for(let i=0;i<30;i++){await settle();if(detail.querySelector('[data-catalog-action=customerStatus]'))break;}await entry();assert(panel().querySelector('[data-status-read]'));await click('[data-status-read]');assert.equal(calls.length,3);assert.match(body.textContent,/Cambio confirmado/);assert.match(body.textContent,/Inactivo/);assert.match(h.panel().querySelector('[data-operational-page]').textContent,/Página 2/);assert.equal(h.panel().querySelector('[data-operational-filter="0"]').value,'individual');
+  await change('active');assert.match(body.textContent,/Activo/);assert.equal(await backend.scalar('select status from customers where id=$1',[first.customer_id]),'active');assert.deepEqual(await backend.scalar('select to_jsonb(p) from persons p where id=$1',[first.person_id]),personBefore);
+  detail.onclick({target:detail.querySelector('[data-modal-close]'),stopPropagation(){}});filter(h,1,'new');search(h,'Local status Second');await open(second.customer_id);await change('inactive');assert.equal(await backend.scalar('select status from customers where id=$1',[second.customer_id]),'inactive');assert(!detail.hidden);assert.match(body.textContent,/Inactivo/);assert.equal(cards(h).length,0);assert.equal(h.panel().querySelector('[data-operational-search]').value,'Local status Second');assert.equal(h.panel().querySelector('[data-operational-filter="1"]').value,'new');assert.match(h.panel().querySelector('[data-operational-summary]').textContent,/Total filtrado0/);assert.equal(calls.length,5);
+ }finally{await db.close();}
+});
+
+test('1C4 refresh adds a newly occurring status filter while retaining an empty selected filter',async()=>{
+ const tables=fixture(1);tables.persons[0].status='active';const {HTMLSelectElement}=require(path.join(process.env.ELARA_PGLITE_ROOT,'linkedom'));Object.defineProperty(HTMLSelectElement.prototype,'value',{configurable:true,get(){return this.querySelector('option[selected]')?.value||'';},set(v){for(const o of this.querySelectorAll('option'))o.toggleAttribute('selected',o.value===v);}});
+ const h=setup({tables});h.window.location={hash:'#clientes'};h.window.ElaraSupabase.client.supabaseUrl='http://127.0.0.1:54421';h.window.ElaraSupabase.getPublicConfig=()=>({url:'http://127.0.0.1:54421'});h.window.ElaraSupabase.client.rpc=async(n,a)=>{assert.equal(n,'admin_set_customer_status');tables.customers[0].status=a.p_status;return {data:[{customer_id:a.p_customer_id,status:a.p_status,inactive_at:null}]};};
+ await h.show();filter(h,1,'new');await h.panel().querySelector('[data-operational-results]').onclick({target:cards(h)[0].querySelector('[data-operational-detail]')});const detail=h.document.getElementById('customer-detail-modal');await detail.onclick({target:detail.querySelector('[data-catalog-action=customerStatus]'),stopPropagation(){}});const box=detail.querySelector('[data-customer-status-panel]');await box.onclick({target:box.querySelector('[data-status-target=active]'),stopPropagation(){}});box.querySelector('[name=reason]').value='Local change';await box.querySelector('form').onsubmit({preventDefault(){}});
+ const select=h.panel().querySelector('[data-operational-filter="1"]');assert.equal(select.value,'new');assert.ok(select.querySelector('option[value=active]'));assert.equal(cards(h).length,0);filter(h,1,'active');assert.equal(cards(h).length,1);assert.match(cards(h)[0].textContent,/Activo/);
 });

@@ -2437,13 +2437,103 @@ window.ElaraCollaborators = {
   showCollaborators,
 };
 
-// Read-only operational route. Legacy renderer below/above is retained for demo dependencies.
+// Operational presentation: original nodes and styles, authenticated reads only.
+let operationalCollaboratorsElements, operationalCollaboratorDialog, operationalDriverSessionBound=false;
+let operationalDriverCreateButton, operationalDriverCreateObserver;
+let operationalDriverCreateCurrent=()=>false;
+function placeOperationalDriverCreate(panel,isCurrent) {
+  const view=document.getElementById('colaboradores');
+  operationalDriverCreateCurrent=isCurrent;
+  operationalDriverCreateButton ||= panel.querySelector('[data-catalog-action="driverCreate"]');
+  operationalDriverCreateButton.classList.replace('button--secondary','button--primary');
+  const allowed=()=>operationalDriverCreateCurrent()&&!view.hidden&&Boolean(window.ElaraAuth?.getCurrentUser?.())&&['administrativo','superadmin'].includes(window.ElaraAuth?.getActiveContext?.());
+  document.querySelector('.header__actions').appendChild(operationalDriverCreateButton);
+  operationalDriverCreateButton.hidden=!allowed();
+  operationalDriverCreateButton.onclick=()=>{if(allowed())return window.ElaraCatalogAdmin.open('drivers','driverCreate');};
+  if(!operationalDriverCreateObserver&&window.MutationObserver){
+    operationalDriverCreateObserver=new window.MutationObserver(()=>{operationalDriverCreateButton.hidden=!allowed();});
+    operationalDriverCreateObserver.observe(view,{attributes:true,childList:true,subtree:true});
+  }
+}
+const operationalDriverLabels = {active:'Activo',pending_documents:'Pendiente documentación',suspended:'Suspendido',inactive:'Inactivo',internal_driver:'Chofer',external_collaborator:'Colaborador',available:'Disponible',unavailable:'No disponible'};
+const operationalDriverLabel = value => operationalDriverLabels[value] || 'No disponible';
+function operationalDriverScope() {
+  const u=window.ElaraAuth?.getCurrentUser?.();
+  return JSON.stringify([u?.id,u?.supabaseUserId,u?.appSessionId,window.ElaraAuth?.getActiveContext?.()]);
+}
+function closeOperationalCollaboratorDetail(focus=true) {
+  const state=operationalCollaboratorDialog;if(!state)return;
+  operationalCollaboratorDialog=null;state.observer?.disconnect();state.modal.hidden=true;
+  state.modal.querySelector('#collaborator-detail-view').replaceChildren();
+  state.modal.querySelector('#collaborator-detail-view-actions').replaceChildren();
+  if(focus&&state.previous?.isConnected)state.previous.focus?.();
+}
+function mountOperationalCollaborators(panel,{controls}) {
+  if(!operationalCollaboratorsElements){const v=document.getElementById('colaboradores');operationalCollaboratorsElements={summary:v.querySelector('#collaborators-summary'),section:v.querySelector('.collaborators-panel')};}
+  const {summary,section}=operationalCollaboratorsElements;
+  panel.replaceChildren(summary,section);summary.hidden=section.hidden=false;
+  if(operationalDriverCreateButton){const toolbar=document.createElement('div');toolbar.dataset.catalogToolbar='';toolbar.appendChild(operationalDriverCreateButton);panel.prepend(toolbar);}
+  summary.setAttribute('data-operational-summary','');summary.setAttribute('aria-label','Resumen de conductores del filtro actual');
+  const source=document.createElement('div');source.innerHTML=controls;
+  const search=section.querySelector('#collaborators-search');search.setAttribute('data-operational-search','');search.value='';search.placeholder='Código, nombre, teléfono, correo o matrícula';
+  const menu=section.querySelector('#collaborators-filters');menu.replaceChildren(...source.querySelectorAll('label.field'));
+  menu.insertAdjacentHTML('beforeend','<button type="button" class="button button--compact button--muted" data-drivers-clear>Limpiar</button>');
+  section.querySelector('.collaborators-list-header').innerHTML='<span></span><span>Conductor / Contacto</span><span>Tipo</span><span>Estado</span><span>Vehículo vinculado</span><span>Acciones</span>';
+  // Preference is not effective availability; no unsupported operational indicator.
+  const legend=section.querySelector('.status-legend__group + .status-legend__group');if(legend)legend.hidden=true;
+  section.querySelector('#collaborators-list').setAttribute('data-operational-results','');
+  section.querySelector('[data-drivers-footer]')?.remove();
+  section.insertAdjacentHTML('beforeend','<div data-drivers-footer><p>La disponibilidad indicada es la preferencia del conductor; no confirma que esté libre para un servicio.</p><div class="cash-pagination"><p data-operational-page aria-live="polite"></p><button class="button button--secondary" type="button" data-operational-prev>Anterior</button><button class="button button--secondary" type="button" data-operational-next>Siguiente</button><button class="button button--secondary" type="button" data-operational-retry>Actualizar</button></div><div data-operational-detail-content aria-live="polite"></div></div>');
+}
+function renderOperationalCollaboratorCards(rows) {
+  const op=window.ElaraOperationalData,e=escapeHtml;
+  return rows.map((r,i)=>{const p=op.getCollection('persons').find(p=>p.id===r.person_id)||{},tone={active:'success',pending_documents:'warning',suspended:'danger',inactive:'dark'}[r.administrative_status]||'dark';
+    return `<article class="collaborator-card" data-operational-driver-id="${e(r.id)}"><div class="collaborator-card__bars" aria-label="${e(operationalDriverLabel(r.administrative_status))}"><span class="collaborator-card__bar collaborator-card__bar--${tone}"></span></div><div class="collaborator-card__identity"><button type="button" class="collaborator-card__name" data-operational-detail="${i}">${e(op.personName(r.person_id))}</button><span>${e(r.human_code||'Sin código')}</span><span>${e(p.phone||'Sin teléfono')}</span><span>${e(p.contact_email||'Sin correo')}</span></div><div class="collaborator-card__type"><span class="collaborator-card__driver-type">${e(operationalDriverLabel(r.driver_type))}</span></div><div class="collaborator-card__access"><span class="status-pill">${e(operationalDriverLabel(r.administrative_status))}</span></div><div class="collaborator-card__service"><span>${e(r.vehicleSummary)}</span><span>Preferencia: ${e(operationalDriverLabel(r.availability_preference))}</span></div><div class="collaborator-card__actions"><button class="button button--compact button--muted" type="button" data-operational-detail="${i}">Detalle</button></div></article>`;
+  }).join('');
+}
+function operationalDriverSection(title,fields) {
+  return `<h3 class="modal__section-title">${escapeHtml(title)}</h3><dl class="modal__grid service-summary__list">${fields.map(([label,value])=>`<div class="modal__field"><dt class="modal__field-label">${escapeHtml(label)}</dt><dd class="modal__field-value">${escapeHtml(value||'No disponible')}</dd></div>`).join('')}</dl>`;
+}
+async function openOperationalCollaboratorDetail(row,{isCurrent}) {
+  if(!row||!isCurrent())return;closeOperationalCollaboratorDetail(false);
+  const op=window.ElaraOperationalData,modal=document.getElementById('collaborator-detail-modal'),body=modal.querySelector('#collaborator-detail-view'),actions=modal.querySelector('#collaborator-detail-view-actions');
+  const state={modal,previous:document.activeElement,scope:operationalDriverScope()};operationalCollaboratorDialog=state;
+  const current=()=>operationalCollaboratorDialog===state&&isCurrent()&&state.scope===operationalDriverScope()&&!document.getElementById('colaboradores').hidden&&!modal.hidden;
+  modal.hidden=false;body.hidden=false;modal.querySelector('#collaborator-detail-edit-form').hidden=true;modal.querySelector('#collaborator-detail-edit-actions').hidden=true;
+  actions.replaceChildren();body.innerHTML='<p role="status">Cargando ficha…</p>';
+  modal.querySelector('#collaborator-detail-modal-title').textContent=row.human_code||'Conductor';modal.querySelector('#collaborator-detail-description').textContent=op.personName(row.person_id);
+  modal.onclick=event=>{const b=event.target.closest('[data-catalog-action]');if(b){event.stopPropagation();if(current()){closeOperationalCollaboratorDetail(false);void window.ElaraCatalogAdmin.open('drivers',b.dataset.catalogAction,b.dataset.catalogId);}}else if(event.target===modal||event.target.closest('[data-modal-close]')){event.stopPropagation();closeOperationalCollaboratorDetail();}};
+  modal.onkeydown=event=>{if(event.key==='Escape'){event.stopPropagation();closeOperationalCollaboratorDetail();}else if(event.key==='Tab'){const buttons=[...modal.querySelectorAll('button')].filter(b=>!b.disabled&&!b.closest('[hidden]'));const first=buttons[0],last=buttons[buttons.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}}};
+  if(window.MutationObserver){state.observer=new window.MutationObserver(()=>{if(operationalCollaboratorDialog===state&&!current())closeOperationalCollaboratorDetail(false);});state.observer.observe(document.getElementById('colaboradores'),{attributes:true,childList:true,subtree:true});}
+  modal.querySelector('[data-modal-close]')?.focus?.();
+  try{
+    await op.loadIdentity({tables:['persons','drivers']});
+    const r=op.getCollection('drivers').find(d=>d.id===row.id);if(!r||!op.isOperationalRecord(r))throw Error('Conductor no accesible');
+    const [links,assignments,services,vehicles]=await Promise.all([op.related('driver_vehicle_assignments','driver_id',r.id),op.related('service_assignments','driver_id',r.id),op.readAll('services'),op.readAll('vehicles')]);
+    const html=await window.ElaraCatalogAdmin.detailActions('drivers',r);if(!current())return;
+    const source=document.createElement('div');source.innerHTML=html;
+    actions.replaceChildren(...source.querySelectorAll('[data-catalog-action]'));actions.insertAdjacentHTML('beforeend','<button type="button" class="button button--compact button--muted" data-modal-close>Cerrar</button>');for(const b of actions.querySelectorAll('button'))if(b.dataset.catalogAction==='driverUpdate')b.textContent='Editar estado, licencia y observaciones';
+    const p=op.getCollection('persons').find(p=>p.id===r.person_id)||{};
+    body.innerHTML=operationalDriverSection('Datos del conductor',[['Código',r.human_code],['Nombre completo',op.personName(r.person_id)],['Tipo de conductor',operationalDriverLabel(r.driver_type)],['Teléfono',p.phone],['Email',p.contact_email],['Estado administrativo',operationalDriverLabel(r.administrative_status)],['Preferencia de disponibilidad',operationalDriverLabel(r.availability_preference)],['Estado operativo','Sin información disponible'],['Vencimiento carnet',r.license_expiration],['Observaciones',r.observations]])+
+      '<p>Los datos personales no se pueden editar desde esta ficha. No se pueden editar conductores suspendidos.</p><button type="button" class="button button--muted" disabled title="La disponibilidad no se puede cambiar desde esta ficha">Cambiar disponibilidad</button>'+
+      operationalDriverSection('Vehículos vinculados',links.filter(l=>l.status==='active'&&!l.ended_at).map(l=>{const v=vehicles.find(v=>v.id===l.vehicle_id&&op.isOperationalRecord(v));return ['Vehículo',v?[v.plate_normalized,v.brand,v.model].filter(Boolean).join(' · '):'Información del vehículo no disponible'];}))+
+      '<h3 class="modal__section-title">Servicios asignados</h3>'+ (assignments.length?op.tableHtml(assignments.map(a=>({...a,service_label:services.find(s=>s.id===a.service_id&&op.isOperationalRecord(s))?.human_code||'Información del servicio no disponible'})),[['Servicio','service_label'],['Estado de asignación','assignment_status']]):'<p>No se muestran servicios asignados.</p>');
+  }catch(_){if(current()){actions.replaceChildren();body.innerHTML='<p role="alert">No se pudo cargar la ficha. Cierra y vuelve a abrir para volver a intentarlo.</p>';}}
+  finally{if(operationalCollaboratorDialog===state&&!current())closeOperationalCollaboratorDetail(false);}
+}
 async function showOperationalCollaborators() {
-  const op = window.ElaraOperationalData;
-  if (!op) throw new Error('Lectura operativa no disponible.');
-  await op.show('colaboradores', {title: 'Conductores', load: async () => op.getCollection('drivers'),
-notice: 'Alta y edición de estado, licencia y observaciones. Vínculos explícitos; sin Auth ni acceso al portal.',
-columns: [['Código','human_code'],['Conductor',r=>op.personName(r.person_id)],['Tipo','driver_type'],['Estado','administrative_status'],['Disponibilidad',r=>op.display(r.availability_status||r.availability_preference)]],
-detail: async r => { const [assignments,links]=await Promise.all([op.related('driver_vehicle_assignments','driver_id',r.id),op.related('user_driver_links','driver_id',r.id)]); return await window.ElaraCatalogAdmin.detailActions('drivers',r) + op.fields(r,[['UUID','id'],['Tipo','driver_type'],['Estado','administrative_status'],['Disponibilidad','availability_preference'],['Permiso: vencimiento','license_expiration']])+op.tableHtml(assignments,[['Vehículo UUID','vehicle_id'],['Inicio','started_at'],['Fin','ended_at'],['Estado','status']])+op.tableHtml(links,[['Usuario UUID','app_user_id'],['Estado','status']]); }});
-  return window.ElaraCatalogAdmin.attach('drivers', showOperationalCollaborators);
+  closeOperationalCollaboratorDetail(false);
+  if(!operationalDriverSessionBound){operationalDriverSessionBound=true;window.addEventListener('elara:auth-session-updated',()=>{if(operationalCollaboratorDialog?.scope!==operationalDriverScope())closeOperationalCollaboratorDetail(false);});}
+  const op=window.ElaraOperationalData;if(!op)throw Error('Lectura operativa no disponible.');
+  await op.show('colaboradores',{title:'Conductores',collection:'drivers',defaultFilters:false,
+    load:async({isCurrent})=>{const [links,vehicles]=await Promise.all([op.readAll('driver_vehicle_assignments'),op.readAll('vehicles')]);if(!isCurrent())return [];
+      return op.getCollection('drivers').map(r=>{const active=links.filter(l=>l.driver_id===r.id&&l.status==='active'&&!l.ended_at&&op.isOperationalRecord(l));return {...r,vehicleLinked:active.length?'assigned':'unassigned',vehicleSummary:active.length?active.map(l=>vehicles.find(v=>v.id===l.vehicle_id&&op.isOperationalRecord(v))?.plate_normalized||'Información del vehículo no disponible').join(' · '):'Sin vínculo visible'};}).sort((a,b)=>String(a.human_code||a.id).localeCompare(String(b.human_code||b.id),'es'));},
+    presentation:{panelClassName:'collaborators-operational-panel',mount:mountOperationalCollaborators,rows:renderOperationalCollaboratorCards,
+      summary:rows=>[['Total filtrado',rows.length,'neutral'],['Activos',rows.filter(r=>r.administrative_status==='active').length,'success'],['Pendientes doc.',rows.filter(r=>r.administrative_status==='pending_documents').length,'warning'],['Suspendidos',rows.filter(r=>r.administrative_status==='suspended').length,'danger'],['Inactivos',rows.filter(r=>r.administrative_status==='inactive').length,'neutral'],['Con vínculo visible',rows.filter(r=>r.vehicleLinked==='assigned').length,'neutral']].map(([label,value,tone])=>`<article class="summary-card summary-card--${tone}"><span>${label}</span><strong>${value}</strong></article>`).join(''),
+      ready:(_,{panel,isCurrent})=>{window.ElaraCatalogAdmin.attach('drivers',showOperationalCollaborators);placeOperationalDriverCreate(panel,isCurrent);panel.querySelector('[data-drivers-clear]').onclick=()=>{for(const select of panel.querySelectorAll('[data-operational-filter]')){select.value='';select.onchange();}const input=panel.querySelector('[data-operational-search]');input.value='';input.oninput({target:input});};}},
+    filters:[{label:'Estado administrativo',value:r=>r.administrative_status,text:r=>operationalDriverLabel(r.administrative_status)},{label:'Tipo',value:r=>r.driver_type,text:r=>operationalDriverLabel(r.driver_type)},{label:'Vehículo vinculado',value:r=>r.vehicleLinked,text:r=>r.vehicleLinked==='assigned'?'Con vínculo visible':'Sin vínculo visible'}],
+    searchText:r=>{const p=op.getCollection('persons').find(p=>p.id===r.person_id)||{};return [r.human_code,op.personName(r.person_id),p.phone,p.contact_email,r.vehicleSummary].join(' ');},columns:[],openDetail:openOperationalCollaboratorDetail});
+  const attached=window.ElaraCatalogAdmin.attach('drivers',showOperationalCollaborators);
+  if(attached){document.getElementById('page-eyebrow').textContent='Módulo Conductores';document.getElementById('page-summary').textContent='Gestiona el equipo conductor, sus datos y vehículos vinculados.';}
+  return attached;
 }

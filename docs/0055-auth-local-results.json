@@ -1,0 +1,126 @@
+{
+  "images": {
+    "postgres": "public.ecr.aws/supabase/postgres:17.6.1.165",
+    "auth": "public.ecr.aws/supabase/gotrue:v2.196.0",
+    "rest": "public.ecr.aws/supabase/postgrest:v16.1"
+  },
+  "tests": [
+    {
+      "name": "GoTrue password login, issued JWT and real initialize_app_session",
+      "result": "PASS"
+    },
+    {
+      "name": "SDK RPC without contact, seven-field TABLE response and immutable retry",
+      "result": "PASS"
+    },
+    {
+      "name": "SDK new contact, optional fields and three independent notes",
+      "result": "PASS"
+    },
+    {
+      "name": "SDK existing contact remains unchanged",
+      "result": "PASS"
+    },
+    {
+      "name": "SDK required fields, duplicate tax and invalid contact roll back",
+      "result": "PASS"
+    },
+    {
+      "name": "authenticated non-admin denied by RPC",
+      "result": "PASS"
+    },
+    {
+      "name": "absent, forged and expired JWT rejected before writes",
+      "result": "PASS"
+    },
+    {
+      "name": "direct table INSERT UPDATE DELETE denied",
+      "result": "PASS"
+    },
+    {
+      "name": "Clientes and Servicios actual identity queries read new customer under RLS",
+      "result": "PASS"
+    },
+    {
+      "name": "actual company form with real SDK/Auth/HTTP and uncertain response replay",
+      "result": "PASS"
+    }
+  ],
+  "cleanup": {
+    "elara1c2-0e22f6cfd5b5-rest": "removed",
+    "elara1c2-0e22f6cfd5b5-auth": "removed",
+    "elara1c2-0e22f6cfd5b5-pg": "removed",
+    "network": "removed"
+  },
+  "migrationSha256": "31d5747d750b084055bc2f2628052df92e68e634c132402e73aa9300e7504723",
+  "migrations": [
+    "0001_extensions_and_base_helpers.sql",
+    "0002_human_code_generation.sql",
+    "0003_identity_roles_sessions.sql",
+    "00031_identity_integrity_fixes.sql",
+    "0004_people_customers_drivers_suppliers.sql",
+    "0005_vehicles_documents_assignments.sql",
+    "00051_human_code_padding_adjustments.sql",
+    "0006_services_operations.sql",
+    "0007_service_financials_payments.sql",
+    "0008_cash_remittances_counts.sql",
+    "0009_receivables.sql",
+    "0010_expenses.sql",
+    "0011_settlements.sql",
+    "0012_incidents_settings_audit.sql",
+    "0013_domain_secure_functions.sql",
+    "0014_rls_policies.sql",
+    "0015_storage_buckets_policies.sql",
+    "0016_views_integrity_checks.sql",
+    "0017_app_session_bootstrap.sql",
+    "0018_driver_cash_finance_summary.sql",
+    "0019_driver_expenses_read_api.sql",
+    "0020_driver_customer_person_rls.sql",
+    "0021_driver_accept_service_rpc.sql",
+    "0022_driver_start_service_rpc.sql",
+    "0023_driver_service_overview_rpc.sql",
+    "0024_driver_service_progress_rpc.sql",
+    "0025_driver_service_incident_rpc.sql",
+    "0026_driver_create_expense_rpc.sql",
+    "0027_driver_expenses_list_operational_relation.sql",
+    "0028_driver_profile_update_rpcs.sql",
+    "0029_driver_cash_discrepancy_rpc.sql",
+    "0030_driver_cash_remittance_submit_rpc.sql",
+    "0031_end_current_app_session_rpc.sql",
+    "0032_admin_cash_remittance_read_rpcs.sql",
+    "0033_admin_receive_cash_remittance_rpc.sql",
+    "0034_admin_verify_cash_remittance_rpc.sql",
+    "0035_fix_verify_cash_remittance_encoding.sql",
+    "0036_admin_cash_discrepancy_management_rpcs.sql",
+    "0037_admin_expense_read_rpcs.sql",
+    "0038_admin_expense_review_rpcs.sql",
+    "0039_expense_submit_rpcs.sql",
+    "0040_admin_expense_reimbursement_rpc.sql",
+    "0041_harden_register_expense_payment.sql",
+    "0042_harden_cancel_expense_rpc.sql",
+    "0043_enforce_expense_cash_balance.sql",
+    "0044_admin_settlement_read_rpcs.sql",
+    "0045_driver_cash_source_consumption.sql",
+    "0046_harden_settlement_generation.sql",
+    "0047_admin_cash_movement_read_rpc.sql",
+    "0048_admin_catalog_management.sql",
+    "0049_service_status_history_central_writer.sql",
+    "0050_cash_service_financial_close.sql",
+    "0051_driver_portal_access_and_operational_central.sql",
+    "0052_initial_superadmin_bootstrap.sql",
+    "0053_app_session_concurrency.sql",
+    "0054_driver_accept_confirms_service.sql",
+    "0055_admin_create_company_customer.sql"
+  ],
+  "environment": {
+    "postgres": "PostgreSQL 17.6 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 15.2.0, 64-bit",
+    "authHealth": {
+      "version": "v2.196.0",
+      "name": "GoTrue",
+      "description": "GoTrue is a user registration and authentication API"
+    },
+    "sdk": "2.118.0",
+    "routing": "loopback HTTP proxy; no mocked responses",
+    "storage": "minimal schema boundary; Storage service not exercised"
+  }
+}

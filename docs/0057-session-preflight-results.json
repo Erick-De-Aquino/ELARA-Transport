@@ -1,0 +1,72 @@
+{
+  "date": "2026-11-20T13:26:21.444Z",
+  "project_ref": "pfdvehcyauoncxeolcjc",
+  "pass": true,
+  "integrity": true,
+  "tls": true,
+  "connection_checks": [
+    {
+      "read_only": "on",
+      "strings": "on",
+      "backend_ssl": false,
+      "database_expected": true,
+      "user_expected": true
+    },
+    {
+      "read_only": "on",
+      "strings": "on",
+      "backend_ssl": false,
+      "database_expected": true,
+      "user_expected": true
+    }
+  ],
+  "same_backend": true,
+  "method": "Session pooler 5432; sslmode=verify-full; CA chain and hostname validation required",
+  "ca_sha256": "700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7",
+  "guard_passed": true,
+  "snapshot": {
+    "auth.users": {
+      "hash": "ace403bfa95bf272b9d556c82ccca925",
+      "count": 5
+    },
+    "public.roles": {
+      "hash": "01d95fb688e7cca3f7393e35cbc46a3c",
+      "count": 3
+    },
+    "auth.sessions": {
+      "hash": "f6a24c60d8652720b24edbeceacc3767",
+      "count": 6
+    },
+    "public.drivers": {
+      "hash": "860bbb8f28a3263b8dbb8d4cae576312",
+      "count": 11
+    },
+    "public.persons": {
+      "hash": "9c2194aa0b67be3cbda226de8ef76d71",
+      "count": 16
+    },
+    "public.app_users": {
+      "hash": "6ebcc1ffbe48a8d10454f4b9b190d45a",
+      "count": 5
+    },
+    "public.audit_logs": {
+      "hash": "1841bbf50fa4bd19ab6a8e0149259189",
+      "count": 372
+    },
+    "public.user_roles": {
+      "hash": "fd7c70d4e2ab7e64ab6ce503ab24b6b5",
+      "count": 6
+    },
+    "public.app_sessions": {
+      "hash": "a232a83aaa6382220441a8859458f7e0",
+      "count": 39
+    },
+    "public.user_driver_links": {
+      "hash": "dcbb01d46797213d03dfdee7ef5c9558",
+      "count": 3
+    }
+  },
+  "exit": 0,
+  "failure": null,
+  "sqlstates": []
+}

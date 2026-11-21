@@ -1,0 +1,20 @@
+{
+  "project_ref": "pfdvehcyauoncxeolcjc",
+  "version": "20261117005600",
+  "name": "0056_admin_company_contacts",
+  "source_sha256": "2a4dfadbeae7834e15591eef1a016c7b50524e9b58477145b525cac05497d297",
+  "artifact_sha256": "b791cac7942ca12de10fa21e40917ed068f101525872348d52feafb4a24d5342",
+  "verification_sha256": "f9586808830d378ab6262d26837893d5e12ad3200592cf979b2cc7ee158cdc9c",
+  "disable_sha256": "311e681cd7fe78455e2133baefc06a0a82dcf27fa2897627de2aae7458373c49",
+  "history_before": 57,
+  "history_after": 58,
+  "source_reconstructed": true,
+  "function_body_hashes": {
+    "elara_private.company_contact_version": "9da5ad32b10b6e91cfa17314597a2af36df321194d6b79d68c792e35c08aa767",
+    "elara_private.company_contact_company": "45e286efb5e2327d9b0db8939642b970e420e0b4f61fc4e0e6e7200203eb2955",
+    "public.admin_add_company_contact": "21bbf8e3d346814656136bce6b532f78b39f0a055723b0c2cc87b190e15b8970",
+    "public.admin_set_company_primary_contact": "f997886fed727fdab12697d2d2f8278fefeda499aaf4243d606ce2ba00433258",
+    "public.admin_update_company_contact": "78932465879a84c12429b0a278147a0cef19e94ae0e613fef63fe011c80a23ef"
+  },
+  "method": "Single original BEGIN/COMMIT; locked preflight; schema/history/postcheck atomic; no business RPC call"
+}

@@ -4869,7 +4869,7 @@ body.driver-active-mode:has(#mis-servicios:not([hidden]) #driver-active-service:
 ========================= */
 
 .users-panel {
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 12px;
 }
 
@@ -4882,7 +4882,7 @@ body.driver-active-mode:has(#mis-servicios:not([hidden]) #driver-active-service:
 
 .users-filter-group {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: flex-end;
   gap: 6px;
   width: 100%;
@@ -4921,7 +4921,7 @@ body.driver-active-mode:has(#mis-servicios:not([hidden]) #driver-active-service:
 .users-list-header,
 .user-card {
   display: grid;
-  grid-template-columns: minmax(260px, 1.2fr) minmax(180px, 0.8fr) minmax(100px, 0.5fr) minmax(150px, 0.65fr) minmax(120px, 0.45fr);
+  grid-template-columns: minmax(0, 1.2fr) minmax(100px, 0.8fr) minmax(80px, 0.5fr) minmax(100px, 0.65fr) minmax(80px, 0.45fr);
   align-items: center;
   gap: 8px;
 }
@@ -5139,6 +5139,7 @@ body.driver-active-mode:has(#mis-servicios:not([hidden]) #driver-active-service:
 
 .settings-grid {
   display: grid;
+  align-items: start;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
   min-width: 0;
@@ -5192,13 +5193,17 @@ body.driver-active-mode:has(#mis-servicios:not([hidden]) #driver-active-service:
 
 .settings-read-list dt {
   color: var(--color-muted);
-  flex: 0 0 auto;
+  flex: 0 0 40%;
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-size: 0.86rem;
   font-weight: 800;
 }
 
 .settings-read-list dd {
   margin: 0;
+  min-width: 0;
+  flex: 1 1 0;
   color: var(--color-text);
   font-size: 0.9rem;
   font-weight: 800;

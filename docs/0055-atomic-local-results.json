@@ -1,0 +1,114 @@
+{
+  "manifest": {
+    "version": "20261116005500",
+    "name": "0055_admin_create_company_customer",
+    "project_ref": "pfdvehcyauoncxeolcjc",
+    "source_sha256": "31d5747d750b084055bc2f2628052df92e68e634c132402e73aa9300e7504723",
+    "artifact_sha256": "eb18779bbfbdc36bab3edadb437edc2af306402fb0e2ef2e504af779fb854da6",
+    "verification_sha256": "0d47eca188036d2bac7eec82d8eac6cf0b462ae03a60fb9698d4756ea8bda61f",
+    "function_body_sha256": "d2363bbbd60300546f7f1750f5b6460a67fcadf9b56909b46b159e059ac60291",
+    "function_baseline_sha256": "9913344c4eab93266e80115e95c834ef3ce84bf3ee4a0262419d39d8c666df29",
+    "history_before": 56,
+    "history_after": 57,
+    "source_reconstructed": true,
+    "method": "psql single original BEGIN/COMMIT; transactional history INSERT before COMMIT"
+  },
+  "image": "public.ecr.aws/supabase/postgres:17.6.1.165",
+  "tests": [
+    {
+      "name": "exclusive 0055 installation and history row commit together; prior history/functions/data unchanged",
+      "result": "PASS"
+    },
+    {
+      "name": "generated read-only postverification confirms source, history, body and permissions",
+      "result": "PASS"
+    },
+    {
+      "name": "retry after complete installation rejects without any changes",
+      "result": "PASS"
+    },
+    {
+      "name": "RPC CREATE error rolls back function and history",
+      "result": "PASS"
+    },
+    {
+      "name": "history INSERT failure rolls back already-created RPC",
+      "result": "PASS"
+    },
+    {
+      "name": "retry after failure succeeds with one history row",
+      "result": "PASS"
+    },
+    {
+      "name": "COMMIT deferred failure rolls back RPC and history",
+      "result": "PASS"
+    },
+    {
+      "name": "connection loss before COMMIT leaves neither object nor history",
+      "result": "PASS"
+    },
+    {
+      "name": "lost success acknowledgement resolved by metadata; replay never duplicates",
+      "result": "PASS"
+    },
+    {
+      "name": "function already installed without history is detected and left untouched",
+      "result": "PASS"
+    },
+    {
+      "name": "history row without function is detected and left untouched",
+      "result": "PASS"
+    },
+    {
+      "name": "unexpected schema drift aborts before CREATE and history registration",
+      "result": "PASS"
+    },
+    {
+      "name": "unexpected prior history name aborts without repair",
+      "result": "PASS"
+    },
+    {
+      "name": "unexpected direct authenticated write grant aborts before installation",
+      "result": "PASS"
+    }
+  ],
+  "cleanup": {
+    "container": "removed"
+  },
+  "postgres": "PostgreSQL 17.6 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 15.2.0, 64-bit",
+  "installed_contract": {
+    "definer": true,
+    "config": [
+      "search_path=pg_catalog"
+    ],
+    "defaults": 8,
+    "result": "TABLE(company_id uuid, customer_id uuid, customer_human_code text, company_status text, customer_status text, contact_person_id uuid, company_contact_id uuid)",
+    "authenticated": true,
+    "anon": false,
+    "service": false
+  },
+  "postverification": {
+    "rpc": {
+      "owner": "postgres",
+      "result": "TABLE(company_id uuid, customer_id uuid, customer_human_code text, company_status text, customer_status text, contact_person_id uuid, company_contact_id uuid)",
+      "definer": true,
+      "defaults": 8,
+      "search_path": [
+        "search_path=pg_catalog"
+      ],
+      "anon_execute": false,
+      "body_matches": true,
+      "public_execute": false,
+      "service_role_execute": false,
+      "authenticated_execute": true
+    },
+    "read_only": "on",
+    "history_exact": true,
+    "old_functions_intact": true,
+    "recorded_source_matches": true
+  },
+  "final_state": {
+    "history": false,
+    "function": false
+  }
+}

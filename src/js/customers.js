@@ -2648,6 +2648,7 @@ function placeOperationalCustomerCreate(panel, isCurrent) {
 }
 let operationalCustomerDialog = null;
 let operationalCustomerHistory = null;
+let operationalCustomersRefreshRows = null;
 let operationalCustomerSessionBound = false;
 function bindOperationalCustomerSession() {
   if(operationalCustomerSessionBound)return;
@@ -2709,7 +2710,7 @@ function renderCustomerAuthorizedContacts(contacts, op) {
   return contacts.map(contact => {
     const person = op.getCollection('persons').find(p => p.id === contact.person_id);
     return renderCustomerDetailSection(person ? op.personName(person.id) : 'Contacto no disponible',
-      [['Función',contact.role_label],['Estado',contact.status==='active'?'Activo':contact.status==='inactive'?'Inactivo':'No disponible'],
+      [['Función',contact.role_label],['Estado',contact.status==='active'?'Activo':contact.status==='inactive'?'Inactivo':'No disponible'],['Principal',contact.status==='active'&&contact.is_primary?'Sí':'No'],
        ['Teléfono',person?.phone],['Correo electrónico',person?.contact_email]]);
   }).join('');
 }
@@ -2829,10 +2830,33 @@ async function openOperationalCustomerDetail(row, {isCurrent}) {
     if(modal.hidden)return;
     if (event.target.closest('[data-customer-operational-history]')) { event.stopPropagation(); void openOperationalCustomerHistory(state); return; }
     if (event.target.closest('[data-customer-detail-retry]')) { event.stopPropagation(); void openOperationalCustomerDetail(row, {isCurrent}); return; }
+    if (event.target.closest('[data-customer-contacts]')) {
+      event.stopPropagation();
+      if(current())void window.ElaraCatalogAdmin.openContacts(row.id,{isCurrent:current,refreshDetail:()=>openOperationalCustomerDetail(row,{isCurrent})});
+      return;
+    }
     const action = event.target.closest('[data-catalog-action]');
     if (action) {
       event.stopPropagation();
-      if (current()) void window.ElaraCatalogAdmin.open('customers', action.dataset.catalogAction, row.id);
+      if (current() && action.dataset.catalogAction==='customerStatus') {
+        const openStatus=()=>window.ElaraCatalogAdmin.openCustomerStatus(row.id,{container:body,isCurrent:current,
+          refresh:async({uncertain,beforeOpen}={})=>{
+            if(!current()||!operationalCustomersRefreshRows)throw Error('Contexto invalidado');
+            await operationalCustomersRefreshRows(current);
+            if(!current())throw Error('Contexto invalidado');
+            const fresh=op.getCollection('customers').find(c=>c.id===row.id);if(!fresh)throw Error('Cliente no disponible');
+            beforeOpen?.();
+            await openOperationalCustomerDetail(fresh,{isCurrent:state.isCurrent});
+            const next=operationalCustomerDialog;
+            if(next?.row.id!==row.id||next.scope!==state.scope||!state.isCurrent())throw Error('Contexto invalidado');
+            if(body.querySelector('[role="alert"]')){
+              const warning=document.createElement('p');warning.setAttribute('role','status');warning.textContent=uncertain?'No se pudo completar la comprobación. Reintenta la lectura.':'Cambio confirmado; la ficha no pudo actualizarse. Reintenta solo la lectura.';body.prepend(warning);throw Error('Recarga de ficha pendiente');
+            }
+            const note=document.createElement('p');note.setAttribute('role','status');note.textContent=uncertain?'Estado actual comprobado. El envío anterior no se repetirá automáticamente.':'Cambio confirmado. Ficha, listado y contadores actualizados.';body.prepend(note);
+            if(uncertain){const button=modal.querySelector('[data-catalog-action="customerStatus"]');if(button)await modal.onclick({target:button,stopPropagation(){}});}
+          }});
+        return openStatus();
+      } else if (current()) void window.ElaraCatalogAdmin.open('customers', action.dataset.catalogAction, row.id);
     } else if (event.target === modal || event.target.closest('[data-modal-close]')) {
       event.stopPropagation();
       closeOperationalCustomerDetail();
@@ -2871,6 +2895,8 @@ async function openOperationalCustomerDetail(row, {isCurrent}) {
     actions.replaceChildren(...source.querySelectorAll('[data-catalog-action]'));
     actions.insertAdjacentHTML('beforeend', '<button class="button button--compact button--muted" type="button" data-customer-operational-history>Historial de servicios</button>');
     const company = customer.customer_type === 'company';
+    if(company||customer.status==='blocked')actions.insertAdjacentHTML('beforeend',`<p class="text-muted" role="note">${company?'El contrato actual no permite activar o inactivar clientes empresa.':'El contrato actual no permite cambiar el estado de clientes bloqueados.'}</p>`);
+    if(company&&['new','active'].includes(customer.status)&&entity.status==='active'&&['administrativo','superadmin'].includes(window.ElaraAuth?.getActiveContext?.()))actions.insertAdjacentHTML('beforeend','<button class="button button--secondary" type="button" data-customer-contacts>Gestionar contactos</button>');
     const status = adaptOperationalCustomer(customer).state;
     body.innerHTML = renderCustomerDetailSection(company ? 'Datos de la empresa' : 'Datos personales',
       [['Código de cliente',customer.human_code],['UUID',customer.id],['Tipo de cliente',company?'Empresa':'Particular'],['Estado',status],
@@ -2934,7 +2960,7 @@ function mountOperationalCustomers(panel, {controls}) {
   }
   menu.insertAdjacentHTML('beforeend', '<button class="button button--compact button--muted" type="button" data-customers-clear>Limpiar</button>');
   const actions = section.querySelector('.customer-toolbar-actions');
-  if (!actions.querySelector('[data-catalog-toolbar]')) actions.insertAdjacentHTML('afterbegin', '<div data-catalog-toolbar><button type="button" class="button button--primary" data-catalog-action="customerCreate">Nuevo cliente individual</button></div>');
+  if (!actions.querySelector('[data-catalog-toolbar]')) actions.insertAdjacentHTML('afterbegin', '<div data-catalog-toolbar><button type="button" class="button button--primary" data-catalog-action="customerCreate">Nuevo cliente</button></div>');
   const legend = section.querySelector('.status-legend__group');
   if (!legend.querySelector('[data-customer-inactive-legend]')) legend.insertAdjacentHTML('beforeend', '<span data-customer-inactive-legend><i class="status-legend__mark"></i>Inactivo</span>');
   section.querySelector('.customers-list-header').innerHTML = '<span></span><span>C\u00f3digo / Cliente</span><span>Contacto</span><span>Tipo</span><span>Estado</span><span>Acciones</span>';
@@ -2965,7 +2991,7 @@ async function showOperationalCustomers() {
   if (!op) throw new Error('Lectura operativa no disponible.');
   await op.show('clientes', {title: 'Clientes', load: async () => [...op.getCollection('customers')].sort((a,b) => String(a.human_code || '').localeCompare(String(b.human_code || ''), 'es') || String(a.id).localeCompare(String(b.id))),
 presentation: {panelClassName:'customers-operational-panel',mount:mountOperationalCustomers,rows:renderOperationalCustomerCards,summary:renderOperationalCustomersSummary,
-  ready: (_rows,{panel,isCurrent}) => { placeOperationalCustomerCreate(panel, isCurrent); panel.querySelector('[data-customers-clear]').onclick = () => {
+  ready: (_rows,{panel,isCurrent,refreshRows}) => { operationalCustomersRefreshRows=refreshRows;placeOperationalCustomerCreate(panel, isCurrent); panel.querySelector('[data-customers-clear]').onclick = () => {
     for (const select of panel.querySelectorAll('[data-operational-filter]')) { select.value = ''; select.onchange(); }
     const input = panel.querySelector('[data-operational-search]'); input.value = ''; input.oninput({target:input});
   }; }},
